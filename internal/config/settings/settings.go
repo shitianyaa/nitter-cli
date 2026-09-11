@@ -69,10 +69,22 @@ func Defaults() Settings {
 	}
 }
 
+// ValidationError marks a value that failed schema/type validation in the
+// config layer. The CLI layer maps it to a usage error (exit 2) via
+// errors.As, keeping internal/config free of CLI imports.
+type ValidationError struct {
+	Key string // TOML/env key that failed, e.g. "request_interval"
+	Err error
+}
+
+func (e *ValidationError) Error() string { return e.Key + ": " + e.Err.Error() }
+func (e *ValidationError) Unwrap() error { return e.Err }
+
 // Load resolves settings with env > file > default precedence. A missing
-// config file yields pure Defaults() and creates nothing; malformed TOML and
-// invalid values (durations, the integer env override) return plain wrapped
-// errors — the CLI layer decides exit codes.
+// config file yields pure Defaults() and creates nothing; malformed TOML
+// returns a plain wrapped error, while schema/type validation failures
+// (durations, the integer env override) return *ValidationError so the CLI
+// layer can map them to usage errors via errors.As.
 func Load(cfgPath string, env func(string) string) (Settings, error) {
 	s := Defaults()
 	data, err := os.ReadFile(cfgPath)
@@ -103,7 +115,7 @@ func Load(cfgPath string, env func(string) string) (Settings, error) {
 	if v := env(EnvDefaultLimit); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return Settings{}, fmt.Errorf("parse %s: %w", EnvDefaultLimit, err)
+			return Settings{}, &ValidationError{Key: EnvDefaultLimit, Err: fmt.Errorf("parse %s: %w", EnvDefaultLimit, err)}
 		}
 		s.DefaultLimit = n
 	}
@@ -122,7 +134,7 @@ func Load(cfgPath string, env func(string) string) (Settings, error) {
 		{"instance_cooldown", s.InstanceCooldown},
 	} {
 		if _, err := time.ParseDuration(d.value); err != nil {
-			return Settings{}, fmt.Errorf("parse config %s: %w", d.key, err)
+			return Settings{}, &ValidationError{Key: d.key, Err: fmt.Errorf("parse config %s: %w", d.key, err)}
 		}
 	}
 	return s, nil

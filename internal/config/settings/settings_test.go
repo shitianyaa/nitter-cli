@@ -178,6 +178,64 @@ func TestLoad(t *testing.T) {
 	})
 }
 
+func TestLoadValidationError(t *testing.T) {
+	t.Run("invalid duration from file carries the key", func(t *testing.T) {
+		for _, key := range []string{"request_interval", "retry_delay", "instance_cooldown"} {
+			cfgPath := filepath.Join(t.TempDir(), "config.toml")
+			content := key + ` = "abc"` + "\n"
+			if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+
+			_, err := settings.Load(cfgPath, envMap(nil))
+			var verr *settings.ValidationError
+			if !errors.As(err, &verr) {
+				t.Fatalf("Load() with invalid %s error = %v, want *settings.ValidationError", key, err)
+			}
+			if verr.Key != key {
+				t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, key)
+			}
+			if verr.Err == nil {
+				t.Fatal("ValidationError.Err = nil, want the wrapped parse error")
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Fatalf("Load() error = %v, want it to name %s", err, key)
+			}
+		}
+	})
+
+	t.Run("invalid TWITTER_DEFAULT_LIMIT env value carries the key", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		_, err := settings.Load(cfgPath, envMap(map[string]string{
+			"TWITTER_DEFAULT_LIMIT": "abc",
+		}))
+		var verr *settings.ValidationError
+		if !errors.As(err, &verr) {
+			t.Fatalf("Load() error = %v, want *settings.ValidationError", err)
+		}
+		if verr.Key != "TWITTER_DEFAULT_LIMIT" {
+			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "TWITTER_DEFAULT_LIMIT")
+		}
+	})
+
+	t.Run("non-validation paths stay plain wrapped errors", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(cfgPath, []byte("default_limit = "), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		_, err := settings.Load(cfgPath, envMap(nil))
+		if err == nil {
+			t.Fatal("Load() error = nil, want parse error")
+		}
+		var verr *settings.ValidationError
+		if errors.As(err, &verr) {
+			t.Fatalf("Load() error = %v, want no *settings.ValidationError on the parse path", err)
+		}
+	})
+}
+
 func TestSaveKnown(t *testing.T) {
 	const preserveFixture = `default_limit = 7
 custom_flag = "keep-me"
