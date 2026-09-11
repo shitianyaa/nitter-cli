@@ -5,5 +5,7 @@ import "context"
 
 // RootOptions holds per-run options threaded through the command tree.
 type RootOptions struct {
-	CTX context.Context
+	CTX      context.Context
+	Proxy    string
+	Instance string
 }

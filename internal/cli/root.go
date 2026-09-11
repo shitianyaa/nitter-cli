@@ -31,7 +31,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	streams := &Streams{In: stdin, Out: stdout, Err: stderr}
+	streams := &Streams{In: stdin, Out: stdout, Err: stderr, CTX: ctx}
 	streams.InIsTTY, streams.OutIsTTY = probeTTY(stdin, stdout)
 	streams.RootOptions = &invocation.RootOptions{CTX: ctx}
 
@@ -65,6 +65,10 @@ func New(s *Streams) *cobra.Command {
 	}
 	root.SetVersionTemplate("twitter version {{.Version}}\n")
 	root.SetFlagErrorFunc(invocation.WrapFlagError)
+	root.PersistentFlags().StringVar(&s.RootOptions.Proxy, "proxy", "",
+		"Proxy URL (else HTTPS_PROXY/ALL_PROXY/config)")
+	root.PersistentFlags().StringVar(&s.RootOptions.Instance, "instance", "",
+		"Nitter instance URL override for this invocation (else config)")
 	return root
 }
 
