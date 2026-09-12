@@ -461,3 +461,147 @@ func equalStrings(got, want []string) bool {
 	}
 	return true
 }
+
+// Delete removes the entry and persists atomically: a reopen sees the
+// remaining sources, the schema version is kept.
+func TestDeleteRemovesEntryAndPersists(t *testing.T) {
+	path := testPath(t)
+	store, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.Put("user:NASA", sampleState()); err != nil {
+		t.Fatalf("Put() user:NASA error = %v", err)
+	}
+	if err := store.Put("tag:%23AI", sampleState()); err != nil {
+		t.Fatalf("Put() tag error = %v", err)
+	}
+
+	deleted, err := store.Delete("user:NASA")
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if !deleted {
+		t.Fatalf("Delete() reported deleted = false for an existing entry")
+	}
+	// Same instance: gone from memory.
+	if _, ok := store.Get("user:NASA"); ok {
+		t.Fatalf("Get() after Delete reported ok = true")
+	}
+	// Reopen: gone from disk too, the other source and the version survive.
+	reopened, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("reopen Open() error = %v", err)
+	}
+	if _, ok := reopened.Get("user:NASA"); ok {
+		t.Fatalf("Get() after reopen reported ok = true")
+	}
+	if _, ok := reopened.Get("tag:%23AI"); !ok {
+		t.Fatalf("Get(tag) after reopen reported ok = false; Delete must not touch other sources")
+	}
+}
+
+// Delete of a missing source is a no-op: nothing is written (idempotent).
+func TestDeleteMissingIsIdempotentNoRewrite(t *testing.T) {
+	path := testPath(t)
+	store, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.Put("user:NASA", sampleState()); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seen file: %v", err)
+	}
+
+	deleted, err := store.Delete("user:NOPE")
+	if err != nil {
+		t.Fatalf("Delete() missing error = %v", err)
+	}
+	if deleted {
+		t.Fatalf("Delete() missing reported deleted = true")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seen file: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("Delete() of a missing source rewrote the file:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// Clear removes every source entry and persists (version kept).
+func TestClearRemovesAllKeepsVersion(t *testing.T) {
+	path := testPath(t)
+	store, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.Put("user:NASA", sampleState()); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if err := store.Put("list:42", sampleState()); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	if err := store.Clear(); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	reopened, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("reopen Open() error = %v", err)
+	}
+	if all := reopened.All(); len(all) != 0 {
+		t.Fatalf("All() after Clear = %+v, want an empty map", all)
+	}
+}
+
+// Clear on an already-empty store changes nothing on disk — an empty store
+// that never had a file must not gain one.
+func TestClearOnEmptyStoreSkipsWrite(t *testing.T) {
+	path := testPath(t)
+	store, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.Clear(); err != nil {
+		t.Fatalf("Clear() on empty store error = %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Clear() on an empty store created %s (stat err = %v)", path, err)
+	}
+}
+
+// All returns every stored state, sorted-out copies: mutating the returned
+// map or slices must not leak into the store.
+func TestAllReturnsCopyOfEverySource(t *testing.T) {
+	path := testPath(t)
+	store, err := seen.Open(path, fixedNow)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := store.Put("user:NASA", sampleState()); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if err := store.Put("list:42", sampleState()); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+
+	all := store.All()
+	if len(all) != 2 {
+		t.Fatalf("All() = %d entries, want 2", len(all))
+	}
+	got, ok := all["user:NASA"]
+	if !ok || !equalStrings(got.SeenIDs, sampleState().SeenIDs) {
+		t.Fatalf("All()[user:NASA] = %+v ok=%v, want the stored state", got, ok)
+	}
+
+	// Mutate the returned copy: the store must be unaffected.
+	got.SeenIDs[0] = "tampered"
+	fresh, _ := store.Get("user:NASA")
+	if !equalStrings(fresh.SeenIDs, sampleState().SeenIDs) {
+		t.Fatalf("mutating All()'s copy leaked into the store: %+v", fresh.SeenIDs)
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/instances"
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/list"
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/search"
+	"github.com/shitianyaa/twitter-cli/internal/cli/commands/seen"
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/user"
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/watch"
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
@@ -99,6 +100,7 @@ func New(s *Streams) *cobra.Command {
 	root.AddCommand(list.New(s))
 	root.AddCommand(get.New(s))
 	root.AddCommand(watch.New(s))
+	root.AddCommand(seen.New(s))
 	return root
 }
 

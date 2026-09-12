@@ -164,7 +164,65 @@ func (s *Store) Put(source string, state SourceState) error {
 		}
 	}
 	sources[source] = state
+	return s.persistLocked(sources)
+}
 
+// All returns a copy of every stored source state keyed by source key. The
+// map and the ID slices are copies: callers cannot mutate the store through
+// them. Missing/empty stores yield an empty map.
+func (s *Store) All() map[string]SourceState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := make(map[string]SourceState, len(s.file.Sources))
+	for key, state := range s.file.Sources {
+		state.SeenIDs = slices.Clone(state.SeenIDs)
+		state.WatermarkIDs = slices.Clone(state.WatermarkIDs)
+		all[key] = state
+	}
+	return all
+}
+
+// Delete removes the entry for source and persists the whole file
+// atomically, reporting whether an entry existed. A missing source changes
+// nothing on disk (idempotent — the caller can offer forgiving "clear what
+// is not there" semantics) and the schema version is always kept.
+func (s *Store) Delete(source string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.file.Sources[source]; !ok {
+		return false, nil
+	}
+	sources := make(map[string]SourceState, len(s.file.Sources)-1)
+	for key, value := range s.file.Sources {
+		if key == source {
+			continue
+		}
+		sources[key] = value
+	}
+	if err := s.persistLocked(sources); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Clear removes every source entry (the schema version is kept) and
+// persists the whole file atomically. An already-empty store changes nothing
+// on disk — in particular, clearing a store that never had a file must not
+// create one.
+func (s *Store) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.file.Sources) == 0 {
+		return nil
+	}
+	return s.persistLocked(map[string]SourceState{})
+}
+
+// persistLocked marshals the given sources map, publishes the file
+// atomically (same-directory temp file 0600 → Sync → rename) and commits
+// the map to memory. Callers must hold the store mutex: a failed write
+// leaves both disk and memory at the previous state.
+func (s *Store) persistLocked(sources map[string]SourceState) error {
 	data, err := jsonx.MarshalLine(File{Version: SchemaVersion, Sources: sources})
 	if err != nil {
 		return twitter.Errorf(twitter.KindLocalState, "save seen state", "encode: %w", err)
@@ -172,8 +230,6 @@ func (s *Store) Put(source string, state SourceState) error {
 	if err := writeFileAtomic(s.path, data); err != nil {
 		return twitter.Errorf(twitter.KindLocalState, "save seen state", "%w", err)
 	}
-	// Commit to memory only after the file publish succeeded, so a failed
-	// write leaves both disk and memory at the previous state.
 	s.file.Sources = sources
 	return nil
 }
