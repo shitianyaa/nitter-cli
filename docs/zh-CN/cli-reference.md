@@ -1,0 +1,292 @@
+# twitter CLI 参考
+
+[文档导航](../index.zh-CN.md) · [English](../en/cli-reference.md)
+
+本文是 `twitter` 二进制的公开命令契约。自动化某条命令前先运行
+`twitter <command> --help`；当前安装二进制的帮助文本才是其接受 flag 的真源。
+
+## 全局选项
+
+所有命令都接受以下持久选项：
+
+| 选项 | 含义 |
+| --- | --- |
+| `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy` > 环境变量（配置为空时走 `HTTPS_PROXY`/`ALL_PROXY`）。 |
+| `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
+
+`twitter --version` 输出 `twitter version <版本号>`；裸调用 `twitter` 显示帮助。
+未知子命令退出 1（不是 2）。
+
+## 退出码
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 成功——包括空结果、消费端关闭 stdout 管道（EPIPE；Windows 上为尽力而为的检测）、`watch` 收到 SIGINT/SIGTERM 优雅关闭。 |
+| `1` | 运行时失败——抓取失败（所有实例都失败）、`watch --once` 有至少一个源失败、状态文件损坏、配置文件读取/解析失败、未知子命令。 |
+| `2` | 用法错误——flag/参数不合法、输入契约违规、`--json` 与 `--ndjson` 同给、`watch --json`、配置值不合法。SDK/网络错误绝不会被归类为用法错误。 |
+
+## 输出模式
+
+所有数据命令用同一套规则解析输出模式：`--ndjson` 或 `--json` 优先；不带 flag
+时 TTY 得到人类渲染、管道得到相同的 text 渲染（二者都是同一套制表符行，无
+ANSI 颜色）。
+
+- **人类 / text**：每条记录一行；空结果在 stdout 不打印任何内容、在 **stderr**
+  打印 `(empty)` 提示。推文列表的行形态：
+  `<ID>\t<YYYY-MM-DD HH:MM>\t@<handle>\t<单行文本>`——日期为 UTC、精确到分钟，
+  文本压平成一行（tab 变空格；其余控制字符会让整个文本单元格切换为带引号的
+  转义渲染）。
+- **`--json`**：恰好一条记录时是单个 JSON 对象，否则是 JSON 数组，空结果是
+  字面量 `[]`。
+- **`--ndjson`**：每条记录一个 `twitter.pipeline/v1` 信封：
+
+```json
+{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+```
+
+`meta` 携带溯源信息：`source`（命令输入，形如 `kind:ref` 的键）、`instance`
+（产出这批结果的实例 base URL）、`fetched_at`（RFC3339 UTC）。`meta` 的空字段
+会被省略。`kind` 枚举在 v1 内只增不改；当前实际输出的 kind 为 `tweet`（数据
+命令）、`instance_report`（`instances test --ndjson`）与 `error`（`watch` 的
+逐源抓取失败）：
+
+```json
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"user","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+```
+
+错误信封的 `data` 为 `{command, stage, code, message}`；`meta.input` 指明错误
+对应的输入。错误消息遵守 SDK 脱敏契约：绝不携带凭证、URL 查询串、请求头或
+响应体。
+
+**先看退出码，再解析 JSON。** `--json`/`--ndjson` 只描述成功输出；stderr 永远
+不是 JSON。
+
+## user / search / list / get 的共同抓取行为
+
+- 按配置顺序轮换实例；抓取失败的实例（429、网络错误）进入冷却（配置
+  `instance_cooldown`，默认 60s），期间改试下一个。全部实例失败是运行时失败
+  （退出码 1）。
+- `--limit` 限制推文条数（`0` = 全部）；不传时应用配置 `default_limit`
+  （默认 20）。flag 传负数是用法错误。
+- `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。**`--max-pages
+  0` 表示「用默认值」，不是「不限」**；负数是用法错误。
+- 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
+  （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
+
+## twitter user
+
+```bash
+twitter user <HANDLE> [--limit N] [--max-pages N] [--json|--ndjson]
+```
+
+抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
+网络动作前退出 2）。先尝试 RSS 源（`<HANDLE>/rss`）；失败或空结果时改为抓取
+HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 为
+`user:<HANDLE>`。
+
+## twitter search
+
+```bash
+twitter search <QUERY> [--limit N] [--max-pages N] [--json|--ndjson]
+```
+
+对配置的实例运行 `QUERY`。查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
+适用 Nitter 自身的查询语法：前导 `#` 搜话题标签，`from:user` 搜某用户的帖子，
+其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
+`search:<按原样输入的查询>`。
+
+## twitter list
+
+```bash
+twitter list <LIST_ID> [--limit N] [--max-pages N] [--json|--ndjson]
+```
+
+抓取 List `LIST_ID` 的时间线——List 的数字 ID（或实例接受的 ref），非空且不含
+空白、`?`、`#`、`/`（否则退出 2）。它按 `/i/lists/<LIST_ID>` 路径原样传递。空
+结果可能意味着 List 本身为空，也可能是新建 List 尚未被该实例收录——二者从外部
+无法区分；都不算错误。NDJSON 的 `meta.source` 为 `list:<LIST_ID>`。
+
+## twitter get
+
+```bash
+twitter get <REF> [--json|--ndjson]
+```
+
+抓取单条推文。`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
+任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
+`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
+stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出是歧义错误（退出 2）。
+没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/
+`--ndjson` 可见）；互动数不予报告——绝不虚构。NDJSON 的 `meta.source` 为
+`status:<数字 ID>`。
+
+示例（`--json` 对单条推文只输出一个对象；形态为示意）：
+
+```json
+{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
+```
+
+## twitter instances test
+
+```bash
+twitter instances test [URL] [--full] [--list-id ID] [--user HANDLE] [--json|--ndjson]
+```
+
+探测实例能力，每个实例一行输出：
+
+```text
+url	rss	user_html	search	list	latency
+http://nitter.internal:8080	ok	ok	fail(404)	-	212ms
+```
+
+单元格为 `ok`、`fail(<原因>)`（HTTP 状态码，或 `timeout`、`not rss` 之类的简短
+原因），未执行的探测为 `-`。latency 是 RSS 探测的往返耗时，按人类精度渲染。
+
+- 不带 URL 时按顺序探测 `[[instances]]` 的全部实例；带 URL 时只探测该实例。
+  既无已配置实例又无 URL：退出 2。
+- RSS 与 user 探测抓取 `<user>/rss` 和 `<user>`；`--user` 覆盖账号（默认
+  `NASA`）。`--full` 追加搜索探测；`--list-id ID` 追加 List 探测
+  （`/i/lists/<id>`；给出时不得为空）。两者默认关闭——每个额外探测都要实例付
+  一次请求成本。
+- 探测使用与真实抓取相同的传输与设置（重试、节奏、代理）。
+- **只要探测完成就退出 0，即使全部探测失败**——报告本身就是产物。退出 2 表示
+  输入不合法（空 `--list-id`、`--json --ndjson`、URL/代理不合法）；退出 1 表示
+  wiring/传输构建失败。
+- `--json` 对单个实例输出一个 JSON 对象，多实例输出数组。`--ndjson` 每实例输出
+  一个信封（`kind` 为 `instance_report`，实例 URL 作为 `id`，报告作为 `data`，
+  无 `meta`）。
+
+## twitter config
+
+```bash
+twitter config path
+twitter config get [KEY]
+twitter config set KEY [VALUE]
+twitter config unset KEY
+```
+
+管理 `~/.twitter-cli/config.toml` 的九个标量键（默认值、环境变量覆盖与数组表见
+[README](../README.zh-CN.md#配置)）：
+
+```text
+default_limit, max_pages, request_interval, retry_attempts, retry_delay,
+instance_cooldown, proxy, log_level, log_format
+```
+
+- `config path` 打印配置文件路径。不接受参数（否则退出 2）。
+- `config get` 不带键时按 `key = value` 打印全部九个键；带键时只打印该键。
+  未知键在读取文件之前即被拒绝（退出 2）。
+- `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
+  `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
+  `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
+  `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy` 接受任意
+  字符串）。不给 VALUE 时从管道 stdin 读一行（敏感值不该进 argv）；TTY 下既无
+  VALUE 也不可读 stdin 是用法错误。未知键被拒绝，并提示
+  `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
+- `config unset KEY` 删除该键，使其回落到环境变量/默认值。
+- 写入保留未知键与数组表，且为原子写（临时文件落盘，权限 0600）。**config.toml
+  中的注释不保证在 `config set`/`config unset` 后保留。**
+- 全新安装时，第一条真实命令（`--help`/`-h`、`--version`、`help` 子命令以及
+  `config set`/`config unset` 之外的任何命令）会发布一份自带注释的基线配置；
+  `config set`/`config unset` 在校验通过后自行播种。任何操作都不会覆盖已有
+  配置。
+
+退出码：成功 0；键/值/参数个数不合法 2。配置文件无法读取或解析（非法 TOML）
+以退出码 1 失败；值未通过 schema 校验（如非法时长）是用法错误，退出 2。
+
+## twitter watch
+
+```bash
+twitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
+  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson]
+```
+
+按轮询周期抓取各来源，对照持久化去重状态（`~/.twitter-cli/state/seen.json`，或
+`<--state-dir>/seen.json`）只输出新推文。
+
+**来源**为任意一组 `user:<handle>`、`tag:<query>`、`list:<id>`，例如
+`user:NASA`、`tag:#AI`、`tag:from:nasa`、`list:12345`。第一个冒号后的 ref 原样
+传给抓取层，并构成 seen 键 `<kind>:<ref>`——**tag 查询写原始形式（`tag:#AI`）；
+URL 预转义形式（`tag:%23AI`）会在网络上被二次转义，不是合法写法。** 不带
+SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
+
+**flag**
+
+| flag | 默认 | 含义 |
+| --- | --- | --- |
+| `--once` | 关 | 只跑一轮即退出——推荐的调度器形态。 |
+| `--interval D` | `10m` | 不带 `--once` 时轮次间的睡眠时长；必须是 `>= 1s` 的 duration（两种模式下都会校验）。 |
+| `--max-new N` | `10` | 每源每轮最多输出的新推文数（从新到旧）。`0` 不输出任何内容，并把当前首页封存为新基准；负数是用法错误。 |
+| `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；`0` = 用默认值。 |
+| `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
+| `--state-dir DIR` | `~/.twitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
+| `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |
+| `--json` | — | **不支持**：watch 是推文与错误混合的流，不是单个 JSON 文档；恒为用法错误。 |
+
+全局 `--proxy`/`--instance` 与其他命令一致。
+
+**首跑与输出规则**
+
+- 未初始化源的第一轮只**记录**状态——不输出任何历史（只记不推）。
+  `--include-existing` 对该次运行解除此限制，且该轮首抓不受 `--max-new` 限制。
+- 之后的每轮输出各源的新推文，每源每轮最多 `--max-new` 条。**超出上限的新推文
+  会被立即标记为已见、之后绝不补推**：停机恢复后，单源单轮突发超过上限的部分
+  会被静默跳过——调度器部署应显式设置 `--max-new`。
+- 已初始化源的抓取成功但结果为空时，整组保留旧状态（不封存任何东西）。
+- 推文先产出、状态后落盘（先产出后落盘）：交付或落盘失败时保留旧状态，下一轮
+  重推（宁重勿丢）。
+
+**失败与退出码**
+
+- 抓取失败的源收到就地错误报告（`--ndjson` 流上是错误信封；其他模式是 stderr 的
+  `error: <key>: <message>` 行），其余源继续；该源状态保持不动。`--once` 只要有
+  源失败即退出 1，全部成功退出 0。用法问题退出 2（来源字符串不合法、来源集为
+  空、`--interval < 1s`、flag 为负、`--json`）。
+- 不带 `--once` 时命令持续循环，直到 SIGINT/SIGTERM（优雅退出 0）或不可恢复
+  错误（状态存储失败、非 EPIPE 的 stdout 写失败 → 退出 1）。
+- stdout 管道被关闭（EPIPE）视为消费端挂断，两种模式下都退出 0。Windows 上该
+  检测是尽力而为（管道断裂可能以 `ERROR_BROKEN_PIPE` 呈现）。
+
+**状态**按源存储：最多 300 条已见 ID（从新到旧），外加最近 20 个首页纯数字 ID
+作为扫描水位。用 `twitter seen list` 检视；注意 `seen` 没有 `--state-dir`——
+如果你用 `watch --state-dir <dir>`，请直接读取该目录下的 `seen.json`。
+
+示例——调度器消费 NDJSON 流（示意）：
+
+```bash
+twitter watch user:NASA tag:#AI --once --ndjson --max-new 50
+```
+
+```json
+{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"tag","message":"…"},"meta":{"input":"tag:#AI"}}
+```
+
+## twitter seen
+
+```bash
+twitter seen list [--source SOURCE] [--json]
+twitter seen clear [--source SOURCE] --confirm
+```
+
+检视与清除 **默认位置** `~/.twitter-cli/state/seen.json` 的 watch 去重状态——
+`seen` 没有 `--state-dir`。
+
+- `seen list` 按键排序，每源一行制表符分隔：
+
+  ```text
+  user:NASA	initialized=true	seen=142	watermark=20	2026-09-12T08:00:00Z
+  ```
+
+  `updated_at` 为 RFC3339 UTC，无时间戳时为 `-`。`--source` 收窄到单个源，解析
+  方式与 watch 来源完全一致（`user:NASA`、`tag:#AI`、`list:12345`；过滤不到任何
+  条目与空库是同一种空清单）。`--json` 输出
+  `{source, initialized, seen_count, watermark_count, updated_at}` 的 JSON 数组
+  ——即使只有单源也恒为数组。空库在 stderr 打印 `(empty)`（stdout 无输出）；带
+  `--json` 时在 stdout 打印 `[]`。以上情况均退出 0；`--source` 不合法退出 2。
+- `seen clear` 带 `--source` 删除该源的条目，不带则删除全部。**每次都需要
+  `--confirm`**——状态变更需显式授权；缺 `--confirm` 退出 2。清除不存在的源
+  幂等成功，stderr 提示 `not found`。成功时不打印任何内容（退出码就是信号）。
+  文件的 schema 版本保留；写入原子化。
+- 状态文件损坏是硬错误（退出 1）——存储层绝不静默重置状态，因为静默重置会把
+  整个 watch 历史重新推送一遍。

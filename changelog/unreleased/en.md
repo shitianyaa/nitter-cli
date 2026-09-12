@@ -5,7 +5,19 @@
 
 ## Added
 
+- `twitter` CLI: fetch public tweets through your own Nitter instances — `twitter user` (RSS first, HTML fallback), `twitter search`, `twitter list` and `twitter get` (single status by ID or URL), with instance rotation, cooldown and pacing.
+- `twitter watch`: persistent dedup polling of `user:`/`tag:`/`list:` sources with `--once` scheduler mode, per-source seen state (300 IDs + watermark 20), `--max-new` emission cap and per-source error reports.
+- `twitter instances test`: capability probes (RSS / user HTML / search / list) per configured instance with human, `--json` and `--ndjson` reports.
+- `twitter config path/get/set/unset`: manage the nine scalar config keys with env overrides (`TWITTER_DEFAULT_LIMIT`, `TWITTER_LOG_LEVEL`, `TWITTER_LOG_FORMAT`), atomic 0600 writes and automatic baseline config creation on first run.
+- `twitter seen list/clear`: inspect and clear the watch dedup state (`seen list --json` always returns an array; `seen clear` requires `--confirm` every time).
+- `--json` / `--ndjson` output modes for all data commands, backed by the stable `twitter.pipeline/v1` envelope protocol (kind `tweet` / `instance_report` / `error`), including in-place per-source error envelopes for `watch` and graceful EPIPE handling (exit 0 on a closed stdout pipe).
+- Public Go SDK `github.com/shitianyaa/twitter-cli/sdk` (package `twitter`): `Client` with instance rotation and cooldown, narrow `Transport` interface, classified error kinds (`KindChallenge`, `KindRateLimited` with `RetryAfter`, `KindUnavailable`, …) and additive-only data models (`Tweet`, `Author`, `Media`, `Quoted`, `Page`, `InstanceReport`).
+- Bilingual documentation (English + 简体中文): README, CLI reference, Go SDK guide and maintainers' architecture/development guides under `docs/`.
+- Agent skill shipped with the repository (`skills/twitter-cli/`): operating rules, command tiers, quick reference and troubleshooting for driving the binary from an AI agent.
+
 ## Changed
+
+- `watch` help and `seen list` help now advertise the raw tag source form (`tag:#AI`, `tag:from:nasa`); the pre-escaped `tag:%23AI` form double-escapes on the wire and is documented as invalid.
 
 ## Deprecated
 

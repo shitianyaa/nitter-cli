@@ -5,7 +5,38 @@
 
 ## 新增
 
+- `twitter` CLI：经你自己的 Nitter 实例抓取公开推文——`twitter user`（RSS 优先、
+  HTML 回退）、`twitter search`、`twitter list` 与 `twitter get`（按 ID 或 URL
+  取单条），带实例轮换、冷却与请求节奏。
+- `twitter watch`：对 `user:`/`tag:`/`list:` 源做持久化去重轮询，支持 `--once`
+  调度器模式、每源去重状态（300 条已见 ID + 水位 20）、`--max-new` 输出上限与
+  逐源错误报告。
+- `twitter instances test`：逐实例探测能力（RSS / 用户 HTML / 搜索 / List），
+  提供人类、`--json` 与 `--ndjson` 三种报告。
+- `twitter config path/get/set/unset`：管理九个标量配置键，支持环境变量覆盖
+  （`TWITTER_DEFAULT_LIMIT`、`TWITTER_LOG_LEVEL`、`TWITTER_LOG_FORMAT`）、0600
+  原子写入与首跑自动生成基线配置。
+- `twitter seen list/clear`：检视与清除 watch 去重状态（`seen list --json` 恒为
+  数组；`seen clear` 每次都需要 `--confirm`）。
+- 所有数据命令的 `--json` / `--ndjson` 输出模式，基于稳定的
+  `twitter.pipeline/v1` 信封协议（kind `tweet` / `instance_report` / `error`），
+  包括 `watch` 的逐源就地错误信封与优雅 EPIPE 处理（stdout 管道被关闭按退出码
+  0 处理）。
+- 公开 Go SDK `github.com/shitianyaa/twitter-cli/sdk`（package `twitter`）：
+  带实例轮换与冷却的 `Client`、窄 `Transport` 接口、分类错误 kind
+  （`KindChallenge`、携带 `RetryAfter` 的 `KindRateLimited`、`KindUnavailable`
+  等）与只增不改的数据模型（`Tweet`、`Author`、`Media`、`Quoted`、`Page`、
+  `InstanceReport`）。
+- 双语文档（English + 简体中文）：`docs/` 下的 README、CLI 参考、Go SDK 指南与
+  维护者架构/开发指南。
+- 随仓库分发的 Agent Skill（`skills/twitter-cli/`）：面向 AI agent 的操作规则、
+  命令分级、速查表与故障排查。
+
 ## 变更
+
+- `watch` 与 `seen list` 的帮助文本现在使用 tag 源的原始写法（`tag:#AI`、
+  `tag:from:nasa`）；预转义形式 `tag:%23AI` 会在网络上被二次转义，文档已明确
+  其不合法。
 
 ## 弃用
 
