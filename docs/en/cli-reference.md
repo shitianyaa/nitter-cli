@@ -53,12 +53,16 @@ additive-only in v1; the currently emitted kinds are `tweet` (data commands),
 failures of `watch`):
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"user","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
-Error envelope `data` is `{command, stage, code, message}`; `meta.input` names
-the input the error refers to. Error messages obey the SDK redaction contract:
-never credentials, URL query strings, request headers or response bodies.
+Error envelope `data` is `{command, stage, code, message}`; `code` is the SDK
+error kind of the failure (`rate_limited`, `upstream_unavailable`,
+`challenge_required`, `not_found`, `malformed_upstream_response`, …), or
+`error` when the failure is not a classified SDK error — never parse the
+`message` to classify. `meta.input` names the input the error refers to.
+Error messages obey the SDK redaction contract: never credentials, URL query
+strings, request headers or response bodies.
 
 **Check the exit code before parsing JSON.** `--json`/`--ndjson` only describe
 successful output; stderr is never JSON.
@@ -287,7 +291,7 @@ twitter watch user:NASA tag:#AI --once --ndjson --max-new 50
 
 ```json
 {"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"tag","message":"…"},"meta":{"input":"tag:#AI"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
 ## twitter seen

@@ -340,9 +340,10 @@ func TestWatchIncludeExistingEmitsFirstFetch(t *testing.T) {
 }
 
 // TestWatchFailedSourceIsIsolated: a source whose instance 500s gets an
-// in-place error envelope (stage fetch, code = the kind string) while the
-// healthy source still emits; the run exits 1 and the failed source's state
-// is untouched (no entry in seen.json at all).
+// in-place error envelope (stage fetch, code = the SDK error kind the fetch
+// failed with — 500 classifies as upstream_unavailable) while the healthy
+// source still emits; the run exits 1 and the failed source's state is
+// untouched (no entry in seen.json at all).
 func TestWatchFailedSourceIsIsolated(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
@@ -364,8 +365,8 @@ func TestWatchFailedSourceIsIsolated(t *testing.T) {
 	}
 	errEnv, tweet1, tweet2 := envs[0], envs[1], envs[2]
 	if errEnv.Kind != "error" || errEnv.Data.Command != "watch" || errEnv.Data.Stage != "fetch" ||
-		errEnv.Data.Code != "user" || errEnv.Data.Message == "" {
-		t.Errorf("error envelope = %+v, want command watch / stage fetch / code user / a message", errEnv)
+		errEnv.Data.Code != "upstream_unavailable" || errEnv.Data.Message == "" {
+		t.Errorf("error envelope = %+v, want command watch / stage fetch / code upstream_unavailable / a message", errEnv)
 	}
 	if errEnv.Meta == nil || errEnv.Meta.Input != "user:Broken" {
 		t.Errorf("error envelope meta.input = %+v, want user:Broken", errEnv.Meta)

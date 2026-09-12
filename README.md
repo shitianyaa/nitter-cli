@@ -150,7 +150,7 @@ Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 In-place error envelopes (currently emitted by `watch` per failed source):
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"user","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
 **Exit codes — check the exit code before parsing any JSON.** `--json`/`--ndjson`

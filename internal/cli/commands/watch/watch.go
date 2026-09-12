@@ -16,6 +16,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -410,11 +411,20 @@ func firstPageIDs(fetched []twitter.Tweet) []string {
 
 // reportSourceError reports one source's fetch failure: an in-place error
 // envelope on the NDJSON stream (command "watch", stage "fetch", code = the
-// source kind, meta.input = the source key), or a plain stderr line in the
-// default modes. Stderr writes ignore errors like everywhere else.
+// SDK error Kind of the failure — extracted with errors.As, so wrapped
+// *twitter.Error values classify too; "error" as the fallback for anything
+// not a classified SDK error — meta.input = the source key), or a plain
+// stderr line in the default modes. The source kind ("user"/"tag"/"list")
+// is never the code: it is already visible in meta.input. Stderr writes
+// ignore errors like everywhere else.
 func reportSourceError(s *invocation.Streams, mode pipeline.Mode, src watchengine.Source, key string, err error) error {
 	if mode == pipeline.ModeNDJSON {
-		return pipeline.WriteErrorEnvelope(s.Out, opWatch, "fetch", src.Kind, key, err.Error())
+		code := "error"
+		var terr *twitter.Error
+		if errors.As(err, &terr) {
+			code = string(terr.Kind)
+		}
+		return pipeline.WriteErrorEnvelope(s.Out, opWatch, "fetch", code, key, err.Error())
 	}
 	fmt.Fprintf(s.Err, "error: %s: %s\n", key, err)
 	return nil

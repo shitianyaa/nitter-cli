@@ -141,7 +141,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 就地错误信封（当前由 `watch` 对每个失败源输出）：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"user","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
 **退出码——先看退出码，再解析 JSON。** `--json`/`--ndjson` 只描述成功输出；

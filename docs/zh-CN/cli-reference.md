@@ -51,12 +51,14 @@ ANSI 颜色）。
 逐源抓取失败）：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"user","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
-错误信封的 `data` 为 `{command, stage, code, message}`；`meta.input` 指明错误
-对应的输入。错误消息遵守 SDK 脱敏契约：绝不携带凭证、URL 查询串、请求头或
-响应体。
+错误信封的 `data` 为 `{command, stage, code, message}`；`code` 是本次失败的
+SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`、
+`not_found`、`malformed_upstream_response` 等），失败不属于任何已分类的 SDK
+错误时为 `error`——不要解析 `message` 来做分类。`meta.input` 指明错误对应的
+输入。错误消息遵守 SDK 脱敏契约：绝不携带凭证、URL 查询串、请求头或响应体。
 
 **先看退出码，再解析 JSON。** `--json`/`--ndjson` 只描述成功输出；stderr 永远
 不是 JSON。
@@ -259,7 +261,7 @@ twitter watch user:NASA tag:#AI --once --ndjson --max-new 50
 
 ```json
 {"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"tag","message":"…"},"meta":{"input":"tag:#AI"}}
+{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
 ## twitter seen
