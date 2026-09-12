@@ -1,0 +1,147 @@
+package twitter_test
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/shitianyaa/twitter-cli/sdk"
+)
+
+// The structs in models.go/page.go are the NDJSON data contract: their JSON
+// keys are frozen (additive-only evolution). These tests pin the exact
+// marshaled shape.
+
+// marshalNDJSON encodes like the NDJSON pipeline does (jsonx semantics): one
+// compact line with HTML escaping disabled — media URLs carry query strings
+// ("name=orig") whose & must survive raw into the output lines. Plain
+// json.Marshal would render it as \u0026, so the contract is pinned against
+// the encoding the pipeline actually uses.
+func marshalNDJSON(t *testing.T, v any) string {
+	t.Helper()
+	var sb strings.Builder
+	enc := json.NewEncoder(&sb)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		t.Fatalf("Encode(%T) = error %v", v, err)
+	}
+	return strings.TrimSuffix(sb.String(), "\n")
+}
+
+func TestTweetJSONShapeIsTheDataContract(t *testing.T) {
+	published := time.Date(2026, 7, 27, 9, 9, 40, 0, time.UTC)
+	tw := twitter.Tweet{
+		ID:   "2081668333762687236",
+		URL:  "https://x.com/NASA/status/2081668333762687236",
+		Text: "line one\nline two",
+		Author: twitter.Author{
+			Handle:    "NASA",
+			Name:      "NASA",
+			AvatarURL: "https://pbs.twimg.com/profile_images/x_normal.jpg",
+		},
+		PublishedAt: published,
+		Media: []twitter.Media{
+			{Type: "image", URL: "https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig", Width: 1200, Height: 800},
+			{Type: "video", URL: "https://video.twimg.com/vid/abc.mp4"},
+		},
+		IsRetweet:  true,
+		RepostedBy: "nasa",
+		ReplyTo:    "esa",
+		Quote: &twitter.Quoted{
+			ID:   "123",
+			URL:  "https://x.com/esa/status/123",
+			Text: "quoted text",
+			Author: twitter.Author{
+				Handle: "esa",
+				Name:   "ESA",
+			},
+		},
+	}
+
+	got := marshalNDJSON(t, tw)
+	want := `{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236",` +
+		`"text":"line one\nline two",` +
+		`"author":{"handle":"NASA","name":"NASA","avatar_url":"https://pbs.twimg.com/profile_images/x_normal.jpg"},` +
+		`"published_at":"2026-07-27T09:09:40Z",` +
+		`"media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800},` +
+		`{"type":"video","url":"https://video.twimg.com/vid/abc.mp4","width":0,"height":0}],` +
+		`"is_retweet":true,"reposted_by":"nasa","reply_to":"esa",` +
+		`"quote":{"id":"123","url":"https://x.com/esa/status/123","text":"quoted text",` +
+		`"author":{"handle":"esa","name":"ESA","avatar_url":""}}}`
+	if got != want {
+		t.Errorf("Tweet JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestTweetZeroValueMarshalsEveryContractKey(t *testing.T) {
+	// The NDJSON shape must be stable regardless of content: every field is
+	// always present (no omitempty), so consumers can rely on key presence.
+	b, err := json.Marshal(twitter.Tweet{})
+	if err != nil {
+		t.Fatalf("Marshal(zero Tweet) = error %v", err)
+	}
+	got := string(b)
+	want := `{"id":"","url":"","text":"","author":{"handle":"","name":"","avatar_url":""},` +
+		`"published_at":"0001-01-01T00:00:00Z","media":null,"is_retweet":false,` +
+		`"reposted_by":"","reply_to":"","quote":null}`
+	if got != want {
+		t.Errorf("zero Tweet JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestPublishedAtMarshalsRFC3339UTC(t *testing.T) {
+	// Producers store UTC (spec section 5); the marshaled form must be the
+	// RFC3339 UTC rendering.
+	tw := twitter.Tweet{PublishedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	b, err := json.Marshal(tw)
+	if err != nil {
+		t.Fatalf("Marshal = error %v", err)
+	}
+	if !strings.Contains(string(b), `"published_at":"2026-01-02T03:04:05Z"`) {
+		t.Errorf("PublishedAt = %s, want an RFC3339 UTC string", b)
+	}
+}
+
+func TestPageJSONShapeIsTheDataContract(t *testing.T) {
+	page := twitter.Page[twitter.Tweet]{
+		Items:      []twitter.Tweet{{ID: "1"}},
+		NextCursor: "cursor-42",
+	}
+	b, err := json.Marshal(page)
+	if err != nil {
+		t.Fatalf("Marshal(Page) = error %v", err)
+	}
+	got := string(b)
+	want := `{"items":[{"id":"1","url":"","text":"","author":{"handle":"","name":"","avatar_url":""},` +
+		`"published_at":"0001-01-01T00:00:00Z","media":null,"is_retweet":false,` +
+		`"reposted_by":"","reply_to":"","quote":null}],"next_cursor":"cursor-42"}`
+	if got != want {
+		t.Errorf("Page JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestInstanceReportJSONShapeIsTheDataContract(t *testing.T) {
+	report := twitter.InstanceReport{
+		URL:      "http://nitter:8080",
+		RSS:      twitter.Probe{OK: true},
+		UserHTML: twitter.Probe{OK: true},
+		Search:   twitter.Probe{OK: false, Status: 404, Err: "instance returned HTTP 404"},
+		List:     twitter.Probe{},
+		Latency:  1500 * time.Millisecond,
+	}
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("Marshal(InstanceReport) = error %v", err)
+	}
+	got := string(b)
+	want := `{"url":"http://nitter:8080",` +
+		`"rss":{"ok":true,"status":0,"err":""},` +
+		`"user_html":{"ok":true,"status":0,"err":""},` +
+		`"search":{"ok":false,"status":404,"err":"instance returned HTTP 404"},` +
+		`"list":{"ok":false,"status":0,"err":""},` +
+		`"latency":1500000000}`
+	if got != want {
+		t.Errorf("InstanceReport JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}
