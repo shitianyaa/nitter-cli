@@ -308,19 +308,23 @@ func TestParseAcceptsFeedWithoutDoctype(t *testing.T) {
 }
 
 // TestItemToTweetPubDateTolerance pins the pubDate normalization carried
-// from Task 10: Nitter sometimes emits single-digit days (RFC1123Z's "02"
-// wants two digits) and doubled spaces after the weekday comma. Both must
-// parse to the same UTC instant the padded form yields.
+// from Task 10 and the real-instance smoke round: Nitter sometimes emits
+// single-digit days (RFC1123Z's "02" wants two digits) and doubled spaces
+// after the weekday comma, and real instances emit the named zone "GMT"
+// (RFC1123) instead of a numeric offset. All must parse to the same UTC
+// instant the canonical form yields.
 func TestItemToTweetPubDateTolerance(t *testing.T) {
-	want := time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)
 	for _, tc := range []struct {
 		name, pubDate string
+		want          time.Time
 	}{
-		{"zero-padded baseline", "Sun, 05 Jul 2026 09:09:40 +0000"},
-		{"single-digit day, single space", "Sun, 5 Jul 2026 09:09:40 +0000"},
-		{"single-digit day, double space", "Sun,  5 Jul 2026 09:09:40 +0000"},
-		{"two-digit day, double space", "Sun, 05  Jul 2026 09:09:40 +0000"},
-		{"leading/trailing whitespace", "  Sun, 5 Jul 2026 09:09:40 +0000  "},
+		{"zero-padded baseline", "Sun, 05 Jul 2026 09:09:40 +0000", time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)},
+		{"single-digit day, single space", "Sun, 5 Jul 2026 09:09:40 +0000", time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)},
+		{"single-digit day, double space", "Sun,  5 Jul 2026 09:09:40 +0000", time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)},
+		{"two-digit day, double space", "Sun, 05  Jul 2026 09:09:40 +0000", time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)},
+		{"leading/trailing whitespace", "  Sun, 5 Jul 2026 09:09:40 +0000  ", time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)},
+		{"named GMT zone, live sample", "Fri, 11 Sep 2026 21:15:00 GMT", time.Date(2026, 9, 11, 21, 15, 0, 0, time.UTC)},
+		{"named GMT zone, single-digit day", "Tue, 5 Sep 2026 09:00:00 GMT", time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tw, err := rss.ItemToTweet(rss.Item{
@@ -331,8 +335,8 @@ func TestItemToTweetPubDateTolerance(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ItemToTweet = error %v", err)
 			}
-			if !tw.PublishedAt.Equal(want) {
-				t.Errorf("PublishedAt = %v, want %v", tw.PublishedAt, want)
+			if !tw.PublishedAt.Equal(tc.want) {
+				t.Errorf("PublishedAt = %v, want %v", tw.PublishedAt, tc.want)
 			}
 			if tw.PublishedAt.Location() != time.UTC {
 				t.Errorf("PublishedAt location = %v, want UTC", tw.PublishedAt.Location())

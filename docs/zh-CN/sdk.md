@@ -94,7 +94,7 @@ type Tweet struct {
     PublishedAt time.Time // UTC；序列化为 RFC3339 UTC（"2026-07-27T09:09:40Z"）
     Media       []Media   // 无媒体时可能为 nil
     IsRetweet   bool      // 纯转推（retweet-header 判定）
-    RepostedBy  string    // 转推者 handle；仅 IsRetweet 时非空
+    RepostedBy  string    // 转推者显示名（非 handle）；仅 IsRetweet 时非空
     ReplyTo     string    // 被回复者 handle；非回复时为空
     Quote       *Quoted   // 被引用推文摘要；无则为 nil
 }

@@ -256,13 +256,26 @@ func itemDate(clone *goquery.Selection) time.Time {
 	return t.UTC()
 }
 
+// repostMarkers are the retweet-header text markers real instances emit
+// after the reposter's display name (2026-09 real-instance smoke round):
+// the English stock form and the two known Chinese localized forms. The
+// name is the header text before the earliest marker found.
+var repostMarkers = []string{" retweeted", "转推了", "转推自"}
+
+// repostNameTrimcut strips whitespace and stray separators from the extracted
+// display name (real headers render as e.g. "NASA retweeted", with the icon
+// leaving leading space, and localized variants may leave "; " before the
+// marker).
+const repostNameTrimcut = " \t\r\n;；"
+
 // retweetInfo detects a pure retweet and its reposter. Port of the plugin's
 // is_pure_retweet_chunk: Nitter renders the retweet-header inside tweet-body
 // before tweet-content, so the rule is a .retweet-header element appearing
 // before the item's first .tweet-content in document order (the plugin cuts
 // the chunk at tweet-content and searches only the head; the DOM order
-// comparison replaces its 2500-byte head window). RepostedBy is that
-// header's a.username text with "@" stripped, when present.
+// comparison replaces its 2500-byte head window). RepostedBy is the header's
+// DISPLAY NAME, extracted from its text content via repostedByName — stock
+// Nitter renders it as plain text ("… icon … NASA retweeted"), not an anchor.
 func retweetInfo(clone *goquery.Selection) (isRetweet bool, repostedBy string) {
 	header := clone.Find(".retweet-header").First()
 	if header.Length() == 0 {
@@ -277,8 +290,26 @@ func retweetInfo(clone *goquery.Selection) (isRetweet bool, repostedBy string) {
 			return false, ""
 		}
 	}
-	name := strings.TrimSpace(header.Find("a.username").First().Text())
-	return true, strings.TrimPrefix(name, "@")
+	return true, repostedByName(header.Text())
+}
+
+// repostedByName extracts the reposter's display name from the retweet
+// header's text: the portion before the earliest known marker (" retweeted",
+// "转推了", "转推自"), trimmed of whitespace and stray separators. Text
+// matching no marker yields "" — the name is never fabricated from an
+// unknown header shape.
+func repostedByName(headerText string) string {
+	s := strings.TrimSpace(headerText)
+	cut := -1
+	for _, marker := range repostMarkers {
+		if i := strings.Index(s, marker); i >= 0 && (cut < 0 || i < cut) {
+			cut = i
+		}
+	}
+	if cut < 0 {
+		return ""
+	}
+	return strings.Trim(s[:cut], repostNameTrimcut)
 }
 
 // docIndex reports the pre-order index of target within the subtree rooted at

@@ -104,7 +104,7 @@ type Tweet struct {
     PublishedAt time.Time // UTC; marshals as RFC3339 UTC ("2026-07-27T09:09:40Z")
     Media       []Media   // possibly nil when the status has no media
     IsRetweet   bool      // pure retweet (retweet-header detection)
-    RepostedBy  string    // retweeter handle; non-empty only when IsRetweet
+    RepostedBy  string    // reposter display name (not a handle); non-empty only when IsRetweet
     ReplyTo     string    // replied-to handle; empty when not a reply
     Quote       *Quoted   // quoted-status summary; nil when there is none
 }

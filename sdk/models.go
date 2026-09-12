@@ -34,8 +34,9 @@ type Tweet struct {
 	// IsRetweet reports a pure retweet (retweet-header detection, matching
 	// the plugin semantics).
 	IsRetweet bool `json:"is_retweet"`
-	// RepostedBy is the retweeter's handle; non-empty only when IsRetweet is
-	// true.
+	// RepostedBy is the reposter's DISPLAY NAME as rendered in the retweet
+	// header ("NASA retweeted"), not a handle; non-empty only when IsRetweet
+	// is true.
 	RepostedBy string `json:"reposted_by"`
 	// ReplyTo is the replied-to handle; empty when not a reply.
 	ReplyTo string `json:"reply_to"`

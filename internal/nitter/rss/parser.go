@@ -50,7 +50,8 @@ type Item struct {
 	Title string
 	// Description is the raw HTML of the tweet body (CDATA content).
 	Description string
-	// PubDate is the item's <pubDate> text (RFC 1123 with numeric zone).
+	// PubDate is the item's <pubDate> text (RFC 1123; real instances emit a
+	// numeric zone or a named zone such as GMT).
 	PubDate string
 	// Creator is the item's <dc:creator> text, e.g. "@NASA".
 	Creator string
@@ -153,9 +154,10 @@ func Parse(data []byte) ([]Item, error) {
 //     canonicalized to https://x.com/<user>/status/<id>.
 //   - Text: CleanHTML(Description), falling back to CleanHTML(Title) when
 //     the description is empty (plugin semantics: description or title).
-//   - PublishedAt: time.Parse(time.RFC1123Z, PubDate), stored in UTC per the
-//     models contract. An unparseable value leaves the zero time — errors
-//     are reserved for structural breakage, not a missing fact.
+//   - PublishedAt: PubDate parsed against RFC1123Z, then RFC1123 (named
+//     zones such as GMT), stored in UTC per the models contract. An
+//     unparseable value leaves the zero time — errors are reserved for
+//     structural breakage, not a missing fact.
 //   - Author: Handle from dc:creator with its "@" stripped; Name and
 //     AvatarURL stay empty (the feed does not carry them).
 //   - Media: media:content and description img URLs; relative paths are
@@ -199,22 +201,34 @@ func locateStatus(it Item) (user, id, source string, ok bool) {
 var pubDateDayRe = regexp.MustCompile(`^([A-Za-z]{3},) (\d)(\s.+)$`)
 
 // parsePubDate parses one pubDate with the tolerance real Nitter feeds need
-// (Task 10 carry): whitespace runs are collapsed to single spaces (Nitter
-// sometimes emits "Sun,  5 Jul …" with a doubled space after the comma), the
-// result is tried against RFC1123Z, and a single-digit day of month is
-// zero-padded for a second attempt (RFC1123Z's "02" requires two digits;
-// Nitter emits "Sun, 5 Jul …" during the first nine days of a month). The
-// brief's "try RFC1123 (named zone) as a second layout" degenerates here:
-// Nitter always emits a numeric zone (+0000), so the only real-world gap is
-// the day padding, and the retry stays on RFC1123Z. Unparseable input
-// reports false — the caller leaves PublishedAt zero rather than fabricating.
+// (Task 10 carry, sharpened by the 2026-09 real-instance smoke round):
+// whitespace runs are collapsed to single spaces (Nitter sometimes emits
+// "Sun,  5 Jul …" with a doubled space after the comma), the result is tried
+// against RFC1123Z (numeric zone — Nitter's classic form) and then RFC1123
+// (named zone — real instances emit "… GMT", which Go resolves at UTC), and
+// a single-digit day of month is zero-padded for a retry against both
+// layouts (the "02" day requires two digits; Nitter emits "Sun, 5 Jul …"
+// during the first nine days of a month). Unparseable input reports false —
+// the caller leaves PublishedAt zero rather than fabricating.
 func parsePubDate(raw string) (time.Time, bool) {
 	s := strings.Join(strings.Fields(raw), " ")
-	if t, err := time.Parse(time.RFC1123Z, s); err == nil {
+	if t, ok := tryPubDateLayouts(s); ok {
 		return t, true
 	}
 	if m := pubDateDayRe.FindStringSubmatch(s); m != nil {
-		if t, err := time.Parse(time.RFC1123Z, m[1]+" 0"+m[2]+m[3]); err == nil {
+		if t, ok := tryPubDateLayouts(m[1] + " 0" + m[2] + m[3]); ok {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// tryPubDateLayouts parses s against the tolerated RFC 1123 layouts in
+// order: RFC1123Z (numeric offset) first, RFC1123 (named zone) second. The
+// two never accept the same string, so the order only fixes precedence.
+func tryPubDateLayouts(s string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC1123Z, time.RFC1123} {
+		if t, err := time.Parse(layout, s); err == nil {
 			return t, true
 		}
 	}

@@ -114,7 +114,7 @@ func TestParseTimelineExtractsTweets(t *testing.T) {
 			published:  time.Date(2026, 7, 26, 20, 15, 0, 0, time.UTC),
 			media:      []sdk.Media{{Type: "image", URL: "https://pbs.twimg.com/media/GzT4KzXwAAU7.jpg?name=orig"}},
 			isRetweet:  true,
-			repostedBy: "SpaceExplored",
+			repostedBy: "Space Explored",
 		},
 		{
 			id:   "1620000000000000003",
@@ -172,6 +172,72 @@ func TestParseTimelineMasksQuotes(t *testing.T) {
 	}
 	if !strings.Contains(author.Media[0].URL, "OwnPic.jpg") {
 		t.Errorf("tweet 3 Media[0] = %q, author image lost", author.Media[0].URL)
+	}
+}
+
+// TestParseTimelineRepostHeaderVariants pins the real-instance smoke round's
+// retweet-header semantics: stock Nitter renders the reposter's DISPLAY NAME
+// as plain text before a marker (English " retweeted", Chinese localized
+// "转推了"/"转推自"), with no anchor. RepostedBy is the text before the
+// earliest marker, trimmed of whitespace and stray separators; a header
+// matching no marker keeps RepostedBy empty (no fabrication) while the item
+// still counts as a retweet.
+func TestParseTimelineRepostHeaderVariants(t *testing.T) {
+	item := func(headerInner string) string {
+		return `<div class="timeline-item">` +
+			`<a class="tweet-link" href="/repolygon/status/5555555555555555555#m"></a>` +
+			`<div class="tweet-body">` +
+			`<div class="retweet-header"><span>` + headerInner + `</span></div>` +
+			`<div class="tweet-content media-body">reposted body</div>` +
+			`</div></div>`
+	}
+	for _, tc := range []struct {
+		name, inner, wantName string
+	}{
+		{
+			name:     "english stock markup",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span> NASA retweeted</div>`,
+			wantName: "NASA",
+		},
+		{
+			name:     "chinese zhuan-tui-le",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span>国家航天局转推了</div>`,
+			wantName: "国家航天局",
+		},
+		{
+			name:     "chinese zhuan-tui-zi",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span>国家航天局转推自</div>`,
+			wantName: "国家航天局",
+		},
+		{
+			name:     "name with stray separators",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span> Space Explored;  retweeted</div>`,
+			wantName: "Space Explored",
+		},
+		{
+			name:     "earliest marker wins",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span>Foo转推了 retweeted</div>`,
+			wantName: "Foo",
+		},
+		{
+			name:     "no marker keeps reposted_by empty",
+			inner:    `<div class="icon-container"><span class="icon-retweet" title=""></span> something unparseable</div>`,
+			wantName: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := parse(t, []byte(item(tc.inner)))
+			if len(page.Tweets) != 1 {
+				t.Fatalf("ParseTimeline = %d tweets, want 1", len(page.Tweets))
+			}
+			got := page.Tweets[0]
+			if !got.IsRetweet {
+				t.Errorf("IsRetweet = false, want true (retweet-header present before tweet-content)")
+			}
+			if got.RepostedBy != tc.wantName {
+				t.Errorf("RepostedBy = %q, want %q", got.RepostedBy, tc.wantName)
+			}
+		})
 	}
 }
 
