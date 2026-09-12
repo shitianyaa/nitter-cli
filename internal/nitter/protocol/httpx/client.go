@@ -240,7 +240,8 @@ func New(opts Options) (*Client, error) {
 // On any error the returned body is nil and the status 0; inspect the
 // *twitter.Error (errors.As) for Kind and RetryAfter.
 func (c *Client) Get(ctx context.Context, url string, headers map[string]string) ([]byte, int, error) {
-	return c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
+	body, status, _, err := c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
+	return body, status, err
 }
 
 // Post performs a POST against url with the given request body and exactly
@@ -249,18 +250,30 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 // pacing, retry and classification contract verbatim; the body is resent
 // intact on every retry attempt.
 func (c *Client) Post(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error) {
-	return c.send(ctx, opPost, fhttp.MethodPost, url, body, headers)
+	b, status, _, err := c.send(ctx, opPost, fhttp.MethodPost, url, body, headers)
+	return b, status, err
+}
+
+// GetMeta performs a GET with Get's exact pacing, retry and classification
+// contract and additionally surfaces the response headers (as a plain
+// map[string][]string) for callers that must read one — the media probe
+// reads Content-Range from a ranged GET. On any error the body is nil, the
+// status 0 and the headers nil; the *twitter.Error surface is identical to
+// Get's (op httpx.Get).
+func (c *Client) GetMeta(ctx context.Context, url string, headers map[string]string) ([]byte, int, map[string][]string, error) {
+	return c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
 }
 
 // send is the shared GET/POST pipeline: pacing, the retry/classification loop
 // and body reading. The request is rebuilt per attempt so a POST body (a
-// one-shot reader once consumed) is resent whole on retries.
-func (c *Client) send(ctx context.Context, op, method, url string, body []byte, headers map[string]string) ([]byte, int, error) {
+// one-shot reader once consumed) is resent whole on retries. The response's
+// header map rides along so GetMeta can surface it; Get and Post drop it.
+func (c *Client) send(ctx context.Context, op, method, url string, body []byte, headers map[string]string) ([]byte, int, map[string][]string, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, 0, twitter.Errorf(twitter.KindUnavailable, op, "request not sent: %w", err)
+		return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op, "request not sent: %w", err)
 	}
 	if err := c.pace(ctx); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	// retryAfterUsed guards the single 429 wait-and-retry; it is independent
@@ -275,7 +288,7 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 		if err != nil {
 			// Parse failures carry the raw URL in their message — sanitize
 			// before wrapping (sdk redaction contract).
-			return nil, 0, twitter.Errorf(twitter.KindInvalidArg, op, "build request: %w", sanitizeTransportErr(err))
+			return nil, 0, nil, twitter.Errorf(twitter.KindInvalidArg, op, "build request: %w", sanitizeTransportErr(err))
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -288,25 +301,25 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 			// the response shape cannot improve by retrying.
 			var terr *twitter.Error
 			if errors.As(err, &terr) {
-				return nil, 0, err
+				return nil, 0, nil, err
 			}
 			// Transport-level failure (network or unreadable body). The
 			// cause is sanitized before wrapping: net/url's *url.Error
 			// embeds the full request URL in its message.
 			if attempt < c.retryAttempts {
 				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
-					return nil, 0, werr
+					return nil, 0, nil, werr
 				}
 				continue
 			}
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op,
+			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op,
 				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
 		}
 
 		status := resp.StatusCode
 		switch {
 		case status >= 200 && status < 400:
-			return respBody, status, nil
+			return respBody, status, map[string][]string(resp.Header), nil
 
 		case status == fhttp.StatusTooManyRequests:
 			delay, valid := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
@@ -319,10 +332,10 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 				if valid {
 					e.RetryAfter = &delay
 				}
-				return nil, 0, e
+				return nil, 0, nil, e
 			}
 			if !valid {
-				return nil, 0, &twitter.Error{
+				return nil, 0, nil, &twitter.Error{
 					Kind: twitter.KindRateLimited,
 					Op:   op,
 					Err:  errors.New("instance returned HTTP 429 without a usable Retry-After"),
@@ -330,28 +343,28 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 			}
 			retryAfterUsed = true
 			if werr := c.wait(ctx, delay, "retry-after"); werr != nil {
-				return nil, 0, werr
+				return nil, 0, nil, werr
 			}
 			continue
 
 		case status == fhttp.StatusNotFound:
-			return nil, 0, twitter.Errorf(twitter.KindNotFound, op, "instance returned HTTP 404")
+			return nil, 0, nil, twitter.Errorf(twitter.KindNotFound, op, "instance returned HTTP 404")
 
 		case status == fhttp.StatusUnauthorized || status == fhttp.StatusForbidden:
-			return nil, 0, twitter.Errorf(twitter.KindChallenge, op, "instance returned HTTP %d", status)
+			return nil, 0, nil, twitter.Errorf(twitter.KindChallenge, op, "instance returned HTTP %d", status)
 
 		case status >= 400 && status < 500:
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op, "instance returned HTTP %d", status)
+			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op, "instance returned HTTP %d", status)
 
 		default:
 			// 5xx (and unexpected 1xx): retryable upstream failure.
 			if attempt < c.retryAttempts {
 				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
-					return nil, 0, werr
+					return nil, 0, nil, werr
 				}
 				continue
 			}
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op,
+			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op,
 				"instance returned HTTP %d after %d attempt(s)", status, attempt+1)
 		}
 	}

@@ -21,6 +21,14 @@
 //     then URL suffix (xdown.py); snapcdn token payloads yield the direct
 //     twimg link with the proxy link kept as the fallback.
 //
+// Probe (probe.go) is the optional `--probe` enrichment pass the media
+// command runs per resolved URL: one ranged GET fetches a 1 MiB head window,
+// whose Content-Range total is the file size and whose body is walked for
+// the first mp4 movie header (mvhd) to get the duration — a faithful port
+// of media_support/video_probe.py. Probing is best-effort: the two parts
+// fail independently into their zero values and only a failed request
+// surfaces as a classified error.
+//
 // Common rules (plan M8): image URLs go through the pbs quality rewrite
 // (name=orig|large|small); video quality selects WHICH variant becomes the
 // main URL (high=highest bitrate, medium=upper median non-zero, low=lowest
@@ -134,6 +142,11 @@ type Resolver struct {
 	// surface, body and headers verbatim); the xdown backend sends its
 	// ajaxSearch form through it.
 	fetchPost func(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error)
+	// fetchMeta is the probe's seam (tests in this package only): it
+	// reproduces httpx.Client.GetMeta's (body, status, response headers,
+	// classified error) surface — the plain fetch seam cannot carry response
+	// headers, and the probe reads Content-Range from one.
+	fetchMeta func(ctx context.Context, url string, headers map[string]string) ([]byte, int, map[string][]string, error)
 }
 
 // NewResolver builds a Resolver over a freshly constructed httpx transport.
@@ -173,6 +186,18 @@ func (r *Resolver) post(ctx context.Context, url string, body []byte, headers ma
 		return nil, 0, twitter.Errorf(twitter.KindLocalState, opResolve, "no transport wired into the media resolver")
 	}
 	return r.HTTP.Post(ctx, url, body, headers)
+}
+
+// getMeta routes one header-bearing GET through the injected fetchMeta when
+// present (tests), the shared transport otherwise. Only the probe uses it.
+func (r *Resolver) getMeta(ctx context.Context, url string, headers map[string]string) ([]byte, int, map[string][]string, error) {
+	if r.fetchMeta != nil {
+		return r.fetchMeta(ctx, url, headers)
+	}
+	if r.HTTP == nil {
+		return nil, 0, nil, twitter.Errorf(twitter.KindLocalState, opProbe, "no transport wired into the media resolver")
+	}
+	return r.HTTP.GetMeta(ctx, url, headers)
 }
 
 // The third-party services receive the plugin's fixed browser identity:

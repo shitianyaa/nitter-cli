@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -889,5 +890,50 @@ func TestPostClassifiesStatuses(t *testing.T) {
 	}
 	if te.Op != "httpx.Post" {
 		t.Errorf("Op = %q, want httpx.Post", te.Op)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetMeta: the header-bearing GET variant (the media probe reads
+// Content-Range from a ranged GET). Same pacing/retry/classification
+// contract as Get; only the response headers are additionally surfaced.
+// ---------------------------------------------------------------------------
+
+func TestGetMetaSurfacesHeaders(t *testing.T) {
+	env := newTestClient(t, Options{}, step{status: 206, body: "head-bytes",
+		headers: map[string]string{"Content-Range": "bytes 0-1048575/24690112", "Content-Type": "video/mp4"}})
+
+	body, status, header, err := env.c.GetMeta(context.Background(), "https://cdn.test/video.mp4",
+		map[string]string{"Range": "bytes=0-1048575"})
+	if err != nil {
+		t.Fatalf("GetMeta: %v", err)
+	}
+	if status != 206 || string(body) != "head-bytes" {
+		t.Errorf("got (%q, %d), want (head-bytes, 206)", body, status)
+	}
+	if got := http.Header(header).Get("Content-Range"); got != "bytes 0-1048575/24690112" {
+		t.Errorf("Content-Range = %q, want the response header value", got)
+	}
+	if got := http.Header(header).Get("Content-Type"); got != "video/mp4" {
+		t.Errorf("Content-Type = %q, want the response header value", got)
+	}
+	req := env.doer.requests[0]
+	if got := req.Header.Get("Range"); got != "bytes=0-1048575" {
+		t.Errorf("Range request header = %q, want the map value", got)
+	}
+}
+
+func TestGetMetaErrorYieldsNils(t *testing.T) {
+	env := newTestClient(t, Options{RetryAttempts: -1}, step{status: 404})
+	body, status, header, err := env.c.GetMeta(context.Background(), "https://cdn.test/gone.mp4", nil)
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindNotFound {
+		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindNotFound)
+	}
+	if te.Op != "httpx.Get" {
+		t.Errorf("Op = %q, want httpx.Get (same classification surface as Get)", te.Op)
+	}
+	if body != nil || status != 0 || header != nil {
+		t.Errorf("got (%v, %d, %v), want nil body/status/headers on error", body, status, header)
 	}
 }
