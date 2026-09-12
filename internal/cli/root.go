@@ -1,5 +1,6 @@
 // Package cli is the composition root: it owns the command tree, shared
-// streams and process exit semantics. Command packages must not import it.
+// streams and process exit semantics. Command packages must not import it —
+// they take *invocation.Streams, which lives next to RootOptions.
 package cli
 
 import (
@@ -14,18 +15,15 @@ import (
 	"golang.org/x/term"
 
 	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/twitter-cli/internal/cli/commands/config"
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/twitter-cli/internal/config/paths"
+	"github.com/shitianyaa/twitter-cli/internal/config/settings"
 )
 
-// Streams bundles the three process streams; commands read/write nothing else.
-type Streams struct {
-	In          io.Reader
-	Out, Err    io.Writer
-	InIsTTY     bool
-	OutIsTTY    bool
-	CTX         context.Context
-	RootOptions *invocation.RootOptions
-}
+// Streams is re-exported from invocation so Run/New keep their historical
+// signature; command packages take *invocation.Streams and never import cli.
+type Streams = invocation.Streams
 
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -69,7 +67,36 @@ func New(s *Streams) *cobra.Command {
 		"Proxy URL (else HTTPS_PROXY/ALL_PROXY/config)")
 	root.PersistentFlags().StringVar(&s.RootOptions.Instance, "instance", "",
 		"Nitter instance URL override for this invocation (else config)")
+	// Baseline config publish on first real run: ensure ~/.twitter-cli/
+	// config.toml exists (no-replace). cobra handles --version and
+	// --help/-h before the PreRun stage, so they never get here; the
+	// auto-generated help subcommand and the config subtree (which manages
+	// the file itself and must reject invalid input before any file side
+	// effect) are skipped explicitly below.
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Name() == "help" || inConfigSubtree(cmd) {
+			return nil
+		}
+		p, err := paths.New()
+		if err != nil {
+			return err
+		}
+		return paths.EnsureDefaultConfigFile(p.ConfigFile, settings.DefaultConfigTOML)
+	}
+	root.AddCommand(config.New(s))
 	return root
+}
+
+// inConfigSubtree reports whether cmd lives under the config command: config
+// get treats a missing file as pure defaults, and config set/unset must not
+// create the file when rejecting input, so the baseline publish skips them.
+func inConfigSubtree(cmd *cobra.Command) bool {
+	for p := cmd; p != nil; p = p.Parent() {
+		if p.Name() == "config" {
+			return true
+		}
+	}
+	return false
 }
 
 func versionLine() string {

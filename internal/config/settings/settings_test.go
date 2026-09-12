@@ -236,6 +236,32 @@ func TestLoadValidationError(t *testing.T) {
 	})
 }
 
+func TestDefaultConfigTOML(t *testing.T) {
+	t.Run("parses to pure defaults", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(cfgPath, []byte(settings.DefaultConfigTOML), 0o600); err != nil {
+			t.Fatalf("write baseline: %v", err)
+		}
+
+		got, err := settings.Load(cfgPath, envMap(nil))
+		if err != nil {
+			t.Fatalf("Load() baseline error = %v", err)
+		}
+		if want := settings.Defaults(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("Load() baseline = %+v, want defaults %+v", got, want)
+		}
+	})
+
+	t.Run("no enabled instances or watch sources", func(t *testing.T) {
+		for _, line := range strings.Split(settings.DefaultConfigTOML, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "[[instances]]") || strings.HasPrefix(trimmed, "[[watch.sources]]") {
+				t.Fatalf("baseline has active array-table header %q; examples must stay commented out", trimmed)
+			}
+		}
+	})
+}
+
 func TestSaveKnown(t *testing.T) {
 	const preserveFixture = `default_limit = 7
 custom_flag = "keep-me"
