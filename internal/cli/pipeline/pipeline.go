@@ -13,7 +13,9 @@
 package pipeline
 
 import (
+	"errors"
 	"io"
+	"syscall"
 
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
@@ -117,4 +119,15 @@ func WriteErrorEnvelope(w io.Writer, command, stage, code, input, message string
 		},
 		Meta: &Meta{Input: input},
 	})
+}
+
+// IsBrokenPipe reports whether err is a broken pipe on stdout: the reader
+// hung up mid-stream (head/tail on a pipe). Per the pixiv sigpipe policy the
+// consuming side closing the stream is not a run failure — the caller treats
+// it as a graceful exit 0 (and, for the watch command's produce-then-persist
+// discipline, skips the state write so the next round re-pushes; 宁重勿丢).
+// Windows may surface broken pipes as a different errno (ERROR_BROKEN_PIPE),
+// so this portable check is best-effort.
+func IsBrokenPipe(err error) bool {
+	return errors.Is(err, syscall.EPIPE)
 }
