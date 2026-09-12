@@ -63,6 +63,13 @@ type SearchSource interface {
 	Search(ctx context.Context, query string, limit, maxPages int) ([]twitter.Tweet, string, error)
 }
 
+// ListSource is the list-timeline acquisition capability a command consumes
+// (same provenance contract as TimelineSource). Backed by *appapi.Client
+// through listAdapter.
+type ListSource interface {
+	ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]twitter.Tweet, string, error)
+}
+
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
@@ -101,6 +108,18 @@ func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages
 // Search returns the search acquisition capability as the narrow interface
 // commands consume (R11: commands never import appapi).
 func (w *Wiring) Search() SearchSource { return searchAdapter{w.AppAPI} }
+
+// listAdapter bridges the primitive-parameter ListSource to the appapi
+// method's PageOptions signature.
+type listAdapter struct{ app *appapi.Client }
+
+func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+	return a.app.ListTimeline(ctx, listID, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+}
+
+// List returns the list-timeline acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) List() ListSource { return listAdapter{w.AppAPI} }
 
 // Build composes the wiring.
 //
