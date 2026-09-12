@@ -47,8 +47,9 @@ ANSI 颜色）。
 `meta` 携带溯源信息：`source`（命令输入，形如 `kind:ref` 的键）、`instance`
 （产出这批结果的实例 base URL）、`fetched_at`（RFC3339 UTC）。`meta` 的空字段
 会被省略。`kind` 枚举在 v1 内只增不改；当前实际输出的 kind 为 `tweet`（数据
-命令）、`instance_report`（`instances test --ndjson`）与 `error`（`watch` 的
-逐源抓取失败）：
+命令）、`instance_report`（`instances test --ndjson`）、`media`
+（`media --ndjson`）与 `error`（`watch` 的逐源抓取失败、`media` 的逐 REF
+失败）：
 
 ```json
 {"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
@@ -145,6 +146,66 @@ stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出�
 ```json
 {"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
+
+## twitter media
+
+```bash
+twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--probe] [--json|--ndjson]
+```
+
+把每条 status REF 解析成可直接下载的媒体直链——视频 mp4 变体、图片原图、
+GIF。`REF` 的形态与 `twitter get` 相同（纯数字 ID，或 x.com / twitter.com /
+任意 Nitter 实例的推文 URL；接受 `/photo/N` 与 `/video/1` 后缀）。多个 REF
+按批次运行；不给位置参数且 stdin 非 TTY 时，从 stdin 读取引用（每行一个，
+空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
+调用方完成——本命令只解析直链，不抓取媒体。
+
+**策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → vx → syndication
+→ nitter → xdown 依次尝试，返回**第一个**产出媒体的策略（`source` 标明胜出
+者）；显式指定名称则只运行该策略。payload 能解析但不含媒体的策略会被跳过、
+继续下一个；所有策略都为空时按 `not_found` 错误解析——「推文没有媒体」是
+正常的分类结果，不是崩溃。
+
+**信任边界**：fx、vx、syndication、xdown 是**第三方公共服务**——解析请求会
+把推文 URL 发送给它们，因此只解析你愿意分享的公开推文；它们的失败会以真实
+策略名上报，绝不静默换成其他来源的成功结果。`nitter` 则从**你自己的**配置
+实例读取 status 页（`[[instances]]` 的第一个条目，或 `--instance`）；未配置
+实例时以明确的 local-state 错误失败。Nitter 服务的链接按原样保留——包括
+纯 http 的局域网实例——且不携带变体元数据。
+
+**`--quality high|medium|low`**（默认 `high`）：图片走 pbs 档位重写
+（`name=orig|large|small`）；视频/GIF 由档位决定哪个变体成为主 URL
+（high = 最高码率，medium = 非零码率的上中位，low = 最低非零），全部变体
+仍保留在 `variants` 列表中。与参考插件不同，CLI 返回一条推文的**全部**媒体
+条目——不会在有视频时跳过图片，由消费方自行取舍。
+
+**`--probe`** 对每个 video/gif URL 追加一次 Range 请求（图片永不探测）：
+时长来自 mp4 movie header，大小来自 Content-Range total。探测是尽力而为的
+——任何失败都让取值留空、绝不导致运行失败；来源已带有时长的条目不会被覆盖。
+每条视频条目多一次请求成本。
+
+人类 / text 输出为每条媒体一行制表符行：
+
+```text
+https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
+```
+
+列为 `ref source kind url label duration size`——ref 原样回显输入引用；尾部
+缺省单元格为 `-`。`--json` 在整个调用恰好解析出一条媒体时输出单个 JSON
+对象，否则为数组，没有结果时为 `[]`。`--ndjson` 按引用顺序输出：每条媒体
+一个信封（`kind` `media`，下载 URL 作为 `id`，MediaResolution 作为 `data`，
+`meta.input` = 原始 ref），每个失败的 REF 一个 `kind:"error"` 信封：
+
+```json
+{"schema":"twitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+```
+
+退出码：成功为 0（探测失败不计）；单个 REF 解析失败会得到就地错误报告
+（NDJSON 流上为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），
+其余 REF 继续运行；至少一个 REF 失败时以 `media completed with N of M refs
+failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--strategy`/
+`--quality` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出）退出 2。
 
 ## twitter instances test
 

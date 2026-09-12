@@ -40,6 +40,17 @@
   `--media-type` 值不合法为用法错误）。过滤在抓取之后应用——`watch` 中位于去重
   之前，被过滤的推文不会被记为已见，每轮重新抓取但不重复输出，`--max-new` 只
   统计通过过滤的推文。
+- `twitter media <REF>...`：把推文解析成可直接下载的媒体直链（视频 mp4 变体、
+  图片原图、GIF），走参考插件验证过的策略链——`--strategy auto`（fx → vx →
+  syndication → nitter → xdown；首个产出媒体的策略胜出并在 `source` 中标明）
+  或显式指定单一策略。`--quality high|medium|low` 对图片走 pbs 档位重写、决定
+  主视频变体（保留全部变体）；`--probe` 对每条视频/GIF 追加一次尽力而为的
+  Range 请求（mp4 时长 + Content-Range 大小；任何失败都让取值留空、绝不导致
+  运行失败）。多 REF 批次输出就地错误信封，部分失败退出 1；`--json` 在恰好
+  一条媒体时输出单个对象、否则为数组；`--ndjson` 以新增的 `media` kind（只增）
+  流式输出。Nitter 读取用户自己的配置实例（其纯 http 链接按原样保留）；
+  fx/vx/syndication/xdown 是会收到推文 URL 的第三方公共服务——已写入文档的
+  信任边界，仅用于公开推文。
 
 ## 变更
 

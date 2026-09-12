@@ -1,13 +1,13 @@
 ---
 slug: twitter-cli
-version: 0.1.3
+version: 0.2.0
 displayName: Twitter CLI
 summary: Safely operate public-tweet retrieval through the twitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
 homepage: https://github.com/shitianyaa/twitter-cli
 tags: [twitter, nitter, cli, agent]
 name: twitter-cli
-description: 通过 twitter-cli 的 `twitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 twitter-cli、`twitter` 命令、Nitter 监控/推文抓取，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `twitter <command> --help` 核对当前可用参数。
+description: 通过 twitter-cli 的 `twitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`twitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 twitter-cli、`twitter` 命令、Nitter 监控/推文抓取、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `twitter <command> --help` 核对当前可用参数。
 ---
 
 # twitter-cli Operator
@@ -57,7 +57,7 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
 | Local write | `config set`, `config unset`, `seen clear` | Confirm every single time; authorization does not carry over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
@@ -65,17 +65,22 @@ safety boundaries, and semantics traps.
 Notes: `instances test` completes even when every probe fails (the report is
 the product — exit 0); treat the report, not the exit code, as the diagnostic.
 `seen clear` requires `--confirm` and only touches the default state location.
+`media` is read-only too, but its auto chain hands the tweet URL to third-party
+public resolvers (fx/vx/syndication/xdown) — use it only for public statuses
+the user is fine sharing (see trap 16).
 
 ## Output and piping
 
 - For humans: the default tab-separated text (same on a TTY and in a pipe).
 - For programs: `--ndjson` — one `twitter.pipeline/v1` envelope per line, kind
-  `tweet` or `error` (plus `instance_report` for `instances test --ndjson`).
+  `tweet` or `error` (plus `instance_report` for `instances test --ndjson`,
+  `media` for `media --ndjson`).
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
-  `user` `search` `list` `get` `instances test` `seen list` `update --check`;
-  `--ndjson` on `user` `search` `list` `get` `instances test` and `watch`;
-  `watch` has no `--json`; `config`/`seen clear` have neither.
+  `user` `search` `list` `get` `media` `instances test` `seen list`
+  `update --check`; `--ndjson` on `user` `search` `list` `get` `media`
+  `instances test` and `watch`; `watch` has no `--json`; `config`/
+  `seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for.
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,
@@ -119,6 +124,11 @@ twitter list 12345 --limit 10 --json                     # list timeline by nume
 twitter get https://x.com/NASA/status/2081668333762687236 --json
 twitter get 2081668333762687236 --json                   # bare numeric ID also works
 echo https://x.com/NASA/status/2081668333762687236 | twitter get   # one ref from non-TTY stdin
+
+twitter media https://x.com/user/status/ID --json        # resolve downloadable media (image originals + video mp4)
+twitter media URL --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
+twitter media URL --quality medium --ndjson              # video bitrate / image pbs tier
+twitter media URL --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
 twitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
 twitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
@@ -187,9 +197,9 @@ twitter update --check --json                            # {current, latest, out
     in-place error envelope, its state is untouched, other sources continue, and
     `--once` exits 1.
 12. **Exit codes**: 0 success (including empty results and EPIPE), 1 runtime
-    failure (all instances failed / partial watch failure / corrupt state file /
-    unknown subcommand), 2 usage error. Check the exit code before parsing any
-    JSON; stderr is never JSON.
+    failure (all instances failed / partial watch failure / partial `media`
+    batch failure / corrupt state file / unknown subcommand), 2 usage error.
+    Check the exit code before parsing any JSON; stderr is never JSON.
 13. **`--state-dir` isolates watch state** (testing, multi-instance setups), but
     `seen list`/`seen clear` have no `--state-dir` and always operate on the
     default location — with a custom `--state-dir`, read that directory's
@@ -204,6 +214,23 @@ twitter update --check --json                            # {current, latest, out
     `--max-new` counts only filtered-through tweets. An invalid
     `--media-type` value exits 2. Note `--no-reposts` acts on the HTML
     retweet header only: RSS-sourced data carries no repost marker.
+16. **`media` strategies and the privacy boundary**: `--strategy auto` tries
+    fx → vx → syndication → nitter → xdown and returns the FIRST strategy
+    that yields media (`source` stamps the winner). fx/vx/syndication/xdown
+    are THIRD-PARTY public services that receive the tweet URL — only resolve
+    public statuses the user is fine sharing, and never feed them private or
+    sensitive links; `nitter` instead reads the status page from the user's
+    own configured instance (its plain-http links are kept as-is). A status
+    without media resolves as a `not_found` error (exit 1), not an empty
+    success — that is the resolver contract, not a malfunction.
+17. **`media` returns ALL entries — a deliberate CLI divergence**: the
+    reference plugin skips image candidates when a status also has video/GIF;
+    the CLI does not — every media entry of the winning strategy comes back
+    (images and video together) and the CONSUMER chooses. `--quality
+    high|medium|low` picks the image pbs tier and the main video variant
+    (every variant stays in `variants`); `--probe` adds duration/size via
+    extra ranged requests and is best-effort — a probe failure keeps the
+    values empty and never fails the run.
 
 ## Routing
 

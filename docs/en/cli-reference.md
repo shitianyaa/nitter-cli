@@ -49,8 +49,8 @@ text rendering (the two are identical tab-separated lines; no ANSI colors).
 `instance` (the base URL of the instance that produced the batch) and
 `fetched_at` (RFC3339 UTC). Empty `meta` fields are omitted. The `kind` enum is
 additive-only in v1; the currently emitted kinds are `tweet` (data commands),
-`instance_report` (`instances test --ndjson`) and `error` (per-source fetch
-failures of `watch`):
+`instance_report` (`instances test --ndjson`), `media` (`media --ndjson`) and
+`error` (per-source fetch failures of `watch`, per-ref failures of `media`):
 
 ```json
 {"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
@@ -160,6 +160,79 @@ illustrative):
 ```json
 {"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
+
+## twitter media
+
+```bash
+twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--probe] [--json|--ndjson]
+```
+
+Resolves each status REF into directly downloadable media links — video mp4
+variants, original images, GIFs. `REF` takes the same shapes as `twitter get`
+(bare numeric ID, or a status URL of x.com, twitter.com or any Nitter
+instance; `/photo/N` and `/video/1` suffixes accepted). Multiple REFs run as
+a batch; with no argument and a non-TTY stdin the references are read from
+stdin (one per non-empty line); giving refs both as arguments and on stdin is
+an ambiguity error (exit 2). The download itself is the caller's job — the
+command resolves links, it does not fetch media.
+
+**Strategies** (`--strategy`, default `auto`): `auto` tries the chain
+fx → vx → syndication → nitter → xdown in order and returns the FIRST
+strategy that yields media (`source` stamps which one won); an explicit name
+runs only that one. A strategy whose payload parses but carries no media is
+skipped for the next one; when every strategy comes up empty the status
+resolves as a `not_found` error — a status without media is a normal
+classified outcome, not a crash.
+
+**Trust boundary**: fx, vx, syndication and xdown are **third-party public
+services** — resolving a status sends its tweet URL to them, so only resolve
+public statuses you are fine sharing; their failures are reported with the
+real strategy name and are never silently swapped for another source's
+success. `nitter` instead reads the status page from **your own** configured
+instance (the first `[[instances]]` entry, or `--instance`); with no instance
+configured it fails with a clear local-state error. Nitter-served links are
+kept as they are — including plain-http LAN instances — and carry no variant
+metadata.
+
+**`--quality high|medium|low`** (default `high`): images go through the pbs
+tier rewrite (`name=orig|large|small`); for video/GIF the tier selects WHICH
+variant becomes the main URL (high = highest bitrate, medium = upper median
+non-zero, low = lowest non-zero) while every variant stays in the `variants`
+list. Unlike the reference plugin, the CLI returns ALL media entries of a
+status — it does not skip images when a video is present; consumers choose.
+
+**`--probe`** adds one ranged GET per video/gif URL (images are never
+probed): the duration comes from the mp4 movie header, the size from the
+Content-Range total. Probing is best-effort — any failure leaves the values
+empty and never fails the run, and a source-reported duration is never
+overwritten. Budget one extra request per video entry.
+
+Human/text output is one tab-separated row per media entry:
+
+```text
+https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
+```
+
+Columns: `ref source kind url label duration size` — ref echoes the input
+reference; the trailing cells are `-` when absent. `--json` prints a single
+JSON object when exactly one media entry resolved across the whole
+invocation, an array otherwise, `[]` when nothing resolved. `--ndjson`
+prints one envelope per media entry (`kind` `media`, the download URL as
+`id`, the MediaResolution as `data`, `meta.input` = the raw ref) and one
+`kind:"error"` envelope per failed ref, in ref order:
+
+```json
+{"schema":"twitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+```
+
+Exit codes: success 0 (probing failures do not count); a per-ref resolution
+failure gets an in-place error report (error envelope on the NDJSON stream,
+`error: <ref>: <message>` on stderr otherwise) while the other refs continue,
+and the run exits 1 with a `media completed with N of M refs failed` summary
+when at least one ref failed; usage problems (`--json` with `--ndjson`,
+invalid `--strategy` or `--quality`, bad/missing refs, refs given both as
+arguments and on stdin) exit 2.
 
 ## twitter instances test
 
