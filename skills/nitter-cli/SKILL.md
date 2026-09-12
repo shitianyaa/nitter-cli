@@ -1,6 +1,6 @@
 ---
 slug: nitter-cli
-version: 0.3.0
+version: 0.4.0
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
