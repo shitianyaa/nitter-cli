@@ -10,7 +10,9 @@
 // Redaction: errors produced here obey the sdk contract — neither the
 // *twitter.Error nor its wrapped chain contains credentials, URL query
 // strings, request headers or response bodies. Status codes and transport
-// error strings are the only upstream facts echoed back.
+// error strings are the only upstream facts echoed back. To that end,
+// sanitizeTransportErr strips net/url wrappers (whose Error() text embeds
+// the full request URL) before any transport error is wrapped.
 package httpx
 
 import (
@@ -18,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +34,7 @@ import (
 )
 
 const (
-	opGet = "Get"
+	opGet = "httpx.Get"
 	opNew = "httpx.New"
 )
 
@@ -41,8 +44,8 @@ const (
 	// defaultRetryAttempts is the number of EXTRA attempts after the first
 	// one for network errors and 5xx (Options zero value → this default).
 	defaultRetryAttempts = 2
-	// defaultRetryDelay is the linear backoff base: attempt n (1-based)
-	// waits retryDelay*n.
+	// defaultRetryDelay is the linear backoff base: the n-th retry
+	// (attempt+1, 1-based) waits retryDelay*(attempt+1).
 	defaultRetryDelay = 1 * time.Second
 	// defaultMinInterval spaces the starts of consecutive Get calls.
 	defaultMinInterval = 1 * time.Second
@@ -76,8 +79,9 @@ type Options struct {
 	// RetryAttempts is the number of extra attempts for network errors and
 	// 5xx; 0 → defaultRetryAttempts, negative → no retries.
 	RetryAttempts int
-	// RetryDelay is the linear backoff base delay*(attempt); 0 →
-	// defaultRetryDelay, negative → no backoff wait between retries.
+	// RetryDelay is the linear backoff base: the n-th retry waits
+	// retryDelay*(attempt+1); 0 → defaultRetryDelay, negative → no backoff
+	// wait between retries.
 	RetryDelay time.Duration
 	// MinInterval is the global minimum interval between the STARTS of
 	// consecutive Get calls on one client; 0 → defaultMinInterval,
@@ -219,7 +223,9 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 
 	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, twitter.Errorf(twitter.KindInvalidArg, opGet, "build request: %w", err)
+		// Parse failures carry the raw URL in their message — sanitize
+		// before wrapping (sdk redaction contract).
+		return nil, 0, twitter.Errorf(twitter.KindInvalidArg, opGet, "build request: %w", sanitizeTransportErr(err))
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -231,7 +237,9 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 	for attempt := 0; ; attempt++ {
 		resp, body, err := c.doOnce(req)
 		if err != nil {
-			// Transport-level failure (network or unreadable body).
+			// Transport-level failure (network or unreadable body). The
+			// cause is sanitized before wrapping: net/url's *url.Error
+			// embeds the full request URL in its message.
 			if attempt < c.retryAttempts {
 				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
 					return nil, 0, werr
@@ -239,7 +247,7 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 				continue
 			}
 			return nil, 0, twitter.Errorf(twitter.KindUnavailable, opGet,
-				"request failed after %d attempt(s): %w", attempt+1, err)
+				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
 		}
 
 		status := resp.StatusCode
@@ -400,4 +408,24 @@ func parseRetryAfter(v string, now time.Time) (time.Duration, bool) {
 		return d, true
 	}
 	return 0, false
+}
+
+// sanitizeTransportErr serves the sdk/errors.go redaction contract: net/url
+// wrappers render their full request URL — query string included — into
+// Error() text ("Get \"https://host/p?token=…\": dial tcp: …"), so they must
+// never reach the *twitter.Error chain. Since Go 1.27 the old
+// *url.ParseError is unified into *url.Error (Op "parse"), so one
+// type-assertion covers both the transport and the request-build paths.
+// The wrapper is replaced by its cause, keeping errors.Is/errors.As able to
+// reach the real root (dial errors, invalid-character reasons, …); a nil
+// cause degrades to a fixed static description.
+func sanitizeTransportErr(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if ue.Err != nil {
+			return ue.Err
+		}
+		return errors.New("transport failure")
+	}
+	return err
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -382,6 +383,59 @@ func TestGetNetworkErrorExhaustedRetriesReachRootCause(t *testing.T) {
 	}
 	if env.doer.calls != 2 {
 		t.Errorf("calls = %d, want 2", env.doer.calls)
+	}
+}
+
+// TestGetRedactsURLFromTransportError pins the sdk redaction contract on the
+// network-exhaustion path: real transports wrap failures in *url.Error whose
+// Error() embeds the full request URL including its query string, so the
+// wrapper itself must never be carried into the *twitter.Error chain.
+func TestGetRedactsURLFromTransportError(t *testing.T) {
+	boom := errors.New("dial tcp: refused")
+	leak := &url.Error{Op: "Get", URL: "https://instance.test/user?token=secret", Err: boom}
+	env := newTestClient(t, Options{RetryAttempts: 1, RetryDelay: time.Millisecond},
+		step{err: leak}, step{err: leak})
+
+	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindUnavailable)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "token=secret") {
+		t.Errorf("error %q leaks the URL query string", msg)
+	}
+	if strings.Contains(msg, "instance.test/user") {
+		t.Errorf("error %q leaks the request URL", msg)
+	}
+	if !strings.Contains(msg, "dial tcp: refused") {
+		t.Errorf("root cause text must survive sanitization, got %q", msg)
+	}
+	if !errors.Is(err, boom) {
+		t.Errorf("sanitized chain must still reach the root cause via errors.Is")
+	}
+}
+
+// TestGetRedactsURLFromRequestBuildError pins the same contract on the
+// request-construction path: url.ParseRequestURI failures also embed the raw
+// URL (query string included) in their message.
+func TestGetRedactsURLFromRequestBuildError(t *testing.T) {
+	env := newTestClient(t, Options{})
+
+	_, _, err := env.c.Get(context.Background(), "http://exa mple.test/x?token=secret", nil)
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindInvalidArg {
+		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindInvalidArg)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "token=secret") {
+		t.Errorf("error %q leaks the URL query string", msg)
+	}
+	if strings.Contains(msg, "http://") || strings.Contains(msg, "exa mple") {
+		t.Errorf("error %q leaks the raw URL", msg)
+	}
+	if env.doer.calls != 0 {
+		t.Errorf("calls = %d, want 0", env.doer.calls)
 	}
 }
 
