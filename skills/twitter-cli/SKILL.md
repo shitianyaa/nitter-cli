@@ -60,6 +60,7 @@ safety boundaries, and semantics traps.
 | Read-only | `user`, `search`, `list`, `get`, `instances test`, `seen list`, `config get`, `config path`, `--version` | May run directly when the user's task needs them |
 | Local write | `config set`, `config unset`, `seen clear` | Confirm every single time; authorization does not carry over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
+| Software update | `update`, `update --check` | Read-only: prints guidance, or compares the installed version against the latest GitHub release. Never self-installs — do not attempt install steps unless the user asks |
 
 Notes: `instances test` completes even when every probe fails (the report is
 the product — exit 0); treat the report, not the exit code, as the diagnostic.
@@ -99,6 +100,7 @@ twitter watch --once --ndjson                           # sources from [[watch.s
 twitter seen list
 twitter seen clear --source user:NASA --confirm         # state change: consent each time
 twitter config set max_pages 5                          # state change: consent each time
+twitter update --check                                  # read-only release check (no self-install)
 ```
 
 ## Key semantics and traps

@@ -14,6 +14,7 @@
 - Public Go SDK `github.com/shitianyaa/twitter-cli/sdk` (package `twitter`): `Client` with instance rotation and cooldown, narrow `Transport` interface, classified error kinds (`KindChallenge`, `KindRateLimited` with `RetryAfter`, `KindUnavailable`, …) and additive-only data models (`Tweet`, `Author`, `Media`, `Quoted`, `Page`, `InstanceReport`).
 - Bilingual documentation (English + 简体中文): README, CLI reference, Go SDK guide and maintainers' architecture/development guides under `docs/`.
 - Agent skill shipped with the repository (`skills/twitter-cli/`): operating rules, command tiers, quick reference and troubleshooting for driving the binary from an AI agent.
+- `twitter update` with `--check [--prerelease] [--json]`: compares the installed version against the latest GitHub release by strict semver (prerelease-aware with `--prerelease`, drafts always excluded); without `--check` it prints package-manager / manual-download guidance. No self-install in the MVP; development builds skip the check.
 
 ## Changed
 

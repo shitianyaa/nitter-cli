@@ -31,6 +31,10 @@
   维护者架构/开发指南。
 - 随仓库分发的 Agent Skill（`skills/twitter-cli/`）：面向 AI agent 的操作规则、
   命令分级、速查表与故障排查。
+- `twitter update` 支持 `--check [--prerelease] [--json]`：以严格 semver 将
+  当前版本与 GitHub 最新发布版比较（`--prerelease` 感知预发布，恒排除草稿）；
+  不带 `--check` 时打印包管理器 / 手动下载指引。MVP 不做自替换安装，开发构建
+  直接跳过检查。
 
 ## 变更
 

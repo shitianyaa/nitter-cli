@@ -23,6 +23,8 @@ timer、Hermes）驱动、以 NDJSON 消费而设计。
   逐记录 `--ndjson`（`twitter.pipeline/v1` 信封）。
 - **管理自身配置与状态**：`config path/get/set/unset` 管理九个标量键，
   `seen list/clear` 管理 watch 去重状态。
+- **检查更新**：`update --check` 将当前版本与 GitHub 最新发布版比较
+  （严格 semver，支持 `--json`）。不做自替换安装。
 - **实例轮换与冷却**：按配置顺序轮换实例；发生 429/网络错误的实例进入冷却
   （默认 60s），期间改试下一个。不做成功率加权——配置顺序就是策略。
 

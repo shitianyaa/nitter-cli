@@ -290,3 +290,28 @@ twitter seen clear [--source SOURCE] --confirm
   文件的 schema 版本保留；写入原子化。
 - 状态文件损坏是硬错误（退出 1）——存储层绝不静默重置状态，因为静默重置会把
   整个 watch 历史重新推送一遍。
+
+## twitter update
+
+```bash
+twitter update
+twitter update --check [--prerelease] [--json]
+```
+
+报告二进制的更新方式。**MVP 不做自替换安装**——不带 `--check` 的形式只打印
+「请用包管理器重装 / 手动下载」的指引，退出 0。
+
+- `--check` 经 GitHub Releases API 将当前版本与
+  `github.com/shitianyaa/twitter-cli` 的最新发布版比较。草稿版恒被排除；
+  `--prerelease` 允许预发布版参与"最新版"遴选。遴选按严格 semver 优先级
+  （`v` 前缀可选、忽略构建元数据、遵循 semver 预发布排序）在 API 首页内
+  进行，而非按发布时间。所有成功的检查均退出 0——过时是报告结果而非失败：
+  `update available: <version> (<release URL>)` 或 `up to date`。当前版本
+  比最新发布版还新（例如装了预发布版）视为最新。
+- `--json`（仅可与 `--check` 同用）打印一个键齐全的 JSON 文档：
+  `{"current":"0.1.0","latest":"0.2.0","outdated":true,"prerelease":false,"release_url":"…"}`。
+  开发构建输出：`{"current":"dev","development_build":true}`。
+- 开发构建（编译时未注入版本元数据）完全跳过检查：没有可比较的发布版。
+- 检查失败——网络错误、GitHub 错误（仅报 HTTP 状态码；绝不回显响应体）、
+  无可用发布版——是运行时失败（退出 1）。
+- `--json` 与 `--prerelease` 仅可与 `--check` 同用（否则用法错误，退出 2）。

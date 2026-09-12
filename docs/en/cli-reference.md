@@ -322,3 +322,35 @@ Inspects and clears the watch dedup state at the **default** location
   are atomic.
 - A corrupt state file is a hard error (exit 1) — the store never silently resets
   state, because a silent reset would re-push a whole watch history.
+
+## twitter update
+
+```bash
+twitter update
+twitter update --check [--prerelease] [--json]
+```
+
+Reports how to update the binary. **The MVP performs no self-install** — the
+guidance form (without `--check`) prints the package-manager / manual-download
+instructions and exits 0.
+
+- `--check` compares the installed version against the latest release of
+  `github.com/shitianyaa/twitter-cli` via the GitHub Releases API. Drafts are
+  always excluded; `--prerelease` admits prereleases into the "latest"
+  selection. Selection is by strict semver precedence (optional `v` prefix,
+  build metadata ignored, spec prerelease ordering) over the first API page,
+  not by recency. Exit 0 on every successful check — outdatedness is a
+  reported result, not a failure:
+  `update available: <version> (<release URL>)` versus `up to date`. The
+  installed version being newer than the latest release (e.g. an installed
+  prerelease) counts as up to date.
+- `--json` (only with `--check`) prints one JSON document with every key
+  present: `{"current":"0.1.0","latest":"0.2.0","outdated":true,"prerelease":false,"release_url":"…"}`.
+  On a development build: `{"current":"dev","development_build":true}`.
+- Development builds (compiled without version metadata) skip the check
+  entirely: there is no release to compare `dev` against.
+- A failed check — network failure, GitHub error (HTTP status only; response
+  bodies are never echoed), or no usable release — is a runtime failure
+  (exit 1).
+- `--json` and `--prerelease` are only valid together with `--check`
+  (otherwise a usage error, exit 2).

@@ -1,0 +1,195 @@
+// External contract-freeze test: this file pins the ENTIRE exported surface
+// of the sdk at compile time. It is the executable form of the "additive-only"
+// v1 contract — any rename, removal, type change or signature change of a
+// frozen identifier breaks this build, while additive extensions compile
+// cleanly.
+//
+// Two mechanisms:
+//  1. Signature assertions: function values (and method expressions) assigned
+//     to typed vars — these freeze exact signatures, not just existence.
+//  2. Composite-literal assignments with field names — these freeze struct
+//     field names and types (additive new fields still compile, per the
+//     contract).
+//
+// The JSON encodings themselves (zero and filled Tweet, Page, InstanceReport)
+// are golden-pinned in models_test.go and NOT duplicated here; this file adds
+// the standalone sub-struct goldens (Author, Media, Quoted, Probe) that the
+// embedded Tweet golden does not isolate.
+package twitter_test
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/shitianyaa/twitter-cli/sdk"
+)
+
+// --- Client / New / Options -------------------------------------------------
+
+var (
+	_ func(...twitter.Options) (*twitter.Client, error) = twitter.New
+	_ func([]twitter.Instance) twitter.Options          = twitter.WithInstances
+	_ func(twitter.Transport) twitter.Options           = twitter.WithHTTPClient
+	_ func(time.Duration) twitter.Options               = twitter.WithCooldown
+
+	// The concrete types behind the option values.
+	_ *twitter.Client   = (*twitter.Client)(nil)
+	_ twitter.Options   = nil
+	_ []twitter.Options = nil
+	_ twitter.Transport = (twitter.Transport)(nil)
+	_ twitter.Instance  = twitter.Instance{URL: "", Username: "", Password: ""}
+)
+
+// --- Chooser -----------------------------------------------------------------
+
+var (
+	_ func([]twitter.Instance, time.Duration, func() time.Time) *twitter.Chooser = twitter.NewChooser
+	// Method expression: freezes Pick's exact signature on *Chooser.
+	_ func(*twitter.Chooser) (string, func(), func(), error) = (*twitter.Chooser).Pick
+	_ *twitter.Chooser                                       = (*twitter.Chooser)(nil)
+)
+
+// --- Errors ------------------------------------------------------------------
+
+var (
+	// Errorf's full signature: kind, op, format, args.
+	_ func(twitter.Kind, string, string, ...any) *twitter.Error = twitter.Errorf
+
+	// The exported *Error struct shape (Kind/Op/Err/RetryAfter).
+	_ *twitter.Error = &twitter.Error{
+		Kind:       twitter.KindInvalidArg,
+		Op:         "",
+		Err:        nil,
+		RetryAfter: (*time.Duration)(nil),
+	}
+
+	// The error/unwrap methods, as satisfied by *Error.
+	_ func(*twitter.Error) string = (*twitter.Error).Error
+	_ func(*twitter.Error) error  = (*twitter.Error).Unwrap
+
+	// All seven v1 Kind constants — names, type AND wire values.
+	_ map[twitter.Kind]string = map[twitter.Kind]string{
+		twitter.KindChallenge:   "challenge_required",
+		twitter.KindRateLimited: "rate_limited",
+		twitter.KindNotFound:    "not_found",
+		twitter.KindUnavailable: "upstream_unavailable",
+		twitter.KindMalformed:   "malformed_upstream_response",
+		twitter.KindInvalidArg:  "invalid_argument",
+		twitter.KindLocalState:  "local_state_error",
+	}
+)
+
+// TestKindWireValuesAreFrozen pins the string values behind the Kind
+// constants: the map above freezes their names and type at compile time, but
+// only an equality check can freeze the wire values themselves (they reach
+// NDJSON consumers through error envelopes).
+func TestKindWireValuesAreFrozen(t *testing.T) {
+	want := map[twitter.Kind]string{
+		twitter.KindChallenge:   "challenge_required",
+		twitter.KindRateLimited: "rate_limited",
+		twitter.KindNotFound:    "not_found",
+		twitter.KindUnavailable: "upstream_unavailable",
+		twitter.KindMalformed:   "malformed_upstream_response",
+		twitter.KindInvalidArg:  "invalid_argument",
+		twitter.KindLocalState:  "local_state_error",
+	}
+	for kind, value := range want {
+		if string(kind) != value {
+			t.Errorf("Kind %q = %q, wire value drifted", value, string(kind))
+		}
+	}
+}
+
+// --- Data models (field shapes via composite literals) -----------------------
+
+var (
+	_ twitter.Tweet = twitter.Tweet{
+		ID:   "",
+		URL:  "",
+		Text: "",
+		Author: twitter.Author{
+			Handle:    "",
+			Name:      "",
+			AvatarURL: "",
+		},
+		PublishedAt: time.Time{},
+		Media:       []twitter.Media{{Type: "", URL: "", Width: 0, Height: 0}},
+		IsRetweet:   false,
+		RepostedBy:  "",
+		ReplyTo:     "",
+		Quote: &twitter.Quoted{
+			ID:     "",
+			URL:    "",
+			Text:   "",
+			Author: twitter.Author{},
+		},
+	}
+	_ twitter.Quoted = twitter.Quoted{}
+	_ twitter.Author = twitter.Author{}
+	_ twitter.Media  = twitter.Media{}
+
+	_ twitter.Probe          = twitter.Probe{OK: false, Status: 0, Err: ""}
+	_ twitter.InstanceReport = twitter.InstanceReport{
+		URL:      "",
+		RSS:      twitter.Probe{},
+		UserHTML: twitter.Probe{},
+		Search:   twitter.Probe{},
+		List:     twitter.Probe{},
+		Latency:  0,
+	}
+
+	// The generic pagination envelope instantiated at the frozen type.
+	_ twitter.Page[twitter.Tweet]          = twitter.Page[twitter.Tweet]{Items: nil, NextCursor: ""}
+	_ twitter.Page[twitter.InstanceReport] = twitter.Page[twitter.InstanceReport]{Items: nil, NextCursor: ""}
+)
+
+// --- Standalone sub-struct JSON goldens ---------------------------------------
+//
+// The zero and filled Tweet/Page/InstanceReport goldens live in models_test.go
+// (single source of truth). These pin the standalone encodings of the
+// sub-structures that only appear embedded there.
+
+func TestAuthorJSONShapeIsTheDataContract(t *testing.T) {
+	b, err := json.Marshal(twitter.Author{Handle: "nasa", Name: "NASA", AvatarURL: "https://pbs.twimg.com/a.jpg"})
+	if err != nil {
+		t.Fatalf("Marshal(Author) = error %v", err)
+	}
+	want := `{"handle":"nasa","name":"NASA","avatar_url":"https://pbs.twimg.com/a.jpg"}`
+	if string(b) != want {
+		t.Errorf("Author JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+}
+
+func TestMediaJSONShapeIsTheDataContract(t *testing.T) {
+	b, err := json.Marshal(twitter.Media{Type: "gif", URL: "https://video.twimg.com/x.mp4", Width: 640, Height: 360})
+	if err != nil {
+		t.Fatalf("Marshal(Media) = error %v", err)
+	}
+	want := `{"type":"gif","url":"https://video.twimg.com/x.mp4","width":640,"height":360}`
+	if string(b) != want {
+		t.Errorf("Media JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+}
+
+func TestQuotedJSONShapeIsTheDataContract(t *testing.T) {
+	b, err := json.Marshal(twitter.Quoted{ID: "7", URL: "https://x.com/esa/status/7", Text: "q"})
+	if err != nil {
+		t.Fatalf("Marshal(Quoted) = error %v", err)
+	}
+	want := `{"id":"7","url":"https://x.com/esa/status/7","text":"q","author":{"handle":"","name":"","avatar_url":""}}`
+	if string(b) != want {
+		t.Errorf("Quoted JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+}
+
+func TestProbeJSONShapeIsTheDataContract(t *testing.T) {
+	b, err := json.Marshal(twitter.Probe{OK: false, Status: 429, Err: "instance returned HTTP 429"})
+	if err != nil {
+		t.Fatalf("Marshal(Probe) = error %v", err)
+	}
+	want := `{"ok":false,"status":429,"err":"instance returned HTTP 429"}`
+	if string(b) != want {
+		t.Errorf("Probe JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+}

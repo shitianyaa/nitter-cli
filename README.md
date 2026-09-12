@@ -25,6 +25,9 @@ It is also a public Go SDK (`github.com/shitianyaa/twitter-cli/sdk`, package
   (`twitter.pipeline/v1`).
 - **Manage its own configuration and state**: `config path/get/set/unset` for the
   nine scalar keys, `seen list/clear` for the watch dedup state.
+- **Check for updates**: `update --check` compares the installed version against
+  the latest GitHub release (strict semver, `--json` for machines). It performs
+  no self-install.
 - **Rotate and cool down instances**: instances are tried in config order; an
   instance that fails (HTTP 429, network error) cools down (default 60s) while the
   next one is tried. No success weighting — the config order is the policy.
