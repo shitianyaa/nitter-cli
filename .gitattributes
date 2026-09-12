@@ -1,6 +1,2 @@
-# Shell scripts must carry LF endings: they run under bash on Linux CI
-# runners (CRLF breaks the shebang and every line). The explicit per-file
-# rule is redundant with the glob but keeps run.sh safe even if it is ever
-# renamed without a .sh suffix.
 *.sh text eol=lf
-e2e/run.sh text eol=lf
+*.md text eol=lf
