@@ -67,8 +67,8 @@ func TestSelectRule1FirstRunRecordsWithoutEmitting(t *testing.T) {
 	if !equalStrings(state.WatermarkIDs, []string{"1", "2", "3", "4", "5"}) {
 		t.Fatalf("WatermarkIDs = %v, want capped first page", state.WatermarkIDs)
 	}
-	if state.UpdatedAt.IsZero() {
-		t.Fatalf("UpdatedAt not stamped on seeded state")
+	if !state.UpdatedAt.IsZero() {
+		t.Fatalf("UpdatedAt = %v, want zero (the engine must not fabricate timestamps; Store.Put stamps on persist)", state.UpdatedAt)
 	}
 }
 
@@ -91,22 +91,112 @@ func TestSelectRule2FirstRunIncludeExistingEmitsHistory(t *testing.T) {
 	}
 }
 
-// A genuinely empty first fetch must NOT initialize the source (plugin:
-// a transient empty response must not seal a whole page as history).
-func TestSelectFirstRunEmptyFetchStaysUninitialized(t *testing.T) {
+// A transient empty first fetch must NOT initialize tag/list sources — the
+// plugin's empty/filtered-empty first-run handling (runner.py:948-971) is
+// tag/list-specific — so a later real fetch is not swallowed by the
+// record-only first run.
+func TestSelectFirstRunEmptyFetchStaysUninitializedTagList(t *testing.T) {
 	prev := seen.SourceState{UpdatedAt: pastTime()}
+	for _, kind := range []string{watch.KindTag, watch.KindList} {
+		t.Run(kind, func(t *testing.T) {
+			result := watch.Select(nil, nil, prev, watch.Options{Kind: kind, IncludeExisting: true})
 
-	result := watch.Select(nil, nil, prev, watch.Options{IncludeExisting: true})
+			if result.Emitted || len(result.Tweets) != 0 {
+				t.Fatalf("empty first fetch emitted, want nothing")
+			}
+			if result.State.Initialized {
+				t.Fatalf("empty first fetch initialized the source: %+v", result.State)
+			}
+			if !result.State.UpdatedAt.Equal(prev.UpdatedAt) {
+				t.Fatalf("state touched on empty first fetch: UpdatedAt %v, want %v",
+					result.State.UpdatedAt, prev.UpdatedAt)
+			}
+		})
+	}
+	t.Run("tag fetch without any valid id", func(t *testing.T) {
+		result := watch.Select(tweets("", ""), nil, prev, watch.Options{Kind: watch.KindTag})
+		if result.State.Initialized || result.Emitted {
+			t.Fatalf("fetch without valid ids initialized/emitted: %+v", result)
+		}
+		if !result.State.UpdatedAt.Equal(prev.UpdatedAt) {
+			t.Fatalf("state touched: UpdatedAt %v, want %v", result.State.UpdatedAt, prev.UpdatedAt)
+		}
+	})
+}
 
-	if result.Emitted || len(result.Tweets) != 0 {
-		t.Fatalf("empty first fetch emitted, want nothing")
+// A user source's empty first fetch still initializes with empty state
+// (plugin runner.py:979-985 seeds an empty seen), so the NEXT round's
+// tweets are selected and pushed instead of being silently swallowed by the
+// record-only first run — the runner.py:940-947 warning scenario. An empty
+// Options.Kind is treated as "user".
+func TestSelectFirstRunEmptyFetchInitializesUserSource(t *testing.T) {
+	for _, kind := range []string{"", watch.KindUser} {
+		t.Run("kind="+kind, func(t *testing.T) {
+			first := watch.Select(nil, nil, seen.SourceState{}, watch.Options{Kind: kind})
+
+			if first.Emitted || len(first.Tweets) != 0 {
+				t.Fatalf("empty first fetch emitted, want nothing")
+			}
+			if !first.State.Initialized {
+				t.Fatalf("user empty first fetch must initialize: %+v", first.State)
+			}
+			if len(first.State.SeenIDs) != 0 || len(first.State.WatermarkIDs) != 0 {
+				t.Fatalf("seeded state = %+v, want empty seen and watermark", first.State)
+			}
+			if !first.State.UpdatedAt.IsZero() {
+				t.Fatalf("UpdatedAt = %v, want zero (the engine must not fabricate timestamps)", first.State.UpdatedAt)
+			}
+
+			// The follow-up round must push — no silent notification loss.
+			second := watch.Select(tweets("7", "8"), []string{"7", "8"}, first.State,
+				watch.Options{Kind: kind, MaxNew: 10})
+			if !second.Emitted || !equalStrings(onlyIDs(second.Tweets), []string{"7", "8"}) {
+				t.Fatalf("next round after empty-user-init: Emitted = %v, Tweets = %v, want push [7 8]",
+					second.Emitted, onlyIDs(second.Tweets))
+			}
+		})
 	}
-	if result.State.Initialized {
-		t.Fatalf("empty first fetch initialized the source: %+v", result.State)
+	t.Run("user fetch without any valid id", func(t *testing.T) {
+		first := watch.Select(tweets("", ""), nil, seen.SourceState{}, watch.Options{Kind: watch.KindUser})
+		if !first.State.Initialized || len(first.State.SeenIDs) != 0 {
+			t.Fatalf("state = %+v, want initialized with empty seen", first.State)
+		}
+	})
+}
+
+// An initialized source whose successful fetch came back empty keeps its
+// previous state wholesale — in particular the watermark anchors are NOT
+// rebuilt to empty (plugin runner.py:849-858 返回空结果，保留当前水位;
+// spec §7 保留旧水位). This must also short-circuit the MaxNew == 0
+// baseline rebuild, which would otherwise blank the watermark.
+func TestSelectInitializedEmptyFetchKeepsPreviousState(t *testing.T) {
+	prev := seen.SourceState{
+		Initialized:  true,
+		SeenIDs:      []string{"5"},
+		WatermarkIDs: []string{"3", "2"},
+		UpdatedAt:    pastTime(),
 	}
-	if !result.State.UpdatedAt.Equal(prev.UpdatedAt) {
-		t.Fatalf("state touched on empty first fetch: UpdatedAt %v, want %v",
-			result.State.UpdatedAt, prev.UpdatedAt)
+	for name, opts := range map[string]watch.Options{
+		"maxnew 10": {MaxNew: 10},
+		"maxnew 0":  {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := watch.Select(nil, nil, prev, opts)
+
+			if result.Emitted || len(result.Tweets) != 0 {
+				t.Fatalf("empty fetch emitted, want nothing")
+			}
+			if !equalStrings(result.State.WatermarkIDs, []string{"3", "2"}) {
+				t.Fatalf("WatermarkIDs = %v, want previous [3 2] preserved", result.State.WatermarkIDs)
+			}
+			if !equalStrings(result.State.SeenIDs, []string{"5"}) {
+				t.Fatalf("SeenIDs = %v, want previous [5] preserved", result.State.SeenIDs)
+			}
+			if !result.State.UpdatedAt.Equal(prev.UpdatedAt) {
+				t.Fatalf("UpdatedAt = %v, want unchanged %v (nothing happened this round)",
+					result.State.UpdatedAt, prev.UpdatedAt)
+			}
+		})
 	}
 }
 
@@ -202,8 +292,8 @@ func TestSelectRule5MaxNewZeroSkipsAndRebuildsBaseline(t *testing.T) {
 	if !equalStrings(result.State.WatermarkIDs, []string{"1", "2", "3"}) {
 		t.Fatalf("WatermarkIDs = %v, want rebuilt baseline", result.State.WatermarkIDs)
 	}
-	if !result.State.UpdatedAt.After(prev.UpdatedAt) {
-		t.Fatalf("UpdatedAt = %v, want refreshed after %v", result.State.UpdatedAt, prev.UpdatedAt)
+	if !result.State.UpdatedAt.IsZero() {
+		t.Fatalf("UpdatedAt = %v, want zero (the engine must not fabricate timestamps; Store.Put stamps on persist)", result.State.UpdatedAt)
 	}
 }
 
@@ -233,8 +323,8 @@ func TestSelectRule6AllSeenStillCompletesCycle(t *testing.T) {
 	if !equalStrings(result.State.WatermarkIDs, []string{"1", "2", "3"}) {
 		t.Fatalf("WatermarkIDs = %v, want rebuilt", result.State.WatermarkIDs)
 	}
-	if !result.State.UpdatedAt.After(prev.UpdatedAt) {
-		t.Fatalf("UpdatedAt = %v, want refreshed after %v", result.State.UpdatedAt, prev.UpdatedAt)
+	if !result.State.UpdatedAt.IsZero() {
+		t.Fatalf("UpdatedAt = %v, want zero (the engine must not fabricate timestamps; Store.Put stamps on persist)", result.State.UpdatedAt)
 	}
 }
 

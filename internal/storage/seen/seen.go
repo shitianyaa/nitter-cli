@@ -215,7 +215,10 @@ func MergeSeen(newIDs, oldIDs []string) []string {
 
 // CapWatermark keeps only pure-numeric status IDs, deduplicates preserving
 // order, and caps at WatermarkLimit — the plugin _normalize_scan_baseline_ids
-// semantics (a numeric-only automatic baseline).
+// semantics (a numeric-only automatic baseline). Deliberate divergence from
+// the plugin's Python isdigit(): strconv.Atoi also accepts signed forms like
+// "-5" (pinned by test); real status IDs are unsigned digits, so this never
+// matters in practice.
 func CapWatermark(ids []string) []string {
 	capped := make([]string, 0, min(len(ids), WatermarkLimit))
 	for _, id := range ids {
