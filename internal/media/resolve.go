@@ -1,14 +1,14 @@
 // Package media resolves a status reference into directly downloadable media
 // links (video mp4 variants, original images, GIFs) using the third-party
 // public services the user's reference plugin proved in daily use:
-// fxtwitter, vxtwitter and Twitter's syndication endpoint. It is the
-// implementation layer behind the `twitter media` command; the command layer
-// owns strategy orchestration over the sdk projection produced here.
+// fxtwitter, vxtwitter, Twitter's syndication endpoint and xdown.app. It is
+// the implementation layer behind the `twitter media` command; the command
+// layer owns strategy orchestration over the sdk projection produced here.
 //
-// Trust boundary: fx/vx/syndication are THIRD-PARTY public services (unlike
-// the self-hosted Nitter instances). Resolving a status sends its URL to
-// them; docs and skill state this, and failures are reported with the real
-// strategy name — never silently swapped for another source's success.
+// Trust boundary: fx/vx/syndication/xdown are THIRD-PARTY public services
+// (unlike the self-hosted Nitter instances). Resolving a status sends its
+// URL to them; docs and skill state this, and failures are reported with the
+// real strategy name — never silently swapped for another source's success.
 //
 // Semantics are a faithful port of the plugin's media_support/status_resolve.py:
 //   - fx  media.all[]: photo→image, video→video, gif/animated_gif→gif; video
@@ -17,6 +17,9 @@
 //     as an image-only fallback used only when media_extended yields nothing.
 //   - syndication photos[] images; video.variants by bitrate, gif detected
 //     via the "tweet_video_thumb" marker or a gif video type.
+//   - xdown ajaxSearch page: download-button anchors, kind by label text
+//     then URL suffix (xdown.py); snapcdn token payloads yield the direct
+//     twimg link with the proxy link kept as the fallback.
 //
 // Common rules (plan M8): image URLs go through the pbs quality rewrite
 // (name=orig|large|small); video quality selects WHICH variant becomes the
@@ -54,7 +57,7 @@ const (
 	StrategyVx          Strategy = "vx"
 	StrategySyndication Strategy = "syndication"
 	StrategyNitter      Strategy = "nitter" // resolved by the command layer (M8 Task 4)
-	StrategyXdown       Strategy = "xdown"  // parsed by internal/media in M8 Task 2
+	StrategyXdown       Strategy = "xdown"  // parsed from xdown.app's ajaxSearch page (xdown.go)
 )
 
 // Media kinds, matching twitter.Media's wire values.
@@ -127,6 +130,10 @@ type Resolver struct {
 	// surface. Unexported, because httpx.Options' own doer hook is
 	// unexported and out-of-package callers always get the real transport.
 	fetch func(ctx context.Context, url string, headers map[string]string) ([]byte, int, error)
+	// fetchPost is the POST counterpart of fetch (httpx.Client.Post's
+	// surface, body and headers verbatim); the xdown backend sends its
+	// ajaxSearch form through it.
+	fetchPost func(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error)
 }
 
 // NewResolver builds a Resolver over a freshly constructed httpx transport.
@@ -154,6 +161,20 @@ func (r *Resolver) get(ctx context.Context, url string, headers map[string]strin
 	return r.HTTP.Get(ctx, url, headers)
 }
 
+// post routes one POST through the injected fetchPost when present (tests),
+// the shared transport otherwise. The body travels verbatim; the caller owns
+// Content-Type in the header map (mirrors the plugin, which builds it into
+// its own header mapping).
+func (r *Resolver) post(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error) {
+	if r.fetchPost != nil {
+		return r.fetchPost(ctx, url, body, headers)
+	}
+	if r.HTTP == nil {
+		return nil, 0, twitter.Errorf(twitter.KindLocalState, opResolve, "no transport wired into the media resolver")
+	}
+	return r.HTTP.Post(ctx, url, body, headers)
+}
+
 // The third-party services receive the plugin's fixed browser identity:
 // headers are exactly what build_request_headers sends (media_support/network.py).
 const (
@@ -179,6 +200,15 @@ type mediaCandidate struct {
 	// URL is the entry's own direct link: the image URL (pbs tier rewrite
 	// applies) or the video link used when the source offers no variants.
 	URL string
+	// Label is the source's own display caption for the entry (the xdown
+	// button text); empty when the source has none.
+	Label string
+	// FallbackURL is a source-provided alternative link for the same media
+	// (the xdown snapcdn proxy standing in for an extracted direct link).
+	FallbackURL string
+	// DurationSeconds is a duration the source itself reported for the entry
+	// (xdown token payload keys or label clock text); 0 when unknown.
+	DurationSeconds float64
 	// Variants lists every encoding the source offered (upstream order);
 	// empty when the entry is a plain direct link.
 	Variants []twitter.MediaVariant
@@ -203,15 +233,13 @@ func (r *Resolver) ResolveStatus(ctx context.Context, ref StatusRef, opts Option
 	if len(opts.Strategies) == 0 {
 		return nil, twitter.Errorf(twitter.KindInvalidArg, opResolve, "no media strategies requested")
 	}
-	quality := normalizeQuality(opts.Quality)
-
 	var parts []string
 	var lastErr error
 	for _, s := range opts.Strategies {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		res, err := r.resolveOne(ctx, s, ref, quality)
+		res, err := r.resolveOne(ctx, s, ref, opts)
 		if err != nil {
 			parts = append(parts, string(s)+": "+shortReason(err))
 			lastErr = err
@@ -244,10 +272,11 @@ func (r *Resolver) ResolveStatus(ctx context.Context, ref StatusRef, opts Option
 	return nil, twitter.Errorf(twitter.KindNotFound, opResolve, "no media found (%s)", joined)
 }
 
-// resolveOne runs one strategy: build URL, fetch JSON, extract media, apply
-// the common quality/dedup rules. Zero resolutions mean "empty" (the caller
+// resolveOne runs one strategy: build URL, fetch, extract media, apply the
+// common quality/dedup rules. Zero resolutions mean "empty" (the caller
 // moves to the next strategy); an error is the strategy's classified failure.
-func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, quality string) ([]twitter.MediaResolution, error) {
+func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, opts Options) ([]twitter.MediaResolution, error) {
+	quality := normalizeQuality(opts.Quality)
 	var (
 		cands []mediaCandidate
 		err   error
@@ -271,6 +300,11 @@ func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, qu
 			return nil, err
 		}
 		cands, err = parseSyndication(body)
+	case StrategyXdown:
+		// ResolveXdown fetches and finalizes itself (its candidates carry
+		// labels, fallback URLs and durations the shared tail below would
+		// only re-apply).
+		return r.ResolveXdown(ctx, ref, opts)
 	default:
 		return nil, twitter.Errorf(twitter.KindLocalState, opResolve, "media strategy %q is not implemented by this package", string(s))
 	}
@@ -321,7 +355,14 @@ func finalize(cands []mediaCandidate, quality string) []twitter.MediaResolution 
 // project turns one candidate into its final resolution; ok is false when
 // the candidate has no https link to offer (dropped, never projected).
 func project(c mediaCandidate, quality string) (twitter.MediaResolution, bool) {
-	res := twitter.MediaResolution{Kind: c.Kind, Width: c.Width, Height: c.Height}
+	res := twitter.MediaResolution{
+		Kind:            c.Kind,
+		Label:           c.Label,
+		FallbackURL:     c.FallbackURL,
+		DurationSeconds: c.DurationSeconds,
+		Width:           c.Width,
+		Height:          c.Height,
+	}
 	if c.Kind == kindImage {
 		u := mediaurl.RewritePBSTier(c.URL, quality)
 		if !isHTTPS(u) {

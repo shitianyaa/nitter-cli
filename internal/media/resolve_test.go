@@ -41,11 +41,17 @@ type fakeResp struct {
 
 // fakeFetch stands in for the httpx client: it records every requested URL
 // and its headers, answers from a route table, and classifies unknown URLs
-// as HTTP 404 (the same shape httpx produces for a missing resource).
+// as HTTP 404 (the same shape httpx produces for a missing resource). The
+// post* fields are the POST counterpart (xdown's ajaxSearch form).
 type fakeFetch struct {
 	routes map[string]fakeResp
 	calls  []string
 	sent   []map[string]string
+
+	postRoutes map[string]fakeResp
+	postCalls  []string
+	postBodies []string
+	postSent   []map[string]string
 }
 
 func (f *fakeFetch) get(ctx context.Context, url string, headers map[string]string) ([]byte, int, error) {
@@ -64,11 +70,29 @@ func (f *fakeFetch) get(ctx context.Context, url string, headers map[string]stri
 	return r.body, r.status, nil
 }
 
+func (f *fakeFetch) post(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error) {
+	f.postCalls = append(f.postCalls, url)
+	f.postBodies = append(f.postBodies, string(body))
+	f.postSent = append(f.postSent, headers)
+	if ctx.Err() != nil {
+		return nil, 0, ctx.Err()
+	}
+	r, ok := f.postRoutes[url]
+	if !ok {
+		return nil, 0, twitter.Errorf(twitter.KindNotFound, "httpx.Post", "instance returned HTTP 404")
+	}
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	return r.body, r.status, nil
+}
+
 // newTestResolver builds a Resolver whose fetch is the fake. routes maps
-// exact request URLs to canned responses; anything else answers 404.
+// exact request URLs to canned GET responses, postRoutes to canned POST
+// responses; anything else answers 404.
 func newTestResolver(routes map[string]fakeResp) (*Resolver, *fakeFetch) {
 	fake := &fakeFetch{routes: routes}
-	return &Resolver{Now: time.Now, fetch: fake.get}, fake
+	return &Resolver{Now: time.Now, fetch: fake.get, fetchPost: fake.post}, fake
 }
 
 func mustRef(t *testing.T, s string) StatusRef {
@@ -342,20 +366,19 @@ func TestResolveStatusNoStrategiesIsInvalidArg(t *testing.T) {
 }
 
 // TestResolveStatusUnimplementedStrategyIsLocalState: naming a strategy this
-// package does not implement yet is a wiring bug, reported per strategy.
+// package does not implement (nitter stays command-layer work, M8 Task 4) is
+// a wiring bug, reported per strategy.
 func TestResolveStatusUnimplementedStrategyIsLocalState(t *testing.T) {
 	r, _ := newTestResolver(nil)
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyNitter, StrategyXdown},
+		Strategies: []Strategy{StrategyNitter},
 	})
 	var terr *twitter.Error
 	if !errors.As(err, &terr) || terr.Kind != twitter.KindLocalState {
 		t.Fatalf("err = %v, want KindLocalState", err)
 	}
-	for _, part := range []string{"nitter:", "xdown:"} {
-		if !strings.Contains(err.Error(), part) {
-			t.Errorf("message %q misses %q", err.Error(), part)
-		}
+	if !strings.Contains(err.Error(), "nitter:") {
+		t.Errorf("message %q misses %q", err.Error(), "nitter:")
 	}
 }
 

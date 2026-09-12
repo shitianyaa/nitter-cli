@@ -791,3 +791,103 @@ func TestGetDefaultCapRejectsOversizeWithoutOption(t *testing.T) {
 		t.Errorf("Kind = %v, want %v (10 MiB default applies when the option is zero)", te.Kind, twitter.KindMalformed)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Post (the media resolver's form posts share the transport contract)
+// ---------------------------------------------------------------------------
+
+// TestPostSendsMethodBodyAndHeaders pins the POST wire shape: the method, the
+// exact body bytes, the caller's headers (Content-Type included — the caller
+// owns it, mirroring the plugin which builds it into its header map), and the
+// classified (body, status) response.
+func TestPostSendsMethodBodyAndHeaders(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: -1},
+		step{status: 200, body: `{"status":"ok"}`})
+	headers := map[string]string{
+		"Content-Type": "application/x-www-form-urlencoded",
+		"Referer":      "https://xdown.app/",
+	}
+	body, status, err := env.c.Post(context.Background(), "https://xdown.app/api/ajaxSearch",
+		[]byte("lang=zh-cn&q=https%3A%2F%2Fx.com%2Fnasa%2Fstatus%2F123"), headers)
+	if err != nil {
+		t.Fatalf("Post: %v", err)
+	}
+	if status != 200 || string(body) != `{"status":"ok"}` {
+		t.Errorf("Post = (%q, %d), want the scripted body and 200", body, status)
+	}
+	env.doer.mu.Lock()
+	defer env.doer.mu.Unlock()
+	if len(env.doer.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(env.doer.requests))
+	}
+	req := env.doer.requests[0]
+	if req.Method != fhttp.MethodPost {
+		t.Errorf("method = %q, want POST", req.Method)
+	}
+	if req.URL.String() != "https://xdown.app/api/ajaxSearch" {
+		t.Errorf("url = %q", req.URL.String())
+	}
+	sent, rerr := io.ReadAll(req.Body)
+	if rerr != nil {
+		t.Fatalf("read recorded request body: %v", rerr)
+	}
+	if string(sent) != "lang=zh-cn&q=https%3A%2F%2Fx.com%2Fnasa%2Fstatus%2F123" {
+		t.Errorf("request body = %q, want the exact form payload", sent)
+	}
+	for _, k := range []string{"Content-Type", "Referer"} {
+		if req.Header.Get(k) != headers[k] {
+			t.Errorf("header %s = %q, want %q", k, req.Header.Get(k), headers[k])
+		}
+	}
+}
+
+// TestPostRetriesLikeGet: a 5xx is retried with the same linear backoff and
+// the request body is resent intact on every attempt (a one-shot body reader
+// would resend empty bytes).
+func TestPostRetriesLikeGet(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1, RetryDelay: -1},
+		step{status: 500, body: "boom"},
+		step{status: 500, body: "boom"},
+		step{status: 200, body: `{"status":"ok","data":""}`})
+	body, status, err := env.c.Post(context.Background(), "https://xdown.app/api/ajaxSearch",
+		[]byte("lang=zh-cn&q=x"), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+	if err != nil {
+		t.Fatalf("Post: %v", err)
+	}
+	if status != 200 || string(body) != `{"status":"ok","data":""}` {
+		t.Errorf("Post = (%q, %d), want success after retries", body, status)
+	}
+	if got := env.sleep.recorded(); len(got) != 2 {
+		t.Errorf("backoff waits = %v, want two linear waits", got)
+	}
+	env.doer.mu.Lock()
+	defer env.doer.mu.Unlock()
+	if len(env.doer.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(env.doer.requests))
+	}
+	for i, req := range env.doer.requests {
+		if req.Method != fhttp.MethodPost {
+			t.Errorf("request[%d] method = %q, want POST", i, req.Method)
+		}
+		sent, rerr := io.ReadAll(req.Body)
+		if rerr != nil {
+			t.Fatalf("read request[%d] body: %v", i, rerr)
+		}
+		if string(sent) != "lang=zh-cn&q=x" {
+			t.Errorf("request[%d] body = %q, want the payload resent on every attempt", i, sent)
+		}
+	}
+}
+
+// TestPostClassifiesStatuses: POST responses classify exactly like GETs.
+func TestPostClassifiesStatuses(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: -1}, step{status: 404, body: "nope"})
+	_, _, err := env.c.Post(context.Background(), "https://xdown.app/api/ajaxSearch", []byte("q=x"), nil)
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindNotFound {
+		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindNotFound)
+	}
+	if te.Op != "httpx.Post" {
+		t.Errorf("Op = %q, want httpx.Post", te.Op)
+	}
+}

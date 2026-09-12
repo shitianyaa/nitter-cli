@@ -136,7 +136,8 @@ type MediaResolution struct {
 	// them.
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
-	// DurationSeconds is the video duration in seconds; set only by the
+	// DurationSeconds is the video duration in seconds; set from a source
+	// that carries one (the xdown token payload or button label) or by the
 	// media command's --probe pass.
 	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 	// SizeBytes is the content length in bytes; set only by the media

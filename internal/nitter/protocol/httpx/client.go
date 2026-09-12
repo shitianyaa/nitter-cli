@@ -1,13 +1,14 @@
 // Package httpx is the HTTP transport for Nitter instances: a tls-client
-// backed GET with global pacing (a minimum interval between the starts of
+// backed GET/POST with global pacing (a minimum interval between the starts of
 // consecutive requests), linear-backoff retries for network errors and 5xx,
 // and single-shot Retry-After honoring for 429s. Failures are classified
 // into the shared sdk (package twitter) error kinds.
 //
 // Package boundary: this is a protocol detail of the Nitter fetch path.
 // Only packages under internal/nitter/*, the media resolution package
-// internal/media (M8: it fetches third-party status JSON over the same
-// paced, retried transport), and the sdk may import it.
+// internal/media (M8: it fetches third-party status JSON over GET and sends
+// xdown form posts over POST with the same paced, retried transport), and
+// the sdk may import it.
 //
 // Redaction: errors produced here obey the sdk contract — neither the
 // *twitter.Error nor its wrapped chain contains credentials, URL query
@@ -18,6 +19,7 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -36,8 +38,9 @@ import (
 )
 
 const (
-	opGet = "httpx.Get"
-	opNew = "httpx.New"
+	opGet  = "httpx.Get"
+	opPost = "httpx.Post"
+	opNew  = "httpx.New"
 )
 
 const (
@@ -118,7 +121,7 @@ type Options struct {
 // upgrade cannot silently change the fingerprint.
 var defaultProfile = profiles.Chrome_152
 
-// Client performs paced, retried, classified GETs. It is safe for
+// Client performs paced, retried, classified GETs and POSTs. It is safe for
 // concurrent use: pacing state is mutex-guarded and the transport is
 // tls-client's goroutine-safe HttpClient.
 type Client struct {
@@ -222,7 +225,7 @@ func New(opts Options) (*Client, error) {
 // a later layer) and returns the response body and status. 2xx/3xx succeed;
 // 3xx is returned as-is because redirects are not followed.
 //
-// Classification (see package comment for retry/pacing details):
+// Classification (see Post and the package comment for retry/pacing details):
 //   - network error / unreadable body / 5xx: retried retryAttempts times with
 //     linear backoff retryDelay*(attempt); exhausted → KindUnavailable.
 //   - body over the effective MaxBodyBytes cap: KindMalformed immediately —
@@ -237,28 +240,48 @@ func New(opts Options) (*Client, error) {
 // On any error the returned body is nil and the status 0; inspect the
 // *twitter.Error (errors.As) for Kind and RetryAfter.
 func (c *Client) Get(ctx context.Context, url string, headers map[string]string) ([]byte, int, error) {
+	return c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
+}
+
+// Post performs a POST against url with the given request body and exactly
+// the given headers merged onto the request — the caller owns Content-Type,
+// mirroring the plugin, which builds it into its header map. It shares Get's
+// pacing, retry and classification contract verbatim; the body is resent
+// intact on every retry attempt.
+func (c *Client) Post(ctx context.Context, url string, body []byte, headers map[string]string) ([]byte, int, error) {
+	return c.send(ctx, opPost, fhttp.MethodPost, url, body, headers)
+}
+
+// send is the shared GET/POST pipeline: pacing, the retry/classification loop
+// and body reading. The request is rebuilt per attempt so a POST body (a
+// one-shot reader once consumed) is resent whole on retries.
+func (c *Client) send(ctx context.Context, op, method, url string, body []byte, headers map[string]string) ([]byte, int, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, 0, twitter.Errorf(twitter.KindUnavailable, opGet, "request not sent: %w", err)
+		return nil, 0, twitter.Errorf(twitter.KindUnavailable, op, "request not sent: %w", err)
 	}
 	if err := c.pace(ctx); err != nil {
 		return nil, 0, err
-	}
-
-	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, url, nil)
-	if err != nil {
-		// Parse failures carry the raw URL in their message — sanitize
-		// before wrapping (sdk redaction contract).
-		return nil, 0, twitter.Errorf(twitter.KindInvalidArg, opGet, "build request: %w", sanitizeTransportErr(err))
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
 	}
 
 	// retryAfterUsed guards the single 429 wait-and-retry; it is independent
 	// of the network/5xx retry budget counted by attempt below.
 	retryAfterUsed := false
 	for attempt := 0; ; attempt++ {
-		resp, body, err := c.doOnce(req)
+		var reader io.Reader
+		if body != nil {
+			reader = bytes.NewReader(body)
+		}
+		req, err := fhttp.NewRequestWithContext(ctx, method, url, reader)
+		if err != nil {
+			// Parse failures carry the raw URL in their message — sanitize
+			// before wrapping (sdk redaction contract).
+			return nil, 0, twitter.Errorf(twitter.KindInvalidArg, op, "build request: %w", sanitizeTransportErr(err))
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, respBody, err := c.doOnce(req)
 		if err != nil {
 			// A body over the size cap arrives already classified (its
 			// KindMalformed carries no *url.Error to sanitize): terminal —
@@ -276,21 +299,21 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 				}
 				continue
 			}
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, opGet,
+			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op,
 				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
 		}
 
 		status := resp.StatusCode
 		switch {
 		case status >= 200 && status < 400:
-			return body, status, nil
+			return respBody, status, nil
 
 		case status == fhttp.StatusTooManyRequests:
 			delay, valid := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
 			if retryAfterUsed {
 				e := &twitter.Error{
 					Kind: twitter.KindRateLimited,
-					Op:   opGet,
+					Op:   op,
 					Err:  errors.New("instance returned HTTP 429 again after honoring Retry-After"),
 				}
 				if valid {
@@ -301,7 +324,7 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 			if !valid {
 				return nil, 0, &twitter.Error{
 					Kind: twitter.KindRateLimited,
-					Op:   opGet,
+					Op:   op,
 					Err:  errors.New("instance returned HTTP 429 without a usable Retry-After"),
 				}
 			}
@@ -312,13 +335,13 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 			continue
 
 		case status == fhttp.StatusNotFound:
-			return nil, 0, twitter.Errorf(twitter.KindNotFound, opGet, "instance returned HTTP 404")
+			return nil, 0, twitter.Errorf(twitter.KindNotFound, op, "instance returned HTTP 404")
 
 		case status == fhttp.StatusUnauthorized || status == fhttp.StatusForbidden:
-			return nil, 0, twitter.Errorf(twitter.KindChallenge, opGet, "instance returned HTTP %d", status)
+			return nil, 0, twitter.Errorf(twitter.KindChallenge, op, "instance returned HTTP %d", status)
 
 		case status >= 400 && status < 500:
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, opGet, "instance returned HTTP %d", status)
+			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op, "instance returned HTTP %d", status)
 
 		default:
 			// 5xx (and unexpected 1xx): retryable upstream failure.
@@ -328,7 +351,7 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 				}
 				continue
 			}
-			return nil, 0, twitter.Errorf(twitter.KindUnavailable, opGet,
+			return nil, 0, twitter.Errorf(twitter.KindUnavailable, op,
 				"instance returned HTTP %d after %d attempt(s)", status, attempt+1)
 		}
 	}
@@ -378,7 +401,7 @@ type readBodyError struct{ err error }
 func (e *readBodyError) Error() string { return "read response body: " + e.err.Error() }
 func (e *readBodyError) Unwrap() error { return e.err }
 
-// pace enforces Options.MinInterval between the STARTS of consecutive Get
+// pace enforces Options.MinInterval between the STARTS of consecutive Get/Post
 // calls across all goroutines sharing this client: it sleeps (context-aware)
 // for the remainder of the interval, then records this request's start time.
 func (c *Client) pace(ctx context.Context) error {
