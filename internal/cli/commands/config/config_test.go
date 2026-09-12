@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/shitianyaa/twitter-cli/internal/cli"
 	"github.com/shitianyaa/twitter-cli/internal/cli/commands/config"
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/twitter-cli/internal/config/settings"
 )
 
 // tempHome redirects the home directory to a fresh temp dir (paths.New reads
@@ -53,6 +55,85 @@ func TestConfigPathPrintsConfigLocation(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(out), configFile(home); got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestConfigPathPublishesBaselineConfig(t *testing.T) {
+	home := tempHome(t)
+	code, _, errOut := runCLI(t, "", "config", "path")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	data, err := os.ReadFile(configFile(home))
+	if err != nil {
+		t.Fatalf("config path must publish the baseline config on first run: %v", err)
+	}
+	if string(data) != settings.DefaultConfigTOML {
+		t.Fatalf("published baseline = %q, want settings.DefaultConfigTOML", data)
+	}
+	if runtime.GOOS != "windows" { // Windows chmod only toggles the read-only bit.
+		info, err := os.Stat(configFile(home))
+		if err != nil {
+			t.Fatalf("stat published baseline config: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("published mode = %v, want 0600", got)
+		}
+	}
+}
+
+func TestConfigGetPublishesBaselineConfig(t *testing.T) {
+	home := tempHome(t)
+	code, _, errOut := runCLI(t, "", "config", "get", "log_level")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(configFile(home)); err != nil {
+		t.Fatalf("config get must publish the baseline config on first run (stat err = %v)", err)
+	}
+}
+
+func TestConfigSetSeedsBaselineOnFreshHome(t *testing.T) {
+	home := tempHome(t)
+	code, _, errOut := runCLI(t, "", "config", "set", "default_limit", "30")
+	if code != 0 {
+		t.Fatalf("set exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	data, err := os.ReadFile(configFile(home))
+	if err != nil {
+		t.Fatalf("read written config: %v", err)
+	}
+	if !strings.Contains(string(data), "default_limit = 30") {
+		t.Fatalf("written config = %q, want it to contain default_limit = 30", data)
+	}
+	// The baseline is seeded first (no-replace), so the file carries the
+	// full baseline schema instead of a one-key minimal file. Comments are
+	// not preserved across SaveKnown (documented semantics), so the baseline
+	// is asserted by key content.
+	for _, want := range []string{
+		"max_pages", "request_interval", "retry_attempts",
+		"retry_delay", "instance_cooldown", "proxy", "log_level", "log_format",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("written config lost baseline key %q:\n%s", want, data)
+		}
+	}
+}
+
+func TestConfigPublishFailureExits1(t *testing.T) {
+	home := tempHome(t)
+	// Make the app dir path a regular file so MkdirAll inside
+	// EnsureDefaultConfigFile fails; a config publish failure is a plain
+	// error (exit 1), never a usage error.
+	if err := os.WriteFile(filepath.Join(home, ".twitter-cli"), []byte("not a dir"), 0o600); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+	code, _, errOut := runCLI(t, "", "config", "path")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "create app dir") {
+		t.Fatalf("stderr = %q, want the publish failure cause", errOut)
 	}
 }
 

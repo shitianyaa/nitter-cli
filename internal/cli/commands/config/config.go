@@ -159,8 +159,15 @@ func newSetCommand(s *invocation.Streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Validation already succeeded; SaveKnown preserves unknown keys
-			// and the array tables and publishes atomically at 0600.
+			// Seed the self-documenting baseline first (no-replace: a no-op
+			// when the file already exists), so a fresh install ends up with
+			// the full schema instead of a one-key file. Validation already
+			// passed, so "reject before any file side effect" still holds.
+			if err := paths.EnsureDefaultConfigFile(cfgPath, settings.DefaultConfigTOML); err != nil {
+				return err
+			}
+			// SaveKnown preserves unknown keys and the array tables and
+			// publishes atomically at 0600.
 			return settings.SaveKnown(cfgPath, func(tree map[string]any) error {
 				tree[key] = typed
 				return nil
@@ -186,6 +193,11 @@ func newUnsetCommand(s *invocation.Streams) *cobra.Command {
 			}
 			cfgPath, err := configPath()
 			if err != nil {
+				return err
+			}
+			// Seed the baseline on a fresh install (no-replace) before the
+			// delete, same as `config set` does before its write.
+			if err := paths.EnsureDefaultConfigFile(cfgPath, settings.DefaultConfigTOML); err != nil {
 				return err
 			}
 			return settings.SaveKnown(cfgPath, func(tree map[string]any) error {

@@ -70,11 +70,14 @@ func New(s *Streams) *cobra.Command {
 	// Baseline config publish on first real run: ensure ~/.twitter-cli/
 	// config.toml exists (no-replace). cobra handles --version and
 	// --help/-h before the PreRun stage, so they never get here; the
-	// auto-generated help subcommand and the config subtree (which manages
-	// the file itself and must reject invalid input before any file side
-	// effect) are skipped explicitly below.
+	// auto-generated help subcommand is skipped explicitly below. The
+	// config mutation commands (set/unset) are skipped as well: they
+	// manage the file themselves and must reject invalid input before any
+	// file side effect (they seed the baseline themselves after
+	// validation). Everything else — including the read-only config
+	// path/get — publishes the baseline.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		if cmd.Name() == "help" || inConfigSubtree(cmd) {
+		if cmd.Name() == "help" || isConfigMutationCommand(cmd) {
 			return nil
 		}
 		p, err := paths.New()
@@ -87,10 +90,14 @@ func New(s *Streams) *cobra.Command {
 	return root
 }
 
-// inConfigSubtree reports whether cmd lives under the config command: config
-// get treats a missing file as pure defaults, and config set/unset must not
-// create the file when rejecting input, so the baseline publish skips them.
-func inConfigSubtree(cmd *cobra.Command) bool {
+// isConfigMutationCommand reports whether cmd is `config set`/`config unset`:
+// they manage config.toml themselves and must reject invalid input before any
+// file side effect, so the baseline publish skips them. The read-only config
+// commands (path/get) are not exempt and publish like every other command.
+func isConfigMutationCommand(cmd *cobra.Command) bool {
+	if cmd.Name() != "set" && cmd.Name() != "unset" {
+		return false
+	}
 	for p := cmd; p != nil; p = p.Parent() {
 		if p.Name() == "config" {
 			return true
