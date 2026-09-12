@@ -90,7 +90,9 @@ HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 
 字段过滤在**抓取之后、输出之前**应用（三者可自由组合；`--media-type` 值不合法
 退出 2）：
 
-- `--no-reposts` 丢弃纯转推（转推标记只存在于 HTML 解析路径）。
+- `--no-reposts` 丢弃纯转推（转推标记只存在于 HTML 解析路径；在用户时间线上
+  RSS 路径还会按作者不一致识别转推——被转推条目链接的是原作者，绝不会是请求的
+  句柄。search/list 没有 RSS 层，该信号不适用于它们）。
 - `--media-only` 丢弃不带任何媒体附件的推文。
 - `--media-type image|video|gif` 只保留携带至少一个该类型媒体条目的推文。
 

@@ -622,6 +622,67 @@ func TestUserNoRepostsDropsRetweets(t *testing.T) {
 	}
 }
 
+// retweetRSS is one self-authored item (101) and one retweeted item whose
+// guid/link and dc:creator point at the ORIGINAL author NASAhistory (103) —
+// real Nitter user RSS shapes a retweet as the original tweet, so the author
+// mismatch is the only repost signal the feed carries.
+const retweetRSS = `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>` +
+	`<item>` +
+	`<guid>https://nitter.example/NASA/status/101#m</guid>` +
+	`<link>https://nitter.example/NASA/status/101</link>` +
+	`<dc:creator>@NASA</dc:creator>` +
+	`<title>rss 101</title>` +
+	`<description><![CDATA[<div class="tweet-content">rss body 101</div>]]></description>` +
+	`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item>` +
+	`<item>` +
+	`<guid>https://nitter.example/NASAhistory/status/103#m</guid>` +
+	`<link>https://nitter.example/NASAhistory/status/103</link>` +
+	`<dc:creator>@NASAhistory</dc:creator>` +
+	`<title>rss 103</title>` +
+	`<description><![CDATA[<div class="tweet-content">rss body 103</div>]]></description>` +
+	`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item>` +
+	`</channel></rss>`
+
+// TestUserRSSRepostsFlaggedByAuthorMismatch: on the user RSS path a retweet
+// surfaces as an item authored by someone else — the command output must flag
+// it is_retweet and --no-reposts must drop it, keeping the self-authored tweet.
+func TestUserRSSRepostsFlaggedByAuthorMismatch(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, retweetRSS},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	// Control: --json prints both, with only the foreign-author item flagged.
+	code, out, errOut := runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("control: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var all []map[string]any
+	if err := json.Unmarshal([]byte(out), &all); err != nil || len(all) != 2 {
+		t.Fatalf("control: output = %q (%v), want a 2-element array", out, err)
+	}
+	if all[0]["id"] != "101" || all[0]["is_retweet"] != false {
+		t.Errorf("control: tweet 0 = %v, want the self-authored 101 unflagged", all[0])
+	}
+	if all[1]["id"] != "103" || all[1]["is_retweet"] != true {
+		t.Errorf("control: tweet 1 = %v, want the foreign-author 103 flagged", all[1])
+	}
+
+	// Filtered: only the self-authored tweet survives; --json prints one object.
+	code, out, errOut = runCLI(t, "user", "NASA", "--no-reposts", "--json")
+	if code != 0 {
+		t.Fatalf("filtered: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var one map[string]any
+	if err := json.Unmarshal([]byte(out), &one); err != nil {
+		t.Fatalf("filtered: output is not one JSON object: %v\n%s", err, out)
+	}
+	if one["id"] != "101" || one["is_retweet"] != false {
+		t.Errorf("filtered: object = %v, want the self-authored tweet 101", one)
+	}
+}
+
 // photoItem102 is one RSS item carrying a media:content photo (status 102).
 const photoItem102 = `<item>` +
 	`<guid>https://nitter.example/NASA/status/102#m</guid>` +

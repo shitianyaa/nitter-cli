@@ -97,7 +97,10 @@ Field filters apply **after the fetch, before output** (the three combine
 freely; an invalid `--media-type` value exits 2):
 
 - `--no-reposts` drops pure retweets (the retweet header only exists on the
-  HTML parse path).
+  HTML parse path; on user timelines the RSS path additionally flags them by
+  author mismatch — a retweeted item links the original author, never the
+  requested handle. Search/list have no RSS layer, so that signal does not
+  extend to them).
 - `--media-only` drops tweets that carry no media attachments.
 - `--media-type image|video|gif` keeps only tweets carrying at least one media
   entry of that type.

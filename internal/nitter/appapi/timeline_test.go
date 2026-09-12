@@ -127,6 +127,76 @@ func TestTimelineRSSPathReturnsTweets(t *testing.T) {
 	}
 }
 
+// rssBodyMixed builds a Nitter-shaped RSS feed mixing self-authored items
+// with author/creator overrides — the author-mismatch fixture.
+func rssBodyMixed(items ...string) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel>`)
+	for _, it := range items {
+		b.WriteString(it)
+	}
+	b.WriteString(`</channel></rss>`)
+	return b.String()
+}
+
+// rssMixedItem builds one RSS item whose status URL carries the given account
+// and whose dc:creator carries the given creator ("@" optional; empty creator
+// omits the element).
+func rssMixedItem(account, creator, id string) string {
+	c := ""
+	if creator != "" {
+		c = `<dc:creator>@` + creator + `</dc:creator>`
+	}
+	return `<item>` +
+		`<guid>https://nitter.example/` + account + `/status/` + id + `#m</guid>` +
+		`<link>https://nitter.example/` + account + `/status/` + id + `</link>` +
+		c +
+		`<title>rss ` + id + `</title>` +
+		`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item>`
+}
+
+// TestTimelineRSSFlagsRepostsByAuthorMismatch: Nitter user RSS carries no
+// repost marker, but a retweeted item's guid/link and dc:creator point at the
+// ORIGINAL author (verified live: requesting NASA yields NASAhistory status
+// URLs). An author handle differing from the requested handle — case-
+// insensitively — therefore flags IsRetweet on the user-timeline RSS path
+// only; a matching or absent handle leaves the flag untouched, and RepostedBy
+// stays empty (the feed names no reposter).
+func TestTimelineRSSFlagsRepostsByAuthorMismatch(t *testing.T) {
+	feed := rssBodyMixed(
+		rssMixedItem("NASA", "NASA", "101"),               // self-authored
+		rssMixedItem("NASA", "nasa", "102"),               // case-insensitive self match
+		rssMixedItem("NASAhistory", "NASAhistory", "103"), // retweeted: original author
+		rssMixedItem("NASA", "", "104"),                   // creator-less: flag untouched
+	)
+	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, feed})
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+	if len(tweets) != 4 {
+		t.Fatalf("tweets = %d, want 4", len(tweets))
+	}
+	if tweets[0].ID != "101" || tweets[0].IsRetweet {
+		t.Errorf("tweet 0 = %v, want self-authored 101 with IsRetweet false", tweets[0])
+	}
+	if tweets[1].ID != "102" || tweets[1].IsRetweet {
+		t.Errorf("tweet 1 = %v, want the case-insensitive self match 102 with IsRetweet false", tweets[1])
+	}
+	if tweets[2].ID != "103" || !tweets[2].IsRetweet {
+		t.Errorf("tweet 2 = %v, want the foreign-author item 103 flagged IsRetweet", tweets[2])
+	}
+	if tweets[2].Author.Handle != "NASAhistory" {
+		t.Errorf("tweet 2 handle = %q, want the original author NASAhistory", tweets[2].Author.Handle)
+	}
+	if tweets[2].RepostedBy != "" {
+		t.Errorf("tweet 2 repostedBy = %q, want empty (RSS names no reposter)", tweets[2].RepostedBy)
+	}
+	if tweets[3].ID != "104" || tweets[3].IsRetweet {
+		t.Errorf("tweet 3 = %v, want the creator-less item 104 with IsRetweet untouched (false)", tweets[3])
+	}
+}
+
 func TestTimelineLimitTruncatesRSS(t *testing.T) {
 	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, rssBody("101", "102", "103")})
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{Limit: 2})

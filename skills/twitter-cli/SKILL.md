@@ -1,6 +1,6 @@
 ---
 slug: twitter-cli
-version: 0.1.2
+version: 0.1.3
 displayName: Twitter CLI
 summary: Safely operate public-tweet retrieval through the twitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
@@ -172,8 +172,10 @@ twitter update --check --json                            # {current, latest, out
    `author` carries only `handle` — `name`/`avatar_url` are empty; the HTML
    fallback path fills what the page provides. `reposted_by` is a display
    name, not a handle, and is only populated on the HTML path (RSS carries no
-   repost marker). Do not treat an empty `reposted_by` on RSS data as "not a
-   retweet".
+   reposter identity). On user timelines the RSS path still flags retweets by
+   author mismatch (a retweeted item's handle is the original author's, never
+   the requested handle); search/list, which fetch no RSS, get no such flag.
+   Do not treat an empty `reposted_by` on RSS data as "not a retweet".
 9. **Empty JSON fields are contract, not bugs**: `published_at` is always UTC
    RFC3339; a tweet without media marshals `"media": null` (not `[]`);
    `--max-pages 0` means the built-in default (5).

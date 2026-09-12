@@ -24,6 +24,7 @@ import (
 	"errors"
 	"net/url"
 	"regexp"
+	"strings"
 
 	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
 	"github.com/shitianyaa/twitter-cli/internal/nitter/rss"
@@ -131,7 +132,8 @@ func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, 
 // single-page: items are collected up to the limit. Items that fail
 // projection (no <account>/status/<id> URL in guid or link) are skipped,
 // mirroring the HTML path's rule that an unidentifiable entry never becomes
-// a Tweet.
+// a Tweet. An item authored by a handle other than the requested one (case-
+// insensitive) is flagged IsRetweet — see the loop below.
 func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int) ([]twitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+"/"+handle+"/rss", nil)
 	if err != nil {
@@ -146,6 +148,19 @@ func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int
 		tw, err := rss.ItemToTweet(item)
 		if err != nil {
 			continue
+		}
+		// Nitter user RSS carries no repost marker, but a retweeted item's
+		// guid/link and dc:creator point at the ORIGINAL author (verified
+		// live against a real instance: requesting NASA yields NASAhistory
+		// status URLs while every self-authored item links NASA). An author
+		// handle differing from the requested handle — case-insensitively —
+		// therefore flags the tweet as a repost. User timelines only:
+		// search/list mix authors by design, and this heuristic must not
+		// apply there. RepostedBy stays empty (the feed names no reposter;
+		// that display name remains an HTML-path fact). An empty handle
+		// (creator-less item) leaves the flag untouched.
+		if tw.Author.Handle != "" && !strings.EqualFold(tw.Author.Handle, handle) {
+			tw.IsRetweet = true
 		}
 		tweets = append(tweets, tw)
 		if limit > 0 && len(tweets) >= limit {
