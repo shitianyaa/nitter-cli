@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fixture shaped after the documented Nitter RSS format and the reference
+  plugin's parser semantics (the plan's curl comparison against a real
+  instance cannot run in the offline sandbox; it is carried as a user-run
+  smoke step in Task 13). Four items:
+
+  1. photo tweet: media:content (pbs.twimg.com, name=small) plus a
+     percent-encoded relative /pic/media img inside the description;
+  2. text-only tweet: no media at all;
+  3. video tweet: relative /pic/<x>_video_thumb img, no media:content;
+  4. GUID-less tweet: projection must fall back to <link>.
+-->
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>NASA</title>
+    <link>https://nitter.example/NASA/media</link>
+    <description>Fixture feed mimicking a Nitter user timeline.</description>
+
+    <item>
+      <title>Engine firing complete &amp; all systems nominal: next launch window opens Monday</title>
+      <dc:creator>@NASA</dc:creator>
+      <description><![CDATA[<div class="tweet-content media-body" dir="auto">Engine firing complete &amp; all systems nominal.<br/><a href="https://x.com/NASA">read more</a> <img src="/pic/media%2FFxxx1.jpg%3Fname%3Dsmall" alt="engine test"/></div>]]></description>
+      <pubDate>Mon, 27 Jul 2026 09:09:40 +0000</pubDate>
+      <guid isPermaLink="true">https://nitter.example/NASA/status/2081668333762687236#m</guid>
+      <link>https://nitter.example/NASA/status/2081668333762687236#m</link>
+      <media:content url="https://pbs.twimg.com/media/Fxxx1.jpg?name=small" medium="image" type="image/jpeg"/>
+    </item>
+
+    <item>
+      <title>Plain text only status with no attachments at all</title>
+      <dc:creator>@esa</dc:creator>
+      <description><![CDATA[<div class="tweet-content media-body" dir="auto">Plain text only status with no attachments at all.</div>]]></description>
+      <pubDate>Tue, 28 Jul 2026 10:11:12 +0000</pubDate>
+      <guid isPermaLink="true">https://nitter.example/esa/status/2081668333762687237</guid>
+      <link>https://nitter.example/esa/status/2081668333762687237</link>
+    </item>
+
+    <item>
+      <title>Watch the full launch broadcast from the pad</title>
+      <dc:creator>@NASA</dc:creator>
+      <description><![CDATA[<div class="tweet-content media-body" dir="auto">Watch the full launch broadcast from the pad.</div><div class="attachments"><img src="/pic/ext_tw_video_thumb%2F2081668333762687238%2Fpu%2Fimg%2Fabc123.jpg"/></div>]]></description>
+      <pubDate>Wed, 29 Jul 2026 08:00:00 +0000</pubDate>
+      <guid isPermaLink="true">https://nitter.example/NASA/status/2081668333762687238</guid>
+      <link>https://nitter.example/NASA/status/2081668333762687238</link>
+    </item>
+
+    <item>
+      <title>GUID-less item whose link carries the status path</title>
+      <dc:creator>@esa</dc:creator>
+      <description><![CDATA[<div class="tweet-content media-body" dir="auto">GUID-less item whose link carries the status path.</div>]]></description>
+      <pubDate>Thu, 30 Jul 2026 12:30:45 +0000</pubDate>
+      <link>https://nitter.example/esa/status/2081668333762687239#m</link>
+    </item>
+  </channel>
+</rss>
