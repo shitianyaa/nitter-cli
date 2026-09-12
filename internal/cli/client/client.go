@@ -70,6 +70,21 @@ type ListSource interface {
 	ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]twitter.Tweet, string, error)
 }
 
+// StatusSource is the single-status acquisition capability a command
+// consumes (same provenance contract as TimelineSource). Backed by
+// *appapi.Client through statusAdapter.
+type StatusSource interface {
+	Status(ctx context.Context, ref string) (twitter.Tweet, string, error)
+}
+
+// ParseStatusRef re-exports the appapi status-reference parser so commands
+// can validate a ref locally (exit 2 before any wiring is built, as the
+// user command does for handles) without importing internal/nitter/appapi
+// (R11 boundary; same re-export precedent as TestOptions).
+func ParseStatusRef(s string) (id, user string, err error) {
+	return appapi.ParseStatusRef(s)
+}
+
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
@@ -120,6 +135,18 @@ func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, max
 // List returns the list-timeline acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) List() ListSource { return listAdapter{w.AppAPI} }
+
+// statusAdapter bridges the primitive-parameter StatusSource to the appapi
+// method (same shape — kept for symmetry with the other adapters).
+type statusAdapter struct{ app *appapi.Client }
+
+func (a statusAdapter) Status(ctx context.Context, ref string) (twitter.Tweet, string, error) {
+	return a.app.Status(ctx, ref)
+}
+
+// Status returns the single-status acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) Status() StatusSource { return statusAdapter{w.AppAPI} }
 
 // Build composes the wiring.
 //
