@@ -167,7 +167,9 @@ func TestInstancesTestURLParameterOverridesConfig(t *testing.T) {
 	if len(lines) != 1 || lines[0][0] != srv.URL || lines[0][1] != "ok" {
 		t.Fatalf("lines = %v, want exactly the probed URL with rss ok", lines)
 	}
-	if strings.Contains(out, "127.0.0.1:1") {
+	if strings.Contains(out, "http://127.0.0.1:1\t") {
+		// Match the exact configured URL token: a bare "127.0.0.1:1" check
+		// also matches the ephemeral fake-server URL (e.g. 127.0.0.1:1183).
 		t.Errorf("output = %q, want the configured instance ignored", out)
 	}
 }

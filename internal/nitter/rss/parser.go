@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
 	"github.com/shitianyaa/twitter-cli/internal/nitter/text"
 	"github.com/shitianyaa/twitter-cli/sdk"
 )
@@ -103,9 +104,6 @@ var picMediaSrcRe = regexp.MustCompile(`(?i)/pic/(?:media|[a-z0-9_]+_video_thumb
 // double-quoted, single-quoted, or unquoted values. The [\s"'] guard keeps
 // other attributes (data-src, srcset) from matching as src.
 var imgSrcRe = regexp.MustCompile(`(?i)<img\b[^>]*?[\s"']src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
-
-// pbsNameRe rewrites an existing name= query parameter on pbs media URLs.
-var pbsNameRe = regexp.MustCompile(`([?&])name=[^&]*`)
 
 // Parse decodes a Nitter RSS document into its items. Any XML syntax error
 // (truncated body, non-XML challenge page) classifies as KindMalformed; a
@@ -208,7 +206,7 @@ func projectMedia(urls []string, base string) []twitter.Media {
 	var media []twitter.Media
 	seen := make(map[string]bool, len(urls))
 	for _, raw := range urls {
-		u := rewritePBSOrig(absolutize(raw, base))
+		u := mediaurl.RewritePBSOrig(absolutize(raw, base))
 		if u == "" || seen[u] {
 			continue
 		}
@@ -245,23 +243,6 @@ func instanceBase(source string) string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
-}
-
-// rewritePBSOrig ports the plugin's prefer_pbs_quality at the "high" tier:
-// pbs.twimg.com/media URLs get their name= parameter replaced with orig, or
-// appended when absent; non-pbs URLs pass through unchanged.
-func rewritePBSOrig(u string) string {
-	if !strings.Contains(u, "pbs.twimg.com/media/") {
-		return u
-	}
-	if strings.Contains(u, "name=") {
-		return pbsNameRe.ReplaceAllString(u, "${1}name=orig")
-	}
-	sep := "?"
-	if strings.Contains(u, "?") {
-		sep = "&"
-	}
-	return u + sep + "name=orig"
 }
 
 // mediaType classifies a media URL: video thumbnails are the video
