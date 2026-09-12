@@ -453,3 +453,86 @@ func TestInstancesTestExtraArgIsUsageError(t *testing.T) {
 		t.Fatalf("exit = %d, want 2", code)
 	}
 }
+
+func TestInstancesTestNDJSONOneEnvelopePerInstance(t *testing.T) {
+	home := tempHome(t)
+	srv, _ := newFakeNitter(t, 404)
+	writeConfig(t, home, fastTOML+
+		"[[instances]]\nurl = \""+srv.URL+"\"\n"+
+		"[[instances]]\nurl = \"http://127.0.0.1:1\"\n")
+
+	code, out, errOut := runCLI(t, "instances", "test", "--ndjson")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d output lines, want one envelope per instance:\n%s", len(lines), out)
+	}
+	for i, line := range lines {
+		var env struct {
+			Schema string         `json:"schema"`
+			Kind   string         `json:"kind"`
+			ID     string         `json:"id"`
+			Data   map[string]any `json:"data"`
+			Meta   any            `json:"meta"`
+		}
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON object: %v\n%s", i+1, err, line)
+		}
+		if env.Schema != "twitter.pipeline/v1" {
+			t.Errorf("line %d schema = %q, want twitter.pipeline/v1", i+1, env.Schema)
+		}
+		if env.Kind != "instance_report" {
+			t.Errorf("line %d kind = %q, want instance_report", i+1, env.Kind)
+		}
+		if env.Data == nil {
+			t.Fatalf("line %d carries no data: %s", i+1, line)
+		}
+		url, _ := env.Data["url"].(string)
+		if url == "" || env.ID != url {
+			t.Errorf("line %d id = %q, want the instance url %q", i+1, env.ID, url)
+		}
+		if _, ok := env.Data["rss"].(map[string]any); !ok {
+			t.Errorf("line %d data is missing the rss report: %s", i+1, line)
+		}
+		if _, ok := env.Data["latency"].(float64); !ok {
+			t.Errorf("line %d data is missing the latency number: %s", i+1, line)
+		}
+		if env.Meta != nil {
+			t.Errorf("line %d meta = %v, want the key absent (meta nil)", i+1, env.Meta)
+		}
+	}
+}
+
+func TestInstancesTestNDJSONURLArgumentSingleEnvelope(t *testing.T) {
+	home := tempHome(t)
+	srv, _ := newFakeNitter(t, 404)
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \"http://127.0.0.1:1\"\n")
+
+	code, out, errOut := runCLI(t, "instances", "test", "--ndjson", srv.URL)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Fatalf("got %d lines, want exactly one envelope:\n%s", n, out)
+	}
+	var env map[string]any
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
+	}
+	if env["kind"] != "instance_report" || env["id"] != srv.URL {
+		t.Fatalf("envelope = %v, want kind instance_report and id %q", env, srv.URL)
+	}
+}
+
+func TestInstancesTestNDJSONAndJSONAreMutuallyExclusive(t *testing.T) {
+	tempHome(t)
+	code, _, errOut := runCLI(t, "instances", "test", "--json", "--ndjson")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "--ndjson") || !strings.Contains(errOut, "--json") {
+		t.Fatalf("stderr = %q, want it to name both conflicting flags", errOut)
+	}
+}

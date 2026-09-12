@@ -15,6 +15,7 @@ import (
 
 	"github.com/shitianyaa/twitter-cli/internal/cli/client"
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
 	"github.com/shitianyaa/twitter-cli/internal/cli/result"
 	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
 	"github.com/shitianyaa/twitter-cli/sdk"
@@ -49,13 +50,15 @@ func New(s *invocation.Streams) *cobra.Command {
 // Exit codes (repo-wide semantics, task contract): completed probes exit 0
 // even when every probe fails — the report is the product, diagnostics are
 // not a failure. Usage problems (invalid proxy scheme, bad URL, empty
-// --list-id, extra arguments) exit 2; wiring/transport build failures exit 1.
+// --list-id, extra arguments, --json with --ndjson) exit 2; wiring/transport
+// build failures exit 1.
 func newTestCommand(s *invocation.Streams) *cobra.Command {
 	var (
-		full   bool
-		listID string
-		user   string
-		asJSON bool
+		full     bool
+		listID   string
+		user     string
+		asJSON   bool
+		asNDJSON bool
 	)
 	cmd := &cobra.Command{
 		Use:   "test [URL]",
@@ -78,9 +81,11 @@ search probe (/search?f=tweets&q=twitter); --list-id adds a list probe
 request.
 
 --json prints the machine-readable report: one JSON object when exactly one
-instance is probed, an array of objects otherwise. Exit status is 0 whenever
-the probes completed, even if they all failed; 2 marks invalid input, 1
-wiring failures.`,
+instance is probed, an array of objects otherwise. --ndjson instead prints
+one twitter.pipeline/v1 envelope per instance (kind instance_report, the
+instance URL as id); --json and --ndjson are mutually exclusive. Exit status
+is 0 whenever the probes completed, even if they all failed; 2 marks invalid
+input, 1 wiring failures.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 1 {
 				return invocation.Usagef("usage: instances test [URL]")
@@ -88,6 +93,13 @@ wiring failures.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Flag conflicts are input-contract problems: resolve before
+			// anything else runs so --json --ndjson exits 2 up front.
+			mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
+			if err != nil {
+				return err
+			}
+
 			// Input-contract validation before anything else runs.
 			if cmd.Flags().Changed("list-id") && listID == "" {
 				return invocation.Usagef("instances test: --list-id must not be empty")
@@ -136,27 +148,52 @@ wiring failures.`,
 				reports = append(reports, report)
 			}
 
-			if asJSON {
+			switch mode {
+			case pipeline.ModeNDJSON:
+				return writeNDJSON(s.Out, reports)
+			case pipeline.ModeJSON:
 				return writeJSON(s.Out, reports)
+			default:
+				// ModeHuman and ModeText share the table: it is already the
+				// tab-separated, script-friendly rendering.
+				fmt.Fprintln(s.Out, result.InstanceReportHeader())
+				for _, report := range reports {
+					fmt.Fprintln(s.Out, result.InstanceReportLine(report))
+				}
+				return nil
 			}
-			fmt.Fprintln(s.Out, result.InstanceReportHeader())
-			for _, report := range reports {
-				fmt.Fprintln(s.Out, result.InstanceReportLine(report))
-			}
-			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&full, "full", false, "Also probe search (GET /search?f=tweets&q=twitter)")
 	cmd.Flags().StringVar(&listID, "list-id", "", "Also probe the list with this ID (GET /i/lists/<id>)")
 	cmd.Flags().StringVar(&user, "user", defaultProbeUser, "Account for the RSS and user-timeline probes")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the JSON report: one object for a single instance, an array for several")
+	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one twitter.pipeline/v1 envelope per instance (kind instance_report)")
 	return cmd
 }
 
+// writeNDJSON prints one twitter.pipeline/v1 envelope per instance: kind
+// instance_report, the instance URL as id, the InstanceReport as data, and
+// no meta (the report is self-contained diagnostics).
+func writeNDJSON(out io.Writer, reports []twitter.InstanceReport) error {
+	for _, report := range reports {
+		env := pipeline.Envelope{
+			Schema: pipeline.Schema,
+			Kind:   pipeline.KindInstanceReport,
+			ID:     report.URL,
+			Data:   report,
+		}
+		if err := pipeline.WriteEnvelope(out, env); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // writeJSON prints the reports as one JSON document: a single object when
-// exactly one instance was probed, an array otherwise. NDJSON is
-// deliberately out of scope here — the watch pipeline (task 12) retrofits it
-// per ruling R5/R7.
+// exactly one instance was probed, an array otherwise. The byte contract is
+// pinned by existing tests and deliberately unchanged; per-record NDJSON
+// output goes through pipeline (writeNDJSON).
 func writeJSON(out io.Writer, reports []twitter.InstanceReport) error {
 	var v any = reports
 	if len(reports) == 1 {
