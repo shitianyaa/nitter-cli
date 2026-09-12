@@ -13,7 +13,9 @@ import (
 // rewriting happens anywhere in the pipeline):
 //
 //   - user sources: Ref is the timeline handle ("user:NASA" → Timeline(NASA))
-//   - tag sources:  Ref is the search query ("tag:%23AI" → Search(%23AI))
+//   - tag sources:  Ref is the raw search query ("tag:#AI" → Search(#AI);
+//     the URL escaping happens once, in the HTTP layer — a pre-escaped
+//     "tag:%23AI" would be double-escaped on the wire)
 //   - list sources: Ref is the list ID ("list:12345" → ListTimeline(12345))
 type Source struct {
 	Kind string
@@ -21,7 +23,7 @@ type Source struct {
 }
 
 // ParseSource parses one watch source string of the form "<kind>:<ref>" —
-// "user:NASA", "tag:%23AI" or "list:12345". The string is trimmed of
+// "user:NASA", "tag:#AI" or "list:12345". The string is trimmed of
 // surrounding whitespace and split exactly once at the first colon, so the
 // ref may itself contain colons (e.g. the phrase search "tag:from:NASA").
 // The kind must be one of user/tag/list and the ref must be non-empty; every

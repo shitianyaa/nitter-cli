@@ -81,9 +81,11 @@ against the persistent dedup state (~/.twitter-cli/state/seen.json, or
 <--state-dir>/seen.json):
 
   <SOURCE>... is any list of user:<handle>, tag:<query> and list:<id>
-  (e.g. user:NASA, tag:%23AI, list:12345). The ref after the first colon is
-  passed through verbatim to the fetch (handle / search query / list ID) and
-  forms the seen key "<kind>:<ref>". With no SOURCE arguments the config's
+  (e.g. user:NASA, tag:#AI, tag:from:nasa, list:12345). The ref after the
+  first colon is passed through verbatim to the fetch (handle / search
+  query / list ID) and forms the seen key "<kind>:<ref>" — write tag queries
+  raw (tag:#AI); the URL-escaped form (tag:%23AI) would be double-escaped on
+  the wire and is not valid. With no SOURCE arguments the config's
   [[watch.sources]] entries are used instead; when both are empty this is a
   usage error.
 

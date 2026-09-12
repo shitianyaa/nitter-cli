@@ -63,7 +63,7 @@ func newList(s *invocation.Streams) *cobra.Command {
 
 (separated by tabs; key is "<kind>:<ref>" as watch stores it). --source
 narrows the listing to one source, parsed exactly like a watch source
-("user:NASA", "tag:%23AI", "list:12345"). --json prints a JSON array of
+("user:NASA", "tag:#AI", "list:12345"). --json prints a JSON array of
 {source, initialized, seen_count, watermark_count, updated_at} — always an
 array, even for a single source: it is a listing, the shape is stable. An
 empty store prints the (empty) hint on stderr and nothing on stdout; with

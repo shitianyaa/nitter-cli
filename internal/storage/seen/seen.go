@@ -297,7 +297,7 @@ func CapWatermark(ids []string) []string {
 }
 
 // SourceKey builds the seen map key "<kind>:<ref>" (e.g. "user:NASA",
-// "tag:%23AI", "list:12345"). An empty part yields "" so malformed sources
+// "tag:#AI", "list:12345"). An empty part yields "" so malformed sources
 // are never stored.
 func SourceKey(kind, ref string) string {
 	if kind == "" || ref == "" {
