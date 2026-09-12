@@ -1,6 +1,6 @@
 // Pagination envelope of the public SDK. Part of the NDJSON data contract:
 // JSON keys are frozen (additive-only).
-package twitter
+package nitter
 
 // Page is one page of results. NextCursor is the opaque cursor to request
 // the following page; empty means there are no more results. RSS feeds have

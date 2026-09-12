@@ -32,7 +32,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const opProbe = "media.Probe"
@@ -67,7 +67,7 @@ const probeHeadBytes = 1 << 20
 // not a 206 (a 200 from a CDN that ignores Range, a redirect) gives no size
 // and no partial-body semantics: Probe returns zero values and a nil error
 // for it. Only a failure of the request itself surfaces as a classified
-// *twitter.Error the caller may ignore (404 → KindNotFound; 416 and other
+// *nitter.Error the caller may ignore (404 → KindNotFound; 416 and other
 // 4xx → KindUnavailable; 401/403 → KindChallenge; 5xx and transport
 // failures → KindUnavailable after the transport's retries; an unparseable
 // URL → KindInvalidArg). A 200 that ignores Range may additionally trip the
@@ -75,7 +75,7 @@ const probeHeadBytes = 1 << 20
 // instead caps its read at the window) — that surfaces as KindMalformed.
 func (r *Resolver) Probe(ctx context.Context, mediaURL string) (durationSeconds float64, sizeBytes int64, err error) {
 	if err := ctx.Err(); err != nil {
-		return 0, 0, twitter.Errorf(twitter.KindUnavailable, opProbe, "probe not sent: %w", err)
+		return 0, 0, nitter.Errorf(nitter.KindUnavailable, opProbe, "probe not sent: %w", err)
 	}
 	body, status, header, err := r.getMeta(ctx, mediaURL, probeHeaders(mediaURL))
 	if err != nil {

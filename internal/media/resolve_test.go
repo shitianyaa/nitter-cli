@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // readFixture loads a committed testdata file (the plugin-shaped payloads).
@@ -62,7 +62,7 @@ func (f *fakeFetch) get(ctx context.Context, url string, headers map[string]stri
 	}
 	r, ok := f.routes[url]
 	if !ok {
-		return nil, 0, twitter.Errorf(twitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")
+		return nil, 0, nitter.Errorf(nitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")
 	}
 	if r.err != nil {
 		return nil, 0, r.err
@@ -79,7 +79,7 @@ func (f *fakeFetch) post(ctx context.Context, url string, body []byte, headers m
 	}
 	r, ok := f.postRoutes[url]
 	if !ok {
-		return nil, 0, twitter.Errorf(twitter.KindNotFound, "httpx.Post", "instance returned HTTP 404")
+		return nil, 0, nitter.Errorf(nitter.KindNotFound, "httpx.Post", "instance returned HTTP 404")
 	}
 	if r.err != nil {
 		return nil, 0, r.err
@@ -128,8 +128,8 @@ func TestParseStatusRefDelegatesToAppapi(t *testing.T) {
 		t.Errorf("ParseStatusRef(bare id) = (%+v, %v), want user-less ref, nil", ref, err)
 	}
 	_, err = ParseStatusRef("not a ref")
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
 		t.Errorf("ParseStatusRef(garbage) err = %v, want KindInvalidArg", err)
 	}
 }
@@ -152,35 +152,35 @@ func TestStatusRefString(t *testing.T) {
 // zero-bitrate entries never win a medium/low selection, and an all-zero
 // list degrades to the high rule so a URL is always selected.
 func TestSelectVariant(t *testing.T) {
-	v0a := twitter.MediaVariant{URL: "u0a", Bitrate: 0}
-	v0b := twitter.MediaVariant{URL: "u0b", Bitrate: 0}
-	v100a := twitter.MediaVariant{URL: "u100a", Bitrate: 100}
-	v100b := twitter.MediaVariant{URL: "u100b", Bitrate: 100}
-	v500 := twitter.MediaVariant{URL: "u500", Bitrate: 500000}
-	v832 := twitter.MediaVariant{URL: "u832", Bitrate: 832000}
-	v2176 := twitter.MediaVariant{URL: "u2176", Bitrate: 2176000}
+	v0a := nitter.MediaVariant{URL: "u0a", Bitrate: 0}
+	v0b := nitter.MediaVariant{URL: "u0b", Bitrate: 0}
+	v100a := nitter.MediaVariant{URL: "u100a", Bitrate: 100}
+	v100b := nitter.MediaVariant{URL: "u100b", Bitrate: 100}
+	v500 := nitter.MediaVariant{URL: "u500", Bitrate: 500000}
+	v832 := nitter.MediaVariant{URL: "u832", Bitrate: 832000}
+	v2176 := nitter.MediaVariant{URL: "u2176", Bitrate: 2176000}
 
 	cases := []struct {
 		name     string
-		variants []twitter.MediaVariant
+		variants []nitter.MediaVariant
 		quality  string
 		wantURL  string
 		wantOK   bool
 	}{
 		{"empty list", nil, "high", "", false},
-		{"high picks highest", []twitter.MediaVariant{v0a, v832, v2176}, "high", "u2176", true},
-		{"high ties go to the later variant", []twitter.MediaVariant{v100a, v100b}, "high", "u100b", true},
-		{"high over all-zero degrades to last", []twitter.MediaVariant{v0a, v0b}, "high", "u0b", true},
-		{"medium picks the true median", []twitter.MediaVariant{v500, v832, v2176}, "medium", "u832", true},
-		{"medium ignores zero-bitrate", []twitter.MediaVariant{v0a, v832, v2176}, "medium", "u2176", true},
-		{"medium picks middle of four", []twitter.MediaVariant{v100a, v500, v832, v2176}, "medium", "u832", true},
-		{"medium over all-zero degrades to high", []twitter.MediaVariant{v0a, v0b}, "medium", "u0b", true},
-		{"low picks lowest non-zero", []twitter.MediaVariant{v0a, v832, v2176}, "low", "u832", true},
-		{"low picks the true minimum", []twitter.MediaVariant{v500, v832, v2176}, "low", "u500", true},
-		{"low ties go to the first variant", []twitter.MediaVariant{v100a, v100b}, "low", "u100a", true},
-		{"low over all-zero degrades to high", []twitter.MediaVariant{v0a, v0b}, "low", "u0b", true},
-		{"unknown quality behaves as high", []twitter.MediaVariant{v0a, v832, v2176}, "bogus", "u2176", true},
-		{"empty quality behaves as high", []twitter.MediaVariant{v0a, v832, v2176}, "", "u2176", true},
+		{"high picks highest", []nitter.MediaVariant{v0a, v832, v2176}, "high", "u2176", true},
+		{"high ties go to the later variant", []nitter.MediaVariant{v100a, v100b}, "high", "u100b", true},
+		{"high over all-zero degrades to last", []nitter.MediaVariant{v0a, v0b}, "high", "u0b", true},
+		{"medium picks the true median", []nitter.MediaVariant{v500, v832, v2176}, "medium", "u832", true},
+		{"medium ignores zero-bitrate", []nitter.MediaVariant{v0a, v832, v2176}, "medium", "u2176", true},
+		{"medium picks middle of four", []nitter.MediaVariant{v100a, v500, v832, v2176}, "medium", "u832", true},
+		{"medium over all-zero degrades to high", []nitter.MediaVariant{v0a, v0b}, "medium", "u0b", true},
+		{"low picks lowest non-zero", []nitter.MediaVariant{v0a, v832, v2176}, "low", "u832", true},
+		{"low picks the true minimum", []nitter.MediaVariant{v500, v832, v2176}, "low", "u500", true},
+		{"low ties go to the first variant", []nitter.MediaVariant{v100a, v100b}, "low", "u100a", true},
+		{"low over all-zero degrades to high", []nitter.MediaVariant{v0a, v0b}, "low", "u0b", true},
+		{"unknown quality behaves as high", []nitter.MediaVariant{v0a, v832, v2176}, "bogus", "u2176", true},
+		{"empty quality behaves as high", []nitter.MediaVariant{v0a, v832, v2176}, "", "u2176", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -276,9 +276,9 @@ func TestResolveStatusAllFailedNamesEveryStrategy(t *testing.T) {
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
 		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
 	})
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		t.Fatalf("err = %v (%T), want *twitter.Error", err, err)
+		t.Fatalf("err = %v (%T), want *nitter.Error", err, err)
 	}
 	msg := err.Error()
 	for _, part := range []string{"fx: not_found", "vx: not_found", "syndication: not_found"} {
@@ -307,8 +307,8 @@ func TestResolveStatusMalformedPayloadIsKindMalformed(t *testing.T) {
 			routes := map[string]fakeResp{fxURL100: {body: []byte(body), status: 200}}
 			r, _ := newTestResolver(routes)
 			_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{Strategies: []Strategy{StrategyFx}})
-			var terr *twitter.Error
-			if !errors.As(err, &terr) || terr.Kind != twitter.KindMalformed {
+			var terr *nitter.Error
+			if !errors.As(err, &terr) || terr.Kind != nitter.KindMalformed {
 				t.Fatalf("err = %v, want KindMalformed", err)
 			}
 			if !strings.Contains(err.Error(), "fx:") {
@@ -332,8 +332,8 @@ func TestResolveStatusEmptyEverywhereIsNotFound(t *testing.T) {
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
 		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
 	})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindNotFound {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
 		t.Fatalf("err = %v, want KindNotFound", err)
 	}
 	for _, part := range []string{"fx: empty", "vx: empty", "syndication: empty"} {
@@ -349,8 +349,8 @@ func TestResolveStatusObjectWithoutMediaIsEmpty(t *testing.T) {
 	routes := map[string]fakeResp{fxURL100: {body: []byte(`{"code": 200, "message": "OK"}`), status: 200}}
 	r, _ := newTestResolver(routes)
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{Strategies: []Strategy{StrategyFx}})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindNotFound || !strings.Contains(err.Error(), "fx: empty") {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound || !strings.Contains(err.Error(), "fx: empty") {
 		t.Fatalf("err = %v, want KindNotFound naming fx: empty", err)
 	}
 }
@@ -359,8 +359,8 @@ func TestResolveStatusObjectWithoutMediaIsEmpty(t *testing.T) {
 func TestResolveStatusNoStrategiesIsInvalidArg(t *testing.T) {
 	r, _ := newTestResolver(nil)
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
 		t.Fatalf("err = %v, want KindInvalidArg", err)
 	}
 }
@@ -373,8 +373,8 @@ func TestResolveStatusUnimplementedStrategyIsLocalState(t *testing.T) {
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
 		Strategies: []Strategy{StrategyNitter},
 	})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindLocalState {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
 		t.Fatalf("err = %v, want KindLocalState", err)
 	}
 	if !strings.Contains(err.Error(), "nitter:") {

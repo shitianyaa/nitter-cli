@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // statusPage builds a Nitter-shaped conversation page whose focused status
@@ -28,7 +28,7 @@ func statusPage(user, id string) string {
 }
 
 // TestParseStatusRefTable pins the accepted ref shapes: bare numeric ID;
-// https://(x|twitter).com/<user>/status/<id> with optional /photo/N or
+// https://(x|nitter).com/<user>/status/<id> with optional /photo/N or
 // /video/1 suffix; nitter-style URLs of the same path shape (user optional
 // on the /status/<id> route); scheme-less host URLs are normalized.
 func TestParseStatusRefTable(t *testing.T) {
@@ -74,8 +74,8 @@ func TestParseStatusRefInvalid(t *testing.T) {
 			t.Errorf("ParseStatusRef(%q) = (%q, %q), want an error", ref, id, user)
 			continue
 		}
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
 			t.Errorf("ParseStatusRef(%q) err = %v (%T), want KindInvalidArg", ref, err, err)
 		}
 	}
@@ -166,8 +166,8 @@ func TestStatusUserRouteOtherErrorsDoNotFallback(t *testing.T) {
 	if err == nil {
 		t.Fatal("Status = nil error, want the 503 to fail the attempt")
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	if got := rec.requests(); !slices.Equal(got, []string{"/nasa/status/2070000000000000010"}) {
@@ -182,8 +182,8 @@ func TestStatusAllInstancesExhaustedReportsLastError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Status = nil error, want the last instance failure")
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindNotFound {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
 		t.Fatalf("err = %v (%T), want the last instance's classification (404 / KindNotFound)", err, err)
 	}
 }
@@ -198,8 +198,8 @@ func TestStatusInvalidRefIsInvalidArgBeforeNetwork(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Status(%q) = (%+v, %q), want an error", ref, tw, instance)
 		}
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
 			t.Errorf("Status(%q) err = %v (%T), want KindInvalidArg before any network", ref, err, err)
 		}
 	}
@@ -211,8 +211,8 @@ func TestStatusNoInstancesConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Status = (%+v, %q), want an error", tw, instance)
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	if !strings.Contains(err.Error(), "no instances configured") {

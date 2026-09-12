@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/rss"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/rss"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // The fixture is shaped after the documented Nitter RSS format and the
@@ -110,12 +110,12 @@ func TestParseMalformedXMLIsKindMalformed(t *testing.T) {
 	if items != nil {
 		t.Errorf("Parse(truncated) items = %#v, want nil on error", items)
 	}
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		t.Fatalf("Parse(truncated) error = %T (%v), want *twitter.Error", err, err)
+		t.Fatalf("Parse(truncated) error = %T (%v), want *nitter.Error", err, err)
 	}
-	if terr.Kind != twitter.KindMalformed {
-		t.Errorf("Kind = %q, want %q", terr.Kind, twitter.KindMalformed)
+	if terr.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %q, want %q", terr.Kind, nitter.KindMalformed)
 	}
 	if terr.Op != "rss.Parse" {
 		t.Errorf("Op = %q, want %q", terr.Op, "rss.Parse")
@@ -154,7 +154,7 @@ func TestItemToTweetProjectsPhotoItem(t *testing.T) {
 	// pbs.twimg.com media:content URL and the percent-encoded /pic/ proxy
 	// of the description img. Both canonicalize to the pbs name=orig URL,
 	// so the projection yields exactly ONE media entry.
-	wantMedia := []twitter.Media{
+	wantMedia := []nitter.Media{
 		{Type: "image", URL: "https://pbs.twimg.com/media/Fxxx1.jpg?name=orig"},
 	}
 	if !reflect.DeepEqual(tw.Media, wantMedia) {
@@ -180,7 +180,7 @@ func TestItemToTweetJoinsRelativeVideoThumbMedia(t *testing.T) {
 	// The relative /pic/..._video_thumb src is joined against the instance
 	// base derived from the item's own status URL, and a video-thumb URL is
 	// a video placeholder, not an image.
-	wantMedia := []twitter.Media{
+	wantMedia := []nitter.Media{
 		{Type: "video", URL: "https://nitter.example/pic/ext_tw_video_thumb%2F2081668333762687238%2Fpu%2Fimg%2Fabc123.jpg"},
 	}
 	if !reflect.DeepEqual(tw.Media, wantMedia) {
@@ -232,12 +232,12 @@ func TestItemToTweetNonStatusURLIsKindMalformed(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ItemToTweet(non-status) = %+v, want an error", tw)
 	}
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		t.Fatalf("error = %T (%v), want *twitter.Error", err, err)
+		t.Fatalf("error = %T (%v), want *nitter.Error", err, err)
 	}
-	if terr.Kind != twitter.KindMalformed {
-		t.Errorf("Kind = %q, want %q", terr.Kind, twitter.KindMalformed)
+	if terr.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %q, want %q", terr.Kind, nitter.KindMalformed)
 	}
 	if terr.Op != "rss.ItemToTweet" {
 		t.Errorf("Op = %q, want %q", terr.Op, "rss.ItemToTweet")
@@ -283,12 +283,12 @@ func TestParseRejectsDoctypeEntity(t *testing.T) {
 		if items != nil {
 			t.Errorf("Parse(DTD body) items = %#v, want nil on error", items)
 		}
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if !errors.As(err, &terr) {
-			t.Fatalf("Parse(DTD body) error = %T (%v), want *twitter.Error", err, err)
+			t.Fatalf("Parse(DTD body) error = %T (%v), want *nitter.Error", err, err)
 		}
-		if terr.Kind != twitter.KindMalformed {
-			t.Errorf("Kind = %q, want %q", terr.Kind, twitter.KindMalformed)
+		if terr.Kind != nitter.KindMalformed {
+			t.Errorf("Kind = %q, want %q", terr.Kind, nitter.KindMalformed)
 		}
 		if terr.Op != "rss.Parse" {
 			t.Errorf("Op = %q, want %q", terr.Op, "rss.Parse")

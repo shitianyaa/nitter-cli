@@ -1,28 +1,28 @@
-# twitter-cli
+# nitter-cli
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Documentation](docs/index.md)
 
-`twitter` is an unofficial command-line client for **public tweets**, served through
+`nitter` is an unofficial command-line client for **public tweets**, served through
 **Nitter instances you run yourself**. It fetches user timelines, search results,
 list timelines and single statuses, and it can watch sources continuously and emit
 only genuinely new tweets against a persistent dedup state — designed to be driven
 by a scheduler (cron, systemd timers, Hermes) and consumed as NDJSON.
 
-It is also a public Go SDK (`github.com/shitianyaa/twitter-cli/sdk`, package
-`twitter`) with a stable, additive-only data model.
+It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
+`nitter`) with a stable, additive-only data model.
 
 ## What it can do
 
 - **Fetch public tweets** through your own Nitter instances: `user` (RSS first,
   HTML user page as fallback), `search`, `list`, and single statuses via `get`.
 - **Watch sources continuously**: `watch` polls `user:`/`tag:`/`list:` sources,
-  deduplicates against `~/.twitter-cli/state/seen.json` and emits only new tweets.
+  deduplicates against `~/.nitter-cli/state/seen.json` and emits only new tweets.
   `--once` runs exactly one cycle — the recommended scheduler form.
 - **Diagnose instances**: `instances test` probes RSS / user timeline / search /
   list capabilities of each configured instance with one report line each.
 - **Three output modes for every data command**: human-readable tab-separated rows,
   whole-result `--json`, and one-envelope-per-record `--ndjson`
-  (`twitter.pipeline/v1`).
+  (`nitter.pipeline/v1`).
 - **Manage its own configuration and state**: `config path/get/set/unset` for the
   nine scalar keys, `seen list/clear` for the watch dedup state.
 - **Check for updates**: `update --check` compares the installed version against
@@ -34,18 +34,18 @@ It is also a public Go SDK (`github.com/shitianyaa/twitter-cli/sdk`, package
 
 ## Quick start
 
-twitter-cli ships without instances: **you point it at a Nitter instance you
+nitter-cli ships without instances: **you point it at a Nitter instance you
 control**. Nothing is fetched until you configure one.
 
 1. **Build** (Go 1.27+):
 
    ```bash
-   sh scripts/build.sh          # produces ./twitter
-   ./twitter --version          # twitter version 0.1.0 (or a dev line)
+   sh scripts/build.sh          # produces ./nitter
+   ./nitter --version          # nitter version 0.1.0 (or a dev line)
    ```
 
-2. **Configure your instance** — edit `~/.twitter-cli/config.toml` (the path is
-   printed by `twitter config path`; the file with commented examples is created
+2. **Configure your instance** — edit `~/.nitter-cli/config.toml` (the path is
+   printed by `nitter config path`; the file with commented examples is created
    on the first real command):
 
    ```toml
@@ -58,8 +58,8 @@ control**. Nothing is fetched until you configure one.
 3. **Test the instance** (no live fetch of your data yet, just capability probes):
 
    ```bash
-   twitter instances test                # probes every [[instances]] entry
-   twitter instances test http://nitter.internal:8080 --full
+   nitter instances test                # probes every [[instances]] entry
+   nitter instances test http://nitter.internal:8080 --full
    ```
 
    Example output (cells are `ok`, `fail(<reason>)` or `-`):
@@ -72,9 +72,9 @@ control**. Nothing is fetched until you configure one.
 4. **Fetch something** (examples — output depends on your instance and the data):
 
    ```bash
-   twitter user NASA --limit 5
-   twitter search "#nitter" --limit 10
-   twitter get https://x.com/NASA/status/2081668333762687236
+   nitter user NASA --limit 5
+   nitter search "#nitter" --limit 10
+   nitter get https://x.com/NASA/status/2081668333762687236
    ```
 
 5. **Watch sources from your scheduler** — one cycle per invocation, new tweets
@@ -82,18 +82,18 @@ control**. Nothing is fetched until you configure one.
 
    ```bash
    # crontab: every 10 minutes, NDJSON stream into your consumer
-   */10 * * * * twitter watch user:NASA tag:#AI --once --ndjson >> /var/log/twitter-watch.ndjson 2>/tmp/twitter-watch.err
+   */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>/tmp/nitter-watch.err
    ```
 
    Sources can also live in config under `[[watch.sources]]`; run
-   `twitter watch --once --ndjson` with no arguments to use them.
+   `nitter watch --once --ndjson` with no arguments to use them.
 
 ## Configuration
 
-`~/.twitter-cli/config.toml` (TOML, mode 0600). Precedence: CLI flag > environment
-> file > built-in default. `twitter config get` prints effective values;
-`twitter config set KEY VALUE` writes (value may also be piped on stdin);
-`twitter config unset KEY` removes a key. The `[[instances]]` and
+`~/.nitter-cli/config.toml` (TOML, mode 0600). Precedence: CLI flag > environment
+> file > built-in default. `nitter config get` prints effective values;
+`nitter config set KEY VALUE` writes (value may also be piped on stdin);
+`nitter config unset KEY` removes a key. The `[[instances]]` and
 `[[watch.sources]]` array tables are managed by editing the file directly —
 `config set` refuses them.
 
@@ -101,18 +101,18 @@ control**. Nothing is fetched until you configure one.
 
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
-| `default_limit` | int | `20` | `TWITTER_DEFAULT_LIMIT` | Tweets per manual command when `--limit` is not given (`0` = all) |
+| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Tweets per manual command when `--limit` is not given (`0` = all) |
 | `max_pages` | int | `5` | — | Pagination cap per fetch (`--max-pages 0` on a command also means this default, not "unlimited") |
 | `request_interval` | duration | `1s` | — | Global minimum interval between the starts of consecutive requests |
 | `retry_attempts` | int | `2` | — | Extra attempts after the first, for network errors and 5xx |
 | `retry_delay` | duration | `1s` | — | Linear backoff base: the n-th retry waits `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
 | `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = environment proxies (`HTTPS_PROXY`/`ALL_PROXY`) |
-| `log_level` | enum | `info` | `TWITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
-| `log_format` | enum | `text` | `TWITTER_LOG_FORMAT` | `text` or `json` (single-line) |
+| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
+| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or `json` (single-line) |
 
 Environment overrides apply on top of the file for exactly these three keys:
-`TWITTER_DEFAULT_LIMIT` (integer), `TWITTER_LOG_LEVEL`, `TWITTER_LOG_FORMAT`.
+`NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`.
 
 ### Array tables
 
@@ -122,7 +122,7 @@ url = "http://nitter.internal:8080"   # required
 username = ""                         # optional basic auth (see note)
 password = ""
 
-[[watch.sources]]                     # default sources for `twitter watch`
+[[watch.sources]]                     # default sources for `nitter watch`
 id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```
 
@@ -139,18 +139,18 @@ Every data command (`user`, `search`, `list`, `get`, `instances test`, `seen lis
 | --- | --- | --- |
 | Human / text | default (same rendering on a TTY and in a pipe) | one tab-separated row per record; empty result prints `(empty)` on **stderr** |
 | JSON | `--json` | one JSON object when exactly one record, a JSON array otherwise, `[]` when empty |
-| NDJSON | `--ndjson` | one `twitter.pipeline/v1` envelope per record, one line each |
+| NDJSON | `--ndjson` | one `nitter.pipeline/v1` envelope per record, one line each |
 
 Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 In-place error envelopes (currently emitted by `watch` per failed source):
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
 **Exit codes — check the exit code before parsing any JSON.** `--json`/`--ndjson`
@@ -171,8 +171,8 @@ only describe successful output; **stderr is never JSON**.
   Pass `--include-existing` to emit the whole first fetch once (this also bypasses
   `--max-new` on that run).
 - **State size**: per source, up to 300 seen tweet IDs plus a scan watermark of the
-  20 most recent first-page status IDs. Inspect with `twitter seen list`, delete
-  with `twitter seen clear [--source user:NASA] --confirm`.
+  20 most recent first-page status IDs. Inspect with `nitter seen list`, delete
+  with `nitter seen clear [--source user:NASA] --confirm`.
 - **`--max-new` (default 10)** caps emission per source per cycle (newest first).
   Excess new tweets are **marked seen immediately and never re-emitted**: after a
   downtime, a burst larger than the cap per source per cycle silently loses the
@@ -193,8 +193,8 @@ only describe successful output; **stderr is never JSON**.
   same tweets (宁重勿丢 — prefer duplicates over losses). On Windows, broken pipes
   may surface as a different errno (`ERROR_BROKEN_PIPE`), so the EPIPE → 0
   detection is best-effort there.
-- **`seen` has no `--state-dir`**: `twitter seen list/clear` always operate on the
-  default `~/.twitter-cli/state/seen.json`. If you run `watch --state-dir
+- **`seen` has no `--state-dir`**: `nitter seen list/clear` always operate on the
+  default `~/.nitter-cli/state/seen.json`. If you run `watch --state-dir
   <dir>`, inspect that directory's `seen.json` directly (JSON, schema v1).
 
 ## FAQ
@@ -209,23 +209,23 @@ semantics). Raise `--max-new` or shorten the polling interval.
 
 **RSS works but `search` returns nothing.**
 Search is a separate Nitter capability and may be disabled or slow on your
-instance; probe it with `twitter instances test --full`. Also check the query
-form: hashtag queries must be written raw (`tag:#AI` in watch, `twitter search
+instance; probe it with `nitter instances test --full`. Also check the query
+form: hashtag queries must be written raw (`tag:#AI` in watch, `nitter search
 "#AI"` in search) — `%23` double-escapes.
 
-**`twitter list 12345` is empty — is it broken?**
+**`nitter list 12345` is empty — is it broken?**
 An empty result may mean the list is empty, or that it is new and not yet ingested
 by your instance; the two are indistinguishable from the outside. Neither is an
 error.
 
 **Where is everything stored?**
-`~/.twitter-cli/config.toml` (configuration) and `~/.twitter-cli/state/seen.json`
+`~/.nitter-cli/config.toml` (configuration) and `~/.nitter-cli/state/seen.json`
 (watch dedup state). On Windows both live under your user profile directory
-(`twitter config path` prints the exact location). Writes are atomic; a corrupt
+(`nitter config path` prints the exact location). Writes are atomic; a corrupt
 state file is a hard error (exit 1), never a silent reset.
 
 **How do I use a different instance for one command?**
-`twitter --instance http://nitter.internal:8080 user NASA` replaces the configured
+`nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
 instance set for this invocation only. `--proxy` analogously overrides the proxy
 (flag > config > environment).
 
@@ -235,13 +235,13 @@ carry direct image/video links as the instance served them.
 
 ## Disclaimer
 
-1. **Public tweets only.** twitter-cli fetches exclusively publicly accessible
+1. **Public tweets only.** nitter-cli fetches exclusively publicly accessible
    tweets through Nitter. It bundles no instances, performs no login, and provides
    no capability to bypass access controls or solve challenges.
 2. **Only use instances you control and trust.** The CLI follows the media and
    redirect URLs returned by the configured instance. Isolate your internal
    services (Redis, cloud metadata endpoints, admin panels) from the network path
-   of twitter-cli and its instances.
+   of nitter-cli and its instances.
 3. **No bypassing of access controls.** If a page requires login, is a challenge,
    or the instance is rate-limited, the CLI reports the classified error instead of
    working around it. Respect X's terms and your instances' capacity; this project

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 )
 
 // fakeAPI serves a canned GitHub-releases body and points the command's API
@@ -28,7 +28,7 @@ func fakeAPI(t *testing.T, body string, status int) {
 }
 
 func release(tag string, prerelease bool) string {
-	return `{"tag_name":"` + tag + `","name":"` + tag + `","html_url":"https://github.com/shitianyaa/twitter-cli/releases/tag/` + tag + `","draft":false,"prerelease":` + boolText(prerelease) + `,"published_at":"2026-09-01T00:00:00Z"}`
+	return `{"tag_name":"` + tag + `","name":"` + tag + `","html_url":"https://github.com/shitianyaa/nitter-cli/releases/tag/` + tag + `","draft":false,"prerelease":` + boolText(prerelease) + `,"published_at":"2026-09-01T00:00:00Z"}`
 }
 
 func boolText(b bool) string {
@@ -164,7 +164,7 @@ func TestUpdateCheckJSONShape(t *testing.T) {
 	if doc.Current != "0.1.0" || doc.Latest != "0.2.0" || !doc.Outdated || doc.Prerelease || doc.DevBuild {
 		t.Errorf("document = %+v", doc)
 	}
-	if doc.ReleaseURL != "https://github.com/shitianyaa/twitter-cli/releases/tag/v0.2.0" {
+	if doc.ReleaseURL != "https://github.com/shitianyaa/nitter-cli/releases/tag/v0.2.0" {
 		t.Errorf("release_url = %q", doc.ReleaseURL)
 	}
 	// One JSON document on one line.

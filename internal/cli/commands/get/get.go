@@ -1,4 +1,4 @@
-// Package get implements the `twitter get` command: fetch one single status
+// Package get implements the `nitter get` command: fetch one single status
 // through the wiring layer and render it in the resolved output mode. Data
 // acquisition goes through internal/cli/client and sdk models only — per
 // ruling R11 this package never imports internal/nitter/*.
@@ -16,15 +16,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
-// New builds the `twitter get <REF>` command over the shared streams.
+// New builds the `nitter get <REF>` command over the shared streams.
 //
 // REF is a bare numeric status ID or a status URL (x.com, twitter.com or any
 // Nitter instance, shape /<user>/status/<id>; the user segment is optional
@@ -64,12 +64,12 @@ are tried in config order; an instance whose fetch fails cools down while
 the next one is tried.
 
 --json prints the tweet as one JSON object. --ndjson instead prints one
-twitter.pipeline/v1 envelope (kind tweet, the tweet ID as id, the Tweet as
+nitter.pipeline/v1 envelope (kind tweet, the tweet ID as id, the Tweet as
 data, provenance in meta; meta.source is "status:" plus the numeric ID).
 --json and --ndjson are mutually exclusive.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 1 {
-				return invocation.Usagef("usage: twitter get <REF>")
+				return invocation.Usagef("usage: nitter get <REF>")
 			}
 			return nil
 		},
@@ -80,7 +80,7 @@ data, provenance in meta; meta.source is "status:" plus the numeric ID).
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print the tweet as one JSON object")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
-		"Print one twitter.pipeline/v1 envelope (kind tweet)")
+		"Print one nitter.pipeline/v1 envelope (kind tweet)")
 	return cmd
 }
 
@@ -97,7 +97,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJ
 		ref = args[0]
 	}
 	if s.In != nil && !s.InIsTTY {
-		// An empty line (e.g. `echo "" | twitter get 101`) carries no ref:
+		// An empty line (e.g. `echo "" | nitter get 101`) carries no ref:
 		// only a non-empty line counts as "given on stdin".
 		if line, ok := firstLine(s.In); ok && line != "" {
 			if ref != "" {
@@ -107,7 +107,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJ
 		}
 	}
 	if ref == "" {
-		return invocation.Usagef("usage: twitter get <REF>")
+		return invocation.Usagef("usage: nitter get <REF>")
 	}
 	// Local ref parsing so bad input exits 2 before any wiring is built
 	// (and before any network) — the same local-validation pattern the user
@@ -157,7 +157,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJ
 	default:
 		// ModeHuman and ModeText share the row rendering: the tweet's text
 		// row only — no media listing (the row protocol is one line).
-		row := result.TweetRows([]twitter.Tweet{tw})[0]
+		row := result.TweetRows([]nitter.Tweet{tw})[0]
 		fmt.Fprintln(s.Out, row.Line())
 		return nil
 	}
@@ -177,7 +177,7 @@ func firstLine(r io.Reader) (line string, ok bool) {
 
 // writeJSON prints the tweet as one JSON object (a single status never
 // marshals as an array).
-func writeJSON(out io.Writer, tw twitter.Tweet) error {
+func writeJSON(out io.Writer, tw nitter.Tweet) error {
 	b, err := jsonx.MarshalLine(tw)
 	if err != nil {
 		return err
@@ -186,11 +186,11 @@ func writeJSON(out io.Writer, tw twitter.Tweet) error {
 	return err
 }
 
-// writeNDJSON prints exactly one twitter.pipeline/v1 envelope: kind tweet,
+// writeNDJSON prints exactly one nitter.pipeline/v1 envelope: kind tweet,
 // the tweet ID as id, the Tweet as data, and provenance in meta (source
 // "status:<id>" — the numeric ID, not the raw ref —, the instance base URL
 // that produced the tweet, and the RFC3339 UTC fetch timestamp).
-func writeNDJSON(out io.Writer, tw twitter.Tweet, instance, fetchedAt string) error {
+func writeNDJSON(out io.Writer, tw nitter.Tweet, instance, fetchedAt string) error {
 	env := pipeline.Envelope{
 		Schema: pipeline.Schema,
 		Kind:   pipeline.KindTweet,

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
 )
 
 func TestMarshalLineNoHTMLEscapingSingleTrailingNewline(t *testing.T) {

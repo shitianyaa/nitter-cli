@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // searchRouteTarget is the exact request URI of the first search page for
@@ -128,12 +128,12 @@ func TestSearchEmptyQueryIsInvalidArgBeforeNetwork(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Search(%q) = (%v, %q), want an error", query, tweets, instance)
 		}
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if !errors.As(err, &terr) {
-			t.Fatalf("Search(%q) error = %T (%v), want *twitter.Error", query, err, err)
+			t.Fatalf("Search(%q) error = %T (%v), want *nitter.Error", query, err, err)
 		}
-		if terr.Kind != twitter.KindInvalidArg {
-			t.Errorf("Search(%q) Kind = %v, want %v (before any network)", query, terr.Kind, twitter.KindInvalidArg)
+		if terr.Kind != nitter.KindInvalidArg {
+			t.Errorf("Search(%q) Kind = %v, want %v (before any network)", query, terr.Kind, nitter.KindInvalidArg)
 		}
 	}
 }
@@ -144,8 +144,8 @@ func TestSearchChallengePropagates(t *testing.T) {
 		timelineRoute{searchRouteTarget("x"), 200, login},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "x", appapi.PageOptions{})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindChallenge {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindChallenge {
 		t.Fatalf("err = %v (%T), want KindChallenge from ClassifyPage", err, err)
 	}
 }
@@ -158,13 +158,13 @@ func TestSearchAllInstancesExhaustedReportsLastError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Search = nil error, want the last instance failure")
 	}
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		t.Fatalf("err = %v (%T), want *twitter.Error", err, err)
+		t.Fatalf("err = %v (%T), want *nitter.Error", err, err)
 	}
 	// The last error is the last instance's classification: HTTP 404 →
 	// KindNotFound (srv1's 503 stays behind).
-	if terr.Kind != twitter.KindNotFound {
+	if terr.Kind != nitter.KindNotFound {
 		t.Errorf("err = %v, want the last instance's classification (404 / KindNotFound)", err)
 	}
 }
@@ -188,8 +188,8 @@ func TestSearchNoInstancesConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Search = (%v, %q), want an error", tweets, instance)
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	if !strings.Contains(err.Error(), "no instances configured") {

@@ -1,36 +1,36 @@
-# twitter-cli MVP 实现计划
+# nitter-cli MVP 实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 构建一个 Go 版推特 CLI（`twitter`），从用户自建 Nitter 实例抓取公开推文，供 Hermes（Agent）完成「找推文、定时轮询、去重」，工程约定完全镜像 `D:\Hermes\javdb-cli` / `D:\Hermes\pixiv-cli`。后端抽象已预留：MVP 为 Nitter 后端，M6 增加内嵌 X GraphQL 客户端与账号池的 direct 后端（spec §15），命令与去重/输出层零改动复用。
+**Goal:** 构建一个 Go 版推特 CLI（`nitter`），从用户自建 Nitter 实例抓取公开推文，供 Hermes（Agent）完成「找推文、定时轮询、去重」，工程约定完全镜像 `D:\Hermes\javdb-cli` / `D:\Hermes\pixiv-cli`。后端抽象已预留：MVP 为 Nitter 后端，M6 增加内嵌 X GraphQL 客户端与账号池的 direct 后端（spec §15），命令与去重/输出层零改动复用。
 
-**Architecture:** `cmd/twitter` 极薄入口 → `internal/cli` 组合根 + 每命令一目录 → 顶层 `sdk/`（`package twitter`，唯一公开取数面）→ `internal/nitter/{appapi,rss,html,protocol/httpx}` 协议实现 → `internal/{config,storage/seen,watch,update,common,buildinfo}` 支撑层。输出走 `twitter.pipeline/v1` NDJSON 信封 + 人类文本双模；去重状态落 `~/.twitter-cli/state/seen.json`（seen 300 条/源 + 扫描水位 20 条，语义移植自 astrbot_plugin_nitter_tweets）。
+**Architecture:** `cmd/nitter` 极薄入口 → `internal/cli` 组合根 + 每命令一目录 → 顶层 `sdk/`（`package nitter`，唯一公开取数面）→ `internal/nitter/{appapi,rss,html,protocol/httpx}` 协议实现 → `internal/{config,storage/seen,watch,update,common,buildinfo}` 支撑层。输出走 `nitter.pipeline/v1` NDJSON 信封 + 人类文本双模；去重状态落 `~/.nitter-cli/state/seen.json`（seen 300 条/源 + 扫描水位 20 条，语义移植自 astrbot_plugin_nitter_tweets）。
 
 **Tech Stack:** Go 1.27.x（`CGO_ENABLED=0`）、cobra、bogdanfinn/tls-client、PuerkitoBio/goquery、pelletier/go-toml/v2、标准库 encoding/xml。无日志库（stderr 诊断）、无颜色库、无 SQLite（状态用原子写 JSON 文件）。
 
-**Spec:** `docs/superpowers/specs/2026-09-11-twitter-cli-spec.md`（本计划从该 spec 论证；执行者两个都要读）
+**Spec:** `docs/superpowers/specs/2026-09-11-nitter-cli-spec.md`（本计划从该 spec 论证；执行者两个都要读）
 
 ## Global Constraints
 
 - Go 版本：`go 1.27` 起步；全部构建 `CGO_ENABLED=0`，`go build -trimpath`，版本经 `-ldflags "-X .../buildinfo.Version=..."` 注入。
-- 边界：`cmd/twitter` 只委托；`internal/cli/commands/*` 不导入 `internal/cli` 包本体，也不导入 `internal/nitter/*`（取数一律经 `sdk`）；`internal/common` 不接收 `io.Writer`、不含用户文案；`internal/cli/result` 不编码 JSON、不建 cobra 命令、不调 SDK。
-- `sdk/`（`package twitter`）导出签名是兼容契约：只增不改不删；`sdk/contract_external_test.go` 编译期冻结。
+- 边界：`cmd/nitter` 只委托；`internal/cli/commands/*` 不导入 `internal/cli` 包本体，也不导入 `internal/nitter/*`（取数一律经 `sdk`）；`internal/common` 不接收 `io.Writer`、不含用户文案；`internal/cli/result` 不编码 JSON、不建 cobra 命令、不调 SDK。
+- `sdk/`（`package nitter`）导出签名是兼容契约：只增不改不删；`sdk/contract_external_test.go` 编译期冻结。
 - 错误脱敏铁律：错误链不得包含实例凭证、URL 查询串、请求头、响应体；错误消息用户可读、英文。
 - 「No silent fallback」：任何重试/上限/降级都必须来自配置或 flag 并写入文档；状态文件损坏必须报错，不得静默重置。
 - 退出码：0 成功；1 运行时失败；2 usage/输入契约错误（`usageError` 只包参数与输入问题）。
 - 翻译边界：代码注释按层双语（协议/SDK 英文，CLI/配置/存储中文偏多）；CLI 运行时消息英文；README/docs/changelog/skill 双语。
 - 提交：Conventional Commits 单行英文小写 subject（`feat(cli): ...`，不用 `misc`/`wip`）；每任务收尾提交一次；changelog 条目进 `changelog/unreleased/{en,zh-CN}.md`。
 - 只抓取用户自建、可信的 Nitter 实例；不内置公共实例、不解算挑战、不做登录态。
-- 数据目录统一 `~/.twitter-cli/`，配置与状态文件 0600、原子写。
+- 数据目录统一 `~/.nitter-cli/`，配置与状态文件 0600、原子写。
 
 ---
 
-## Phase M0 — 仓库骨架（可构建、可测的 `twitter --version`）
+## Phase M0 — 仓库骨架（可构建、可测的 `nitter --version`）
 
 ### Task 1: 模块初始化与版本命令
 
 **Files:**
-- Create: `go.mod`、`cmd/twitter/main.go`、`internal/buildinfo/buildinfo.go`、`internal/cli/root.go`、`internal/cli/invocation/exit.go`、`internal/cli/root_test.go`
+- Create: `go.mod`、`cmd/nitter/main.go`、`internal/buildinfo/buildinfo.go`、`internal/cli/root.go`、`internal/cli/invocation/exit.go`、`internal/cli/root_test.go`
 - Create: `.gitignore`
 
 **Interfaces:**
@@ -40,16 +40,16 @@
 - [ ] **Step 1: 初始化仓库与模块**
 
 ```bash
-mkdir -p D:/Hermes/twitter-cli && cd D:/Hermes/twitter-cli
+mkdir -p D:/Hermes/nitter-cli && cd D:/Hermes/nitter-cli
 git init
-go mod init github.com/shitianyaa/twitter-cli
+go mod init github.com/shitianyaa/nitter-cli
 ```
 
 `.gitignore`：
 
 ```
-/twitter
-/twitter-cli
+/nitter
+/nitter-cli
 /dist/
 *.db
 ```
@@ -66,8 +66,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -76,7 +76,7 @@ func TestRunVersion(t *testing.T) {
 	if code := cli.Run([]string{"--version"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	if got := strings.TrimSpace(out.String()); got != "twitter version v0.1.0" {
+	if got := strings.TrimSpace(out.String()); got != "nitter version v0.1.0" {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -183,8 +183,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 )
 
 // Streams bundles the three process streams; commands read/write nothing else.
@@ -215,13 +215,13 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 func New(s *Streams) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "twitter",
+		Use:           "nitter",
 		Short:         "Fetch public tweets from your own Nitter instances",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       versionLine(),
 	}
-	root.SetVersionTemplate("twitter version {{.Version}}\n")
+	root.SetVersionTemplate("nitter version {{.Version}}\n")
 	root.SetFlagErrorFunc(invocation.WrapFlagError)
 	return root
 }
@@ -250,7 +250,7 @@ func probeTTY(in io.Reader, out io.Writer) (inTTY, outTTY bool) {
 
 （`invocation.RootOptions` 随 Task 2 补齐；本任务先放最小结构体 `type RootOptions struct { CTX context.Context }` 于 `internal/cli/invocation/options.go`。）
 
-`cmd/twitter/main.go`：
+`cmd/nitter/main.go`：
 
 ```go
 package main
@@ -258,7 +258,7 @@ package main
 import (
 	"os"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 func main() {
@@ -268,8 +268,8 @@ func main() {
 
 - [ ] **Step 5: 运行测试通过 + 构建冒烟**
 
-Run: `go test ./... && go build ./cmd/twitter && ./twitter --version`
-Expected: 全部 PASS；输出 `twitter version dev (commit ..., built ...)`
+Run: `go test ./... && go build ./cmd/nitter && ./nitter --version`
+Expected: 全部 PASS；输出 `nitter version dev (commit ..., built ...)`
 
 - [ ] **Step 6: Commit**
 
@@ -283,7 +283,7 @@ git add -A && git commit -m "feat(cli): scaffold module, buildinfo and version-o
 - Create: `scripts/build.sh`、`.pre-commit-config.yaml`、`AGENTS.md`、`CLAUDE.md`、`changelog/README.md`、`changelog/unreleased/{en,zh-CN}.md`、`internal/cli/invocation/options.go`（补全 RootOptions）
 
 **Interfaces:**
-- Produces: `sh scripts/build.sh` 产出 `./twitter`；`invocation.RootOptions{CTX, Proxy, Instance}`（全局 `--proxy`、`--instance` 两个持久 flag 的落点）
+- Produces: `sh scripts/build.sh` 产出 `./nitter`；`invocation.RootOptions{CTX, Proxy, Instance}`（全局 `--proxy`、`--instance` 两个持久 flag 的落点）
 
 - [ ] **Step 1: `scripts/build.sh`**（对齐 javdb-cli）
 
@@ -295,10 +295,10 @@ VERSION="${VERSION:-dev}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-  -ldflags "-s -w -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Version=${VERSION} \
-  -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Commit=${COMMIT} \
-  -X github.com/shitianyaa/twitter-cli/internal/buildinfo.BuildDate=${BUILD_DATE}" \
-  -o twitter ./cmd/twitter
+  -ldflags "-s -w -X github.com/shitianyaa/nitter-cli/internal/buildinfo.Version=${VERSION} \
+  -X github.com/shitianyaa/nitter-cli/internal/buildinfo.Commit=${COMMIT} \
+  -X github.com/shitianyaa/nitter-cli/internal/buildinfo.BuildDate=${BUILD_DATE}" \
+  -o nitter ./cmd/nitter
 ```
 
 - [ ] **Step 2: `.pre-commit-config.yaml`**
@@ -328,14 +328,14 @@ repos:
 
 ## 架构边界（不可违反）
 
-- `cmd/twitter` 只委托；`internal/cli/root.go` 拥有命令树、流与组装；子命令包不导入 `internal/cli`。
-- 命令取数只经顶层 `sdk/`（package twitter）；禁止导入 `internal/nitter/*` 协议细节。
+- `cmd/nitter` 只委托；`internal/cli/root.go` 拥有命令树、流与组装；子命令包不导入 `internal/cli`。
+- 命令取数只经顶层 `sdk/`（package nitter）；禁止导入 `internal/nitter/*` 协议细节。
 - `internal/common` 不接收 io.Writer、不含用户文案；`internal/cli/result` 不编码 JSON、不建命令、不调 SDK。
 - 任何变更不得引入隐式超时、静默截断、静默降级、静默状态重置。
 
 ## 变更路由
 
-- CLI 行为/flag/输出语义 → `docs/{en,zh-CN}/cli-reference.md` + 两语 README + `skills/twitter-cli/` + `changelog/unreleased/`
+- CLI 行为/flag/输出语义 → `docs/{en,zh-CN}/cli-reference.md` + 两语 README + `skills/nitter-cli/` + `changelog/unreleased/`
 - SDK/模型签名 → `docs/{en,zh-CN}/sdk.md` + `docs/maintainers/architecture.md`
 - 构建/发布 → `docs/maintainers/development.md`
 - 提交信息：Conventional Commits 单行英文小写 subject。
@@ -343,7 +343,7 @@ repos:
 
 - [ ] **Step 4: `changelog/unreleased/{en,zh-CN}.md`**（Keep a Changelog 空骨架：`# Unreleased` + `## Added` 等空节；`changelog/README.md` 索引表）
 
-- [ ] **Step 5: 验证** — `pre-commit run --all-files`（未装 pre-commit 则手工跑两条钩子命令）；`sh scripts/build.sh && ./twitter --version`
+- [ ] **Step 5: 验证** — `pre-commit run --all-files`（未装 pre-commit 则手工跑两条钩子命令）；`sh scripts/build.sh && ./nitter --version`
 
 - [ ] **Step 6: Commit** — `git add -A && git commit -m "chore: build script, pre-commit, agents guide and changelog skeleton"`
 
@@ -357,7 +357,7 @@ repos:
 - Create: `internal/config/paths/paths.go`、`paths_test.go`
 
 **Interfaces:**
-- Produces: `paths.AppDirName = ".twitter-cli"`；`paths.New() (Paths, error)` → `Paths{Dir, ConfigFile, StateDir, SeenFile}`；`paths.EnsureDefaultConfigFile(cfgPath, defaultTOML string) error`
+- Produces: `paths.AppDirName = ".nitter-cli"`；`paths.New() (Paths, error)` → `Paths{Dir, ConfigFile, StateDir, SeenFile}`；`paths.EnsureDefaultConfigFile(cfgPath, defaultTOML string) error`
 
 - [ ] **Step 1: 失败测试** — `TestNewUnderTempHome`（设置 `HOME`/`USERPROFILE` 到 `t.TempDir()`，断言四个路径拼装正确）；`TestEnsureDefaultConfigFileCreatesOnce`（首次创建 0600 且内容一致；已存在时内容不被覆盖——预写自定义内容再调用，断言保留）
 
@@ -369,7 +369,7 @@ package paths
 import "path/filepath"
 
 // AppDirName is the single data directory on every OS (javdb-cli convention).
-const AppDirName = ".twitter-cli"
+const AppDirName = ".nitter-cli"
 
 type Paths struct {
 	Dir        string
@@ -426,14 +426,14 @@ func EnsureDefaultConfigFile(cfgPath, defaultTOML string) error {
   - `type Settings struct { Instances []Instance; WatchSources []WatchSource; DefaultLimit int; MaxPages int; RequestInterval, RetryDelay, InstanceCooldown string; RetryAttempts int; Proxy, LogLevel, LogFormat string }`
   - `type Instance struct { URL string; Username, Password string }`、`type WatchSource struct { ID string }`
   - `settings.Defaults() Settings`（default_limit=20、max_pages=5、request_interval="1s"、retry_attempts=2、retry_delay="1s"、instance_cooldown="60s"、log_level="info"、log_format="text"）
-  - `settings.Load(cfgPath string, env func(string) string) (Settings, error)`（优先级 env > file > default；env 键 `TWITTER_DEFAULT_LIMIT`、`TWITTER_LOG_LEVEL`、`TWITTER_LOG_FORMAT`；duration 字段用 `time.ParseDuration` 校验，非法 → `*invocation.UsageError` 语义错误）
+  - `settings.Load(cfgPath string, env func(string) string) (Settings, error)`（优先级 env > file > default；env 键 `NITTER_DEFAULT_LIMIT`、`NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`；duration 字段用 `time.ParseDuration` 校验，非法 → `*invocation.UsageError` 语义错误）
   - `settings.SaveKnown(path string, mut func(map[string]any) error) error`（读整树为 `map[string]any` → mut 只改已知顶层键 → 0600 原子写；未知键天然保留。注释不保证保留——javdb 同款语义，注明）
 
 - [ ] **Step 1: 失败测试**（表驱动）：defaults 值；Load 读 fixture TOML；env 覆盖生效；非法 duration 报错；`SaveKnown` 保留未知键 `[[instances]]` 之外的任意表；写出文件 0600。
 - [ ] **Step 2: FAIL → 实现（结构体 + `go-toml/v2` Unmarshal 到 Settings 与 map 双通道 + 原子写复用 paths 的 temp+rename 模式；rename 前后加包级 `sync.Mutex` 注释说明 Windows rename-over-open-file 串行化）**
 - [ ] **Step 3: PASS → Commit** — `feat(config): settings schema, env precedence and unknown-key-preserving writes`
 
-### Task 5: `twitter config` 命令
+### Task 5: `nitter config` 命令
 
 **Files:**
 - Create: `internal/cli/commands/config/config.go`、`config_test.go`
@@ -443,9 +443,9 @@ func EnsureDefaultConfigFile(cfgPath, defaultTOML string) error {
 - Consumes: Task 3/4
 - Produces: `config path`（打印路径）、`config get [KEY]`（无 KEY 打印全部已知键；未知键 exit 2）、`config set KEY VALUE`、`config unset KEY`；已知键集合 = `default_limit, max_pages, request_interval, retry_attempts, retry_delay, instance_cooldown, proxy, log_level, log_format`（instances/watch 属于数组表，只能手编 TOML，`set` 拒绝并提示）。`set` 对 `default_limit`/`max_pages`/`retry_attempts` 做 int 校验，duration 键做 ParseDuration 校验，校验先于任何落盘。
 
-- [ ] **Step 1: 失败测试** — `path` 输出包含 `.twitter-cli`；`set default_limit 30` 后 `get default_limit` 回读 30；`set nope 1` exit 2 且不创建文件；`set default_limit abc` exit 2。
+- [ ] **Step 1: 失败测试** — `path` 输出包含 `.nitter-cli`；`set default_limit 30` 后 `get default_limit` 回读 30；`set nope 1` exit 2 且不创建文件；`set default_limit abc` exit 2。
 - [ ] **Step 2: FAIL → 实现**（无值 `set KEY` 时：TTY 则提示从参数或 stdin 读，非 TTY 读 stdin 一行——对齐 pixiv-cli 敏感值不入 argv；MVP 只有 proxy 将来算敏感，先按此实现）
-- [ ] **Step 3: PASS → Commit** — `feat(cli): twitter config path/get/set/unset`
+- [ ] **Step 3: PASS → Commit** — `feat(cli): nitter config path/get/set/unset`
 
 ### Task 6: `sdk/errors.go` — 分类错误模型
 
@@ -456,7 +456,7 @@ func EnsureDefaultConfigFile(cfgPath, defaultTOML string) error {
 - Produces:
 
 ```go
-package twitter
+package nitter
 
 // Kind is a stable, machine-readable error class. Values may only be added,
 // never removed, renamed or reused (v1 contract).
@@ -541,7 +541,7 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 - Produces:
 
 ```go
-package twitter
+package nitter
 
 type Instance struct{ URL, Username, Password string } // sdk 侧独立于 config 的投影
 
@@ -561,22 +561,22 @@ func New(opts ...Options) (*Client, error)
 - [ ] **Step 1: 失败测试（chooser 纯逻辑表驱动）**：顺序取第一个未冷却实例；冷却中的被跳过；markFailure 进入冷却（注入时钟）；markSuccess 复位；全冷却报错。
 - [ ] **Step 2: FAIL → 实现 → PASS → Commit** — `feat(sdk): client composition with instance rotation and cooldown`
 
-### Task 9: `twitter instances test` — 实例能力诊断
+### Task 9: `nitter instances test` — 实例能力诊断
 
 **Files:**
 - Create: `internal/nitter/appapi/probe.go`、`internal/cli/commands/instances/instances.go`、`instances_test.go`、`internal/cli/result/instance.go`
 
 **Interfaces:**
 - Consumes: Task 7/8、Task 4（instances 列表）、Task 12 的 pipeline（若已就绪；未就绪则本任务先实现 `--json`，Task 12 完成后回归补 NDJSON——任务顺序允许时把本任务排在 Task 12 之后）
-- Produces: `sdk (Client).TestInstance(ctx, baseURL string, opts TestOptions) InstanceReport`（探测 `/<probe user>/rss`、`/<probe user>`、`/search?q=twitter&f=tweets`、可选 `/i/lists/<id>`；判定 = HTTP 200 且可解析/含 `timeline-item` 或 RSS `<item>`）；命令 `twitter instances test [URL] [--full]`，无 URL 时测配置全部实例。
+- Produces: `sdk (Client).TestInstance(ctx, baseURL string, opts TestOptions) InstanceReport`（探测 `/<probe user>/rss`、`/<probe user>`、`/search?q=nitter&f=tweets`、可选 `/i/lists/<id>`；判定 = HTTP 200 且可解析/含 `timeline-item` 或 RSS `<item>`）；命令 `nitter instances test [URL] [--full]`，无 URL 时测配置全部实例。
 
 - [ ] **Step 1: 失败测试** — `httptest` 起假 Nitter（RSS OK、HTML OK、search 404）：Report 各 Probe 状态正确；URL 参数优先于配置；`--json` 输出含 `url/rss/user_html/search/list` 键。
 - [ ] **Step 2: FAIL → 实现**（人类输出制表行：`URL  RSS  USER_HTML  SEARCH  LIST  LATENCY`；失败格 `fail(404)`）
-- [ ] **Step 3: PASS → 真实实例冒烟（用户手填 `--instance` 验一次）→ Commit** — `feat(cli): twitter instances test capability probe`
+- [ ] **Step 3: PASS → 真实实例冒烟（用户手填 `--instance` 验一次）→ Commit** — `feat(cli): nitter instances test capability probe`
 
 ---
 
-## Phase M2 — RSS/HTML 解析、pipeline、`twitter user`
+## Phase M2 — RSS/HTML 解析、pipeline、`nitter user`
 
 ### Task 10: `sdk/models.go` 定稿 + RSS 解析器
 
@@ -597,7 +597,7 @@ type Item struct {
 
 func Parse(data []byte) ([]Item, error) // encoding/xml；channel 命名空间与 dc/mrss 前缀显式声明
 
-func ItemToTweet(it Item) (twitter.Tweet, error)
+func ItemToTweet(it Item) (nitter.Tweet, error)
 // - user+id: regexp `([A-Za-z0-9_]+)/status(?:es)?/(\d+)` 作用于 GUID，回退 Link；不匹配 → KindMalformed
 // - URL 规范化为 https://x.com/<user>/status/<id>
 // - Text: cleanHTML(Description)，空则回退 cleanHTML(Title)；复用 plugin clean_html_text 语义（<br>→\n、剥标签、unescape、收敛空行）
@@ -623,7 +623,7 @@ func ItemToTweet(it Item) (twitter.Tweet, error)
 package html
 
 type Page struct {
-	Tweets     []twitter.Tweet
+	Tweets     []nitter.Tweet
 	NextCursor string
 }
 
@@ -680,7 +680,7 @@ type Envelope struct {
 	Data   any    `json:"data"`
 	Meta   *Meta  `json:"meta,omitempty"`
 }
-const Schema = "twitter.pipeline/v1"
+const Schema = "nitter.pipeline/v1"
 
 type Meta struct { Source, Instance, FetchedAt string }
 
@@ -691,9 +691,9 @@ func WriteErrorEnvelope(w io.Writer, command, stage, code, input, message string
 人类行投影 `result.TweetRow.Line()`：`<id>\t<YYYY-MM-DD HH:MM>\t@<handle>\t<单行文本>`；文本单行化时剥离控制字符并保留图形字符（借 pixiv SafeLine 思路，`strconv.QuoteToGraphic` 仅对含控制字符的文本启用）；空列表提示 `(empty)` 写 stderr。
 
 - [ ] **Step 1: 失败测试** — 互斥报错；TTY/非 TTY 默认；信封 golden（schema/kind/id/data/meta 键序与单行 `\n`）；错误信封无 secrets；TweetRow 控制字符清洗。
-- [ ] **Step 2: FAIL → 实现 → PASS → Commit** — `feat(cli): output mode resolution and twitter.pipeline/v1 envelopes`
+- [ ] **Step 2: FAIL → 实现 → PASS → Commit** — `feat(cli): output mode resolution and nitter.pipeline/v1 envelopes`
 
-### Task 13: `twitter user` — 用户时间线（RSS 优先 + HTML 后备 + 分页）
+### Task 13: `nitter user` — 用户时间线（RSS 优先 + HTML 后备 + 分页）
 
 **Files:**
 - Create: `internal/nitter/appapi/timeline.go`、`internal/cli/commands/user/user.go`、`user_test.go`、`internal/cli/client/client.go`（sdk 构造落点：proxy/instance 解析，校验 `--proxy` scheme ∈ http/https/socks5/socks5h）
@@ -704,7 +704,7 @@ func WriteErrorEnvelope(w io.Writer, command, stage, code, input, message string
 
 ```go
 // appapi
-func (c *Client) Timeline(ctx context.Context, handle string, opts twitter.PageOptions) ([]twitter.Tweet, error)
+func (c *Client) Timeline(ctx context.Context, handle string, opts nitter.PageOptions) ([]nitter.Tweet, error)
 // PageOptions{ Limit int; MaxPages int }
 // 每个候选实例：GET /<handle>/rss → rss.Parse（≤limit 即停，RSS 无游标，一页到顶）；
 // 失败或 0 条 → GET /<handle> → html.ParseTimeline → 按 cursor 续页（≤MaxPages）；
@@ -712,48 +712,48 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts twitter.PageO
 // handle 校验：^[A-Za-z0-9_]{1,15}$ → 否则 usage error（先于任何网络/文件副作用）
 ```
 
-命令：`twitter user <HANDLE> [--limit N] [--max-pages N] [--reposts|--no-reposts 过滤为后续]`（MVP 不做过滤开关）、全局 `--proxy/--instance`、`--json/--ndjson`。
+命令：`nitter user <HANDLE> [--limit N] [--max-pages N] [--reposts|--no-reposts 过滤为后续]`（MVP 不做过滤开关）、全局 `--proxy/--instance`、`--json/--ndjson`。
 
 - [ ] **Step 1: 失败测试**（httptest 假实例：RSS 挂 → HTML 兜底出 3 条；`--limit 2` 截断；`--json` 数组信封；`--ndjson` 逐行信封且 schema 正确；`user NASA!` exit 2；`--limit 0` = 全部）
 - [ ] **Step 2: FAIL → 实现 → PASS**
-- [ ] **Step 3: 真实实例冒烟**（用户配置实例跑一次 `twitter user <已知账号> --limit 5` 人工确认中文/emoji/媒体字段）
-- [ ] **Step 4: Commit** — `feat(cli): twitter user timeline with rss-first html fallback`
+- [ ] **Step 3: 真实实例冒烟**（用户配置实例跑一次 `nitter user <已知账号> --limit 5` 人工确认中文/emoji/媒体字段）
+- [ ] **Step 4: Commit** — `feat(cli): nitter user timeline with rss-first html fallback`
 
 ---
 
 ## Phase M3 — 搜索、List、单条（任务结构与 Task 13 同构）
 
-### Task 14: `twitter search`
+### Task 14: `nitter search`
 
 **Files:** Create `internal/nitter/appapi/search.go`、`internal/cli/commands/search/search.go`、`search_test.go`、修改 `testdata/search.html`
 
-**Interfaces:** `(c *Client).Search(ctx, query string, opts PageOptions) ([]twitter.Tweet, error)` — GET `/search?f=tweets&q=<urlquery>`；goquery 解析同 `ParseTimeline`（搜索页复用 timeline-item 结构 + `#search-results`）；游标续页。查询先 `query_kind` 语义校验（`#tag` 原样、`from:`/`@` 前缀透传——对齐插件 `html_backend/query.py`；非法空查 usage error）。
+**Interfaces:** `(c *Client).Search(ctx, query string, opts PageOptions) ([]nitter.Tweet, error)` — GET `/search?f=tweets&q=<urlquery>`；goquery 解析同 `ParseTimeline`（搜索页复用 timeline-item 结构 + `#search-results`）；游标续页。查询先 `query_kind` 语义校验（`#tag` 原样、`from:`/`@` 前缀透传——对齐插件 `html_backend/query.py`；非法空查 usage error）。
 
-- [ ] 步骤：fixture 失败测试（含 `#` 标签查询 URL 编码断言、分页）→ 实现 → PASS → 真实冒烟 → Commit `feat(cli): twitter search`
+- [ ] 步骤：fixture 失败测试（含 `#` 标签查询 URL 编码断言、分页）→ 实现 → PASS → 真实冒烟 → Commit `feat(cli): nitter search`
 
-### Task 15: `twitter list`
+### Task 15: `nitter list`
 
 **Files:** Create `internal/nitter/appapi/list.go`、`internal/cli/commands/list/list.go`、`list_test.go`、`testdata/list.html`
 
-**Interfaces:** `(c *Client).ListTimeline(ctx, listID string, opts PageOptions) ([]twitter.Tweet, error)` — GET `/i/lists/<listID>`（listID 校验为纯数字或 Nitter 列表路径 ref）；解析同 timeline。空结果与「List 尚未被 Nitter 收录」区分：空 Page + 明确提示（不造错误）。
+**Interfaces:** `(c *Client).ListTimeline(ctx, listID string, opts PageOptions) ([]nitter.Tweet, error)` — GET `/i/lists/<listID>`（listID 校验为纯数字或 Nitter 列表路径 ref）；解析同 timeline。空结果与「List 尚未被 Nitter 收录」区分：空 Page + 明确提示（不造错误）。
 
-- [ ] 步骤：同 Task 14 模式 → Commit `feat(cli): twitter list timeline`
+- [ ] 步骤：同 Task 14 模式 → Commit `feat(cli): nitter list timeline`
 
-### Task 16: `twitter get` — 单条推文
+### Task 16: `nitter get` — 单条推文
 
 **Files:** Create `internal/nitter/html/status.go`、`status_test.go`、`internal/nitter/appapi/status.go`、`internal/cli/commands/get/get.go`、`get_test.go`、`testdata/status.html`
 
 **Interfaces:**
 
 ```go
-// ref 解析（usage error 先于网络）：纯数字 ID | https://(x|twitter).com/<user>/status/<id>(/photo/N)? | nitter URL 同构
+// ref 解析（usage error 先于网络）：纯数字 ID | https://(x|nitter).com/<user>/status/<id>(/photo/N)? | nitter URL 同构
 func ParseStatusRef(s string) (id string, user string, err error)
-func (c *Client) Status(ctx context.Context, ref string) (twitter.Tweet, error)
+func (c *Client) Status(ctx context.Context, ref string) (nitter.Tweet, error)
 // GET /<user>/status/<id>（user 未知时 nitter 支持仅 ID 的 /status/<id> 路由，实现按此顺序回退）
 // status 页比 timeline-item 多正文全文与引用摘要：Quote{ID,URL,Text,Author}
 ```
 
-- [ ] 步骤：ref 解析表驱动测试 → status 页 fixture 测试（含 quote 摘要）→ 命令三输出模式测试 → Commit `feat(cli): twitter get single status`
+- [ ] 步骤：ref 解析表驱动测试 → status 页 fixture 测试（含 quote 摘要）→ 命令三输出模式测试 → Commit `feat(cli): nitter get single status`
 
 ---
 
@@ -823,7 +823,7 @@ type Options struct {
 }
 
 type Result struct {
-	Tweets  []twitter.Tweet
+	Tweets  []nitter.Tweet
 	State   seen.SourceState
 	Emitted bool // 本轮是否允许产出（false = 首跑初始化或 MaxNew==0 截停）
 }
@@ -831,7 +831,7 @@ type Result struct {
 // Select 语义真源：plugin scheduler/runner_seen.py + architecture.md 后台检查链路。
 // fetched 为本轮抓到的全部推文（按时间线顺序）；firstPageIDs 为首页前 20 个 status ID
 //（由调用方从抓取结果切出，供水位重建）。
-func Select(fetched []twitter.Tweet, firstPageIDs []string, prev seen.SourceState, opts Options) Result
+func Select(fetched []nitter.Tweet, firstPageIDs []string, prev seen.SourceState, opts Options) Result
 ```
 
 - [ ] **Step 1: 失败测试（表驱动，全部对照插件语义）**：
@@ -844,7 +844,7 @@ func Select(fetched []twitter.Tweet, firstPageIDs []string, prev seen.SourceStat
   7. 水位 = firstPageIDs（与 seen 是否重叠无关），cap 20
 - [ ] **Step 2: FAIL → 实现 → PASS → Commit** — `feat(watch): dedup selection engine mirroring plugin seen semantics`
 
-### Task 19: `twitter watch` 命令
+### Task 19: `nitter watch` 命令
 
 **Files:**
 - Create: `internal/cli/commands/watch/watch.go`、`watch_test.go`、`internal/watch/source.go`（`ParseSource("user:NASA") → {Kind,Ref}`，非法 → usage error）
@@ -854,7 +854,7 @@ func Select(fetched []twitter.Tweet, firstPageIDs []string, prev seen.SourceStat
 - Produces:
 
 ```
-twitter watch [SOURCE...] [--interval 10m] [--once] [--include-existing] [--max-new N] [--max-pages N] [--state-dir DIR] [--ndjson]
+nitter watch [SOURCE...] [--interval 10m] [--once] [--include-existing] [--max-new N] [--max-pages N] [--state-dir DIR] [--ndjson]
 SOURCE 形如 user:<handle> | tag:<query> | list:<id>；argv 为空时读配置 [[watch.sources]]；两者皆空 → usage error。
 ```
 
@@ -875,15 +875,15 @@ SOURCE 形如 user:<handle> | tag:<query> | list:<id>；argv 为空时读配置 
   - 非法 source → exit 2
 - [ ] **Step 2: FAIL → 实现 → PASS**
 - [ ] **Step 3: 端到端手验**：对本机真实实例连续两轮 `--once --ndjson`，确认首轮只记不推、次轮增量。
-- [ ] **Step 4: Commit** — `feat(cli): twitter watch with persistent dedup state`
+- [ ] **Step 4: Commit** — `feat(cli): nitter watch with persistent dedup state`
 
-### Task 20: `twitter seen` 命令
+### Task 20: `nitter seen` 命令
 
 **Files:** Create `internal/cli/commands/seen/seen.go`、`seen_test.go`
 
 **Interfaces:** `seen list [--source S] [--json]`（输出 SourceState 摘要：kind:id、计数、水位首条、updated_at）；`seen clear [--source S] --confirm`（无 `--confirm` → usage error 并提示；无 `--source` 清全部）。删除对应源条目后原子落盘。
 
-- [ ] 步骤：测试（list/clear/确认门/未知源提示）→ 实现 → Commit `feat(cli): twitter seen inspect and clear`
+- [ ] 步骤：测试（list/clear/确认门/未知源提示）→ 实现 → Commit `feat(cli): nitter seen inspect and clear`
 
 ---
 
@@ -899,24 +899,24 @@ SOURCE 形如 user:<handle> | tag:<query> | list:<id>；argv 为空时读配置 
 
 ### Task 22: Agent Skill（随仓库分发）
 
-**Files:** Create `skills/twitter-cli/SKILL.md`、`skills/twitter-cli/references/{instances.md,watch.md,troubleshooting.md}`
+**Files:** Create `skills/nitter-cli/SKILL.md`、`skills/nitter-cli/references/{instances.md,watch.md,troubleshooting.md}`
 
 **Interfaces:** SKILL.md 结构对齐 javdb-cli（frontmatter: slug/version/displayName/summary/license/homepage/tags/name + 中文 description 触发条件）。内容必须包含：
 
 ```markdown
-# twitter-cli
+# nitter-cli
 
 （frontmatter 后）
 
 ## 预检
-- 仅以 `twitter --version` 探测环境；输出形如 `twitter version <v>`。
-- 实例来自配置 `~/.twitter-cli/config.toml`；未配置实例时先请用户填写自建 Nitter 地址，
+- 仅以 `nitter --version` 探测环境；输出形如 `nitter version <v>`。
+- 实例来自配置 `~/.nitter-cli/config.toml`；未配置实例时先请用户填写自建 Nitter 地址，
   绝不代填公共实例（nitter.net 等）。
 
 ## 不可违反的规则
 1. 不回显 config.toml 中的实例凭证（username/password）。
 2. 状态变更（`seen clear`、`config set`、`config unset`）逐次征得同意，授权不跨命令延续。
-3. 不发明 flag；不确定语义先跑 `twitter <cmd> --help`。
+3. 不发明 flag；不确定语义先跑 `nitter <cmd> --help`。
 4. `--json/--ndjson` 只描述成功输出；先看退出码再解析，stderr 永远不是 JSON。
 5. watch 是有状态的：默认首跑只初始化不产出（历史不入推）；要产出历史必须显式 `--include-existing`。
 6. 不给命令加自造超时；长任务用 `--once` + 调度器轮询，不要常驻前台等待。
@@ -929,7 +929,7 @@ SOURCE 形如 user:<handle> | tag:<query> | list:<id>；argv 为空时读配置 
 | 常驻/调度 | watch --once（推荐）/ watch | 按用户给定节奏；--once 优先 |
 
 ## 输出与管道
-- 人类阅读：默认文本；程序消费：`--ndjson`（twitter.pipeline/v1，kind=tweet|error）；
+- 人类阅读：默认文本；程序消费：`--ndjson`（nitter.pipeline/v1，kind=tweet|error）；
   单对象提取：`--json`。先 `--limit` 缩量再考虑 jq。
 - watch `--once --ndjson` 的 stdout 就是交付流；exit 0 全成、1 部分源失败（error 信封内含明细）、2 用法错。
 
@@ -945,7 +945,7 @@ references/instances.md（配置与健康诊断）、references/watch.md（调�
 references/troubleshooting.md（常见错误表，对齐插件 instances-guide）
 ```
 
-- [ ] 步骤：撰写 → 与 `--help` 实测逐条核对（skill 明文「命令语义以当前安装二进制的 --help 为准」）→ Commit `feat(skill): ship agent skill for twitter-cli`
+- [ ] 步骤：撰写 → 与 `--help` 实测逐条核对（skill 明文「命令语义以当前安装二进制的 --help 为准」）→ Commit `feat(skill): ship agent skill for nitter-cli`
 
 ### Task 23: e2e 与 CI
 
@@ -959,12 +959,12 @@ set -u
 pass=0; fail=0; skip=0
 check() { # label, cmd... ; 断言 stdout 含子串 }
 # 离线契约（必跑）：
-#   ./twitter --version          匹配 ^twitter version
-#   ./twitter config path        输出含 .twitter-cli，且首次运行创建 0600 文件
-#   ./twitter user --help        exit 0
-#   ./twitter watch --once --ndjson --state-dir "$tmp"（无实例配置）→ exit 2（usage）
+#   ./nitter --version          匹配 ^nitter version
+#   ./nitter config path        输出含 .nitter-cli，且首次运行创建 0600 文件
+#   ./nitter user --help        exit 0
+#   ./nitter watch --once --ndjson --state-dir "$tmp"（无实例配置）→ exit 2（usage）
 #   NDJSON 信封 python3 校验 schema 字段（喂 fixture 假实例：python3 -m http.server 起静态 RSS）
-# 实网只读探针（env 门控）：TWITTER_CLI_E2E_INSTANCE、TWITTER_CLI_E2E_USER 设置时跑
+# 实网只读探针（env 门控）：NITTER_CLI_E2E_INSTANCE、NITTER_CLI_E2E_USER 设置时跑
 #   user/search/get 三命令 --json 关键字段存在性断言；未设置 → skip
 echo "summary: pass=$pass fail=$fail skip=$skip"
 [ "$fail" -gt 0 ] && exit 1
@@ -976,11 +976,11 @@ ci.yml：gofmt / `go vet ./...` / `go test ./... -count=1` / `go test -race ./..
 
 - [ ] 步骤：e2e 本地跑通三态退出码 → workflow 提交 → Commit `ci: offline e2e gate, quality workflow and release skeleton`
 
-### Task 24: `twitter update --check` 与收尾
+### Task 24: `nitter update --check` 与收尾
 
 **Files:** Create `internal/update/semver.go`、`release.go`、`internal/cli/commands/update/update.go`、`update_test.go`；Modify `changelog/unreleased/*`（整理本里程碑条目）
 
-**Interfaces:** `update --check [--prerelease] [--json]`：GitHub Releases API 查 `github.com/shitianyaa/twitter-cli` 最新稳定版，`semver` 比较（自写 `Compare(a, b string) int` + 表驱动测试，含 prerelease 规则）；dev 构建提示「development build」；无 `--check` 时输出「请用包管理器/重新下载安装」（MVP 不做自替换安装，`update/install` 留待后续计划）。`--json` 仅与 `--check` 同用，否则 usage error（javdb 同款）。
+**Interfaces:** `update --check [--prerelease] [--json]`：GitHub Releases API 查 `github.com/shitianyaa/nitter-cli` 最新稳定版，`semver` 比较（自写 `Compare(a, b string) int` + 表驱动测试，含 prerelease 规则）；dev 构建提示「development build」；无 `--check` 时输出「请用包管理器/重新下载安装」（MVP 不做自替换安装，`update/install` 留待后续计划）。`--json` 仅与 `--check` 同用，否则 usage error（javdb 同款）。
 
 - [ ] 步骤：semver 表驱动 TDD → release 查询测试（httptest 假 API）→ 命令测试 → changelog 整理 → Commit `feat(cli): update check and milestone changelog`
 
@@ -988,14 +988,14 @@ ci.yml：gofmt / `go vet ./...` / `go test ./... -count=1` / `go test -race ./..
 
 ## 后续里程碑（MVP 完成后按独立计划执行）
 
-1. **M6 — direct X 后端（已确认立项，双后端一体化）**：新增 `internal/auth`（会话 cookie 导入：devtools 粘贴 + 浏览器解密读取，pixiv-cli browsercookies 模式；**不做密码登录**）、`internal/x/{appapi,graphql}`（GraphQL 协议层：UserByScreenName / UserTweets / SearchTimeline / ListLatestTweetsTimeline / TweetDetail；queryId 运行时从 x.com JS bundle 动态提取并本地缓存，不移植 Nitter 源码以避 AGPL；提取失败明确报错）、账号池（多账号 + 429 冷却轮换 + CAS，SQLite modernc 存储，pixiv-cli pool 模式，`twitter auth import/list/use/remove/check`）。命令、pipeline、seen/watch 层零改动，仅新增取数实现；config 增加 `backend = "nitter" | "direct"`。风险与设计见 spec §15。**M5 完成后将本里程碑细化为同规格任务计划。**
+1. **M6 — direct X 后端（已确认立项，双后端一体化）**：新增 `internal/auth`（会话 cookie 导入：devtools 粘贴 + 浏览器解密读取，pixiv-cli browsercookies 模式；**不做密码登录**）、`internal/x/{appapi,graphql}`（GraphQL 协议层：UserByScreenName / UserTweets / SearchTimeline / ListLatestTweetsTimeline / TweetDetail；queryId 运行时从 x.com JS bundle 动态提取并本地缓存，不移植 Nitter 源码以避 AGPL；提取失败明确报错）、账号池（多账号 + 429 冷却轮换 + CAS，SQLite modernc 存储，pixiv-cli pool 模式，`nitter auth import/list/use/remove/check`）。命令、pipeline、seen/watch 层零改动，仅新增取数实现；config 增加 `backend = "nitter" | "direct"`。风险与设计见 spec §15。**M5 完成后将本里程碑细化为同规格任务计划。**
 2. **M7 — MCP server**（pixiv-cli 模式：`internal/mcpserver` + modelcontextprotocol/go-sdk，工具 `user_timeline / search_tweets / list_timeline / get_status / watch_once / instance_report`，输出走 records 投影）。
-3. **M8 — 媒体下载**：`twitter media download <tweet-ref>`（图片直链，视频走 xdown 评估）。
-4. **M9 — AstrBot 插件对接**：插件侧以 subprocess 调 `twitter watch --once --ndjson` 替换自研抓取层的适配器 + 灰度开关。
+3. **M8 — 媒体下载**：`nitter media download <tweet-ref>`（图片直链，视频走 xdown 评估）。
+4. **M9 — AstrBot 插件对接**：插件侧以 subprocess 调 `nitter watch --once --ndjson` 替换自研抓取层的适配器 + 灰度开关。
 5. **M10 — 发布链增强**：Ed25519 签名清单、Homebrew tap、Docker 镜像、skill 发布（ClawHub，对齐两模板的 publish-clawhub 工作流）。
 
 ## Self-Review 结论（已自检）
 
 - Spec 覆盖：§5 数据模型→Task 8/10；§6 抓取策略→Task 7/9/13；§7 去重定时→Task 17–19；§8 输出协议→Task 12；§9 错误模型→Task 6；§10 配置→Task 3–5；§11 工程化→Task 2/23；§12 安全边界→Task 22 + README（Task 21）。无缺口。
 - 占位符扫描：无 TBD/TODO；Task 10/11 的 fixture 允许「与真实实例比对后修正」被显式定义为 TDD 循环内修正而非延后决策。
-- 类型一致性：`twitter.Tweet/Page/InstanceReport`、`pipeline.Envelope/Schema`、`seen.SourceState/MergeSeen`、`watch.Select` 签名在各任务 Consumes/Produces 与代码块一致；`Select` 的 `firstPageIDs` 参数在 Task 18 定义、Task 19 消费，命名一致。
+- 类型一致性：`nitter.Tweet/Page/InstanceReport`、`pipeline.Envelope/Schema`、`seen.SourceState/MergeSeen`、`watch.Select` 签名在各任务 Consumes/Produces 与代码块一致；`Select` 的 `firstPageIDs` 参数在 Task 18 定义、Task 19 消费，命名一致。

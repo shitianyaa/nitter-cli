@@ -15,7 +15,7 @@ import (
 	fhttp "github.com/bogdanfinn/fhttp"
 	"github.com/bogdanfinn/tls-client/profiles"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // ---------------------------------------------------------------------------
@@ -187,15 +187,15 @@ func newTestClient(t *testing.T, opts Options, script ...step) *env {
 	return e
 }
 
-// kindOf recovers the *twitter.Error from err.
-func kindOf(t *testing.T, err error) *twitter.Error {
+// kindOf recovers the *nitter.Error from err.
+func kindOf(t *testing.T, err error) *nitter.Error {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
-	var te *twitter.Error
+	var te *nitter.Error
 	if !errors.As(err, &te) {
-		t.Fatalf("error %v does not carry a *twitter.Error", err)
+		t.Fatalf("error %v does not carry a *nitter.Error", err)
 	}
 	return te
 }
@@ -351,8 +351,8 @@ func TestGet5xxExhaustedRetriesClassifiedUnavailable(t *testing.T) {
 		t.Fatal("Get: nil error, want KindUnavailable")
 	}
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindUnavailable)
+	if te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("error %q must carry the status code", err)
@@ -376,8 +376,8 @@ func TestGetNetworkErrorExhaustedRetriesReachRootCause(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindUnavailable)
+	if te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
 	}
 	if !errors.Is(err, boom) {
 		t.Errorf("error %v must wrap the last network error", err)
@@ -390,7 +390,7 @@ func TestGetNetworkErrorExhaustedRetriesReachRootCause(t *testing.T) {
 // TestGetRedactsURLFromTransportError pins the sdk redaction contract on the
 // network-exhaustion path: real transports wrap failures in *url.Error whose
 // Error() embeds the full request URL including its query string, so the
-// wrapper itself must never be carried into the *twitter.Error chain.
+// wrapper itself must never be carried into the *nitter.Error chain.
 func TestGetRedactsURLFromTransportError(t *testing.T) {
 	boom := errors.New("dial tcp: refused")
 	leak := &url.Error{Op: "Get", URL: "https://instance.test/user?token=secret", Err: boom}
@@ -399,8 +399,8 @@ func TestGetRedactsURLFromTransportError(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindUnavailable)
+	if te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "token=secret") {
@@ -425,8 +425,8 @@ func TestGetRedactsURLFromRequestBuildError(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "http://exa mple.test/x?token=secret", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindInvalidArg {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindInvalidArg)
+	if te.Kind != nitter.KindInvalidArg {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindInvalidArg)
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "token=secret") {
@@ -448,14 +448,14 @@ func TestGetClassifiesStatuses(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    int
-		wantKind  twitter.Kind
+		wantKind  nitter.Kind
 		wantInMsg string // status code must appear in the message for non-404 4xx
 	}{
-		{"404 not found", 404, twitter.KindNotFound, ""},
-		{"401 challenge", 401, twitter.KindChallenge, "401"},
-		{"403 challenge", 403, twitter.KindChallenge, "403"},
-		{"409 other 4xx", 409, twitter.KindUnavailable, "409"},
-		{"451 other 4xx", 451, twitter.KindUnavailable, "451"},
+		{"404 not found", 404, nitter.KindNotFound, ""},
+		{"401 challenge", 401, nitter.KindChallenge, "401"},
+		{"403 challenge", 403, nitter.KindChallenge, "403"},
+		{"409 other 4xx", 409, nitter.KindUnavailable, "409"},
+		{"451 other 4xx", 451, nitter.KindUnavailable, "451"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -488,8 +488,8 @@ func TestGet429WithoutRetryAfterIsRateLimited(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindRateLimited {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindRateLimited)
+	if te.Kind != nitter.KindRateLimited {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindRateLimited)
 	}
 	if te.RetryAfter != nil {
 		t.Errorf("RetryAfter = %v, want nil (nothing usable came from the response)", *te.RetryAfter)
@@ -508,8 +508,8 @@ func TestGet429GarbageRetryAfterIsRateLimitedWithoutRetry(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindRateLimited {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindRateLimited)
+	if te.Kind != nitter.KindRateLimited {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindRateLimited)
 	}
 	if te.RetryAfter != nil {
 		t.Errorf("RetryAfter = %v, want nil for unparseable value", *te.RetryAfter)
@@ -526,8 +526,8 @@ func TestGet429AbsurdRetryAfterIsTreatedInvalid(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindRateLimited {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindRateLimited)
+	if te.Kind != nitter.KindRateLimited {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindRateLimited)
 	}
 	if te.RetryAfter != nil {
 		t.Errorf("RetryAfter = %v, want nil for absurd value", *te.RetryAfter)
@@ -581,8 +581,8 @@ func TestGet429RetryStill429ReturnsRateLimitedWithResponseRetryAfter(t *testing.
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindRateLimited {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindRateLimited)
+	if te.Kind != nitter.KindRateLimited {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindRateLimited)
 	}
 	// The wait-then-retry was already spent; the error passes through the
 	// Retry-After the final 429 response provided (never fabricated).
@@ -652,8 +652,8 @@ func TestGetAbortsWhenContextCancelledDuringBackoff(t *testing.T) {
 	if !strings.Contains(err.Error(), "context canceled") {
 		t.Errorf("error %q must mention the context cancellation", err)
 	}
-	if te := kindOf(t, err); te.Kind != twitter.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindUnavailable)
+	if te := kindOf(t, err); te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
 	}
 	if env.doer.calls != 1 {
 		t.Errorf("calls = %d, want 1 (aborted during the first backoff wait)", env.doer.calls)
@@ -682,8 +682,8 @@ func TestGetInvalidURLIsInvalidArg(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "http://exa mple.test/x", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindInvalidArg {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindInvalidArg)
+	if te.Kind != nitter.KindInvalidArg {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindInvalidArg)
 	}
 	if env.doer.calls != 0 {
 		t.Errorf("calls = %d, want 0", env.doer.calls)
@@ -736,8 +736,8 @@ func TestGetBodyOverCapIsKindMalformedWithoutRetry(t *testing.T) {
 		t.Errorf("got (%q, %d), want (nil, 0) — no partial body on the error path", body, status)
 	}
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindMalformed {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindMalformed)
+	if te.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindMalformed)
 	}
 	if te.Op != opGet {
 		t.Errorf("Op = %q, want %q", te.Op, opGet)
@@ -788,8 +788,8 @@ func TestGetDefaultCapRejectsOversizeWithoutOption(t *testing.T) {
 
 	_, _, err := env.c.Get(context.Background(), "https://instance.test/user/rss", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindMalformed {
-		t.Errorf("Kind = %v, want %v (10 MiB default applies when the option is zero)", te.Kind, twitter.KindMalformed)
+	if te.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v (10 MiB default applies when the option is zero)", te.Kind, nitter.KindMalformed)
 	}
 }
 
@@ -885,8 +885,8 @@ func TestPostClassifiesStatuses(t *testing.T) {
 	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: -1}, step{status: 404, body: "nope"})
 	_, _, err := env.c.Post(context.Background(), "https://xdown.app/api/ajaxSearch", []byte("q=x"), nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindNotFound {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindNotFound)
+	if te.Kind != nitter.KindNotFound {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindNotFound)
 	}
 	if te.Op != "httpx.Post" {
 		t.Errorf("Op = %q, want httpx.Post", te.Op)
@@ -927,8 +927,8 @@ func TestGetMetaErrorYieldsNils(t *testing.T) {
 	env := newTestClient(t, Options{RetryAttempts: -1}, step{status: 404})
 	body, status, header, err := env.c.GetMeta(context.Background(), "https://cdn.test/gone.mp4", nil)
 	te := kindOf(t, err)
-	if te.Kind != twitter.KindNotFound {
-		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindNotFound)
+	if te.Kind != nitter.KindNotFound {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindNotFound)
 	}
 	if te.Op != "httpx.Get" {
 		t.Errorf("Op = %q, want httpx.Get (same classification surface as Get)", te.Op)

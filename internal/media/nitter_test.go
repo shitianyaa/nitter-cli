@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
-// compile-time pin: ResolveNitter produces the sdk (package twitter) contract
+// compile-time pin: ResolveNitter produces the sdk (package nitter) contract
 // type the command layer renders.
 
 // nitterStatusPage builds a focused Nitter status page whose main item
@@ -116,8 +116,8 @@ func TestResolveNitterUserlessRouteAndQualityRewrite(t *testing.T) {
 func TestResolveNitterNoBaseIsLocalState(t *testing.T) {
 	r, fake := newTestResolver(nil)
 	_, err := r.ResolveNitter(context.Background(), mustRef(t, statusURL100), Options{})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindLocalState {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
 		t.Fatalf("err = %v, want KindLocalState", err)
 	}
 	if len(fake.calls) != 0 {
@@ -142,8 +142,8 @@ func TestResolveNitterErrorPageClassified(t *testing.T) {
 		"https://nitter.internal:8080/nasa/status/" + id100: {body: []byte(`<div class="error-panel">Wrong</div>`), status: 200},
 	})
 	_, err := r.ResolveNitter(context.Background(), mustRef(t, statusURL100), Options{NitterBase: "https://nitter.internal:8080"})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v, want the error-panel KindUnavailable classification", err)
 	}
 }
@@ -156,8 +156,8 @@ func TestResolveNitterWrongStatusIsMalformed(t *testing.T) {
 	})
 	ref := StatusRef{ID: "2070000000000000999", User: "nasa"}
 	_, err := r.ResolveNitter(context.Background(), ref, Options{NitterBase: "https://nitter.internal:8080"})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindMalformed {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindMalformed {
 		t.Fatalf("err = %v, want KindMalformed", err)
 	}
 }
@@ -226,5 +226,5 @@ func TestResolveNitterWidthHeightCarried(t *testing.T) {
 	if len(res) != 1 || res[0].Width != 0 || res[0].Height != 0 {
 		t.Fatalf("res = %+v, want one resolution without dimensions", res)
 	}
-	var _ twitter.MediaResolution = res[0]
+	var _ nitter.MediaResolution = res[0]
 }

@@ -34,8 +34,8 @@ jobs:
         run: sh scripts/build.sh
       - name: run e2e (offline always; live probes when secrets configured)
         env:
-          TWITTER_CLI_E2E_INSTANCE: ${{ secrets.TWITTER_CLI_E2E_INSTANCE }}
-          TWITTER_CLI_E2E_USER: ${{ secrets.TWITTER_CLI_E2E_USER }}
+          NITTER_CLI_E2E_INSTANCE: ${{ secrets.NITTER_CLI_E2E_INSTANCE }}
+          NITTER_CLI_E2E_USER: ${{ secrets.NITTER_CLI_E2E_USER }}
         run: |
           bash e2e/run.sh
           code=$?

@@ -73,10 +73,10 @@ jobs:
           esac
           mkdir -p "dist/${{ matrix.target }}"
           CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-            -ldflags "-s -w -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Version=${version} \
-            -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Commit=${commit} \
-            -X github.com/shitianyaa/twitter-cli/internal/buildinfo.BuildDate=${build_date}" \
-            -o "dist/${{ matrix.target }}/twitter${ext}" ./cmd/twitter
+            -ldflags "-s -w -X github.com/shitianyaa/nitter-cli/internal/buildinfo.Version=${version} \
+            -X github.com/shitianyaa/nitter-cli/internal/buildinfo.Commit=${commit} \
+            -X github.com/shitianyaa/nitter-cli/internal/buildinfo.BuildDate=${build_date}" \
+            -o "dist/${{ matrix.target }}/nitter${ext}" ./cmd/nitter
       - name: package (tar.gz on unix, zip on windows) + sha256
         shell: bash
         run: |
@@ -84,22 +84,22 @@ jobs:
           target="${{ matrix.target }}"
           cd "dist/${target}"
           if [ "${{ matrix.archive }}" = "zip" ]; then
-            powershell.exe -NoProfile -Command "Compress-Archive -Path 'twitter.exe' -DestinationPath '../twitter-${version}-${target}.zip'"
+            powershell.exe -NoProfile -Command "Compress-Archive -Path 'nitter.exe' -DestinationPath '../nitter-${version}-${target}.zip'"
           else
-            tar -czf "../twitter-${version}-${target}.tar.gz" twitter
+            tar -czf "../nitter-${version}-${target}.tar.gz" nitter
           fi
           cd ..
           if [ "${{ matrix.archive }}" = "zip" ]; then
-            sha256sum "twitter-${version}-${target}.zip" > "checksums-${target}.txt"
+            sha256sum "nitter-${version}-${target}.zip" > "checksums-${target}.txt"
           else
-            sha256sum "twitter-${version}-${target}.tar.gz" > "checksums-${target}.txt"
+            sha256sum "nitter-${version}-${target}.tar.gz" > "checksums-${target}.txt"
           fi
       - name: upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
           path: |
-            dist/twitter-*
+            dist/nitter-*
             dist/checksums-*.txt
 
   release:
@@ -121,6 +121,6 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --draft \
-            --title "twitter-cli ${GITHUB_REF_NAME}" \
+            --title "nitter-cli ${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/twitter-* dist/checksums.txt
+            dist/nitter-* dist/checksums.txt

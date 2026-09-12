@@ -2,7 +2,7 @@
 // backed GET/POST with global pacing (a minimum interval between the starts of
 // consecutive requests), linear-backoff retries for network errors and 5xx,
 // and single-shot Retry-After honoring for 429s. Failures are classified
-// into the shared sdk (package twitter) error kinds.
+// into the shared sdk (package nitter) error kinds.
 //
 // Package boundary: this is a protocol detail of the Nitter fetch path.
 // Only packages under internal/nitter/*, the media resolution package
@@ -11,7 +11,7 @@
 // the sdk may import it.
 //
 // Redaction: errors produced here obey the sdk contract — neither the
-// *twitter.Error nor its wrapped chain contains credentials, URL query
+// *nitter.Error nor its wrapped chain contains credentials, URL query
 // strings, request headers or response bodies. Status codes and transport
 // error strings are the only upstream facts echoed back. To that end,
 // sanitizeTransportErr strips net/url wrappers (whose Error() text embeds
@@ -34,7 +34,7 @@ import (
 	tls_client "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -214,7 +214,7 @@ func New(opts Options) (*Client, error) {
 	}
 	tc, err := tls_client.NewHttpClient(tls_client.NewNoopLogger(), tlsOpts...)
 	if err != nil {
-		return nil, twitter.Errorf(twitter.KindLocalState, opNew, "build tls-client transport: %w", err)
+		return nil, nitter.Errorf(nitter.KindLocalState, opNew, "build tls-client transport: %w", err)
 	}
 	c.doer = tc
 	return c, nil
@@ -238,7 +238,7 @@ func New(opts Options) (*Client, error) {
 //     KindUnavailable (status code in the message).
 //
 // On any error the returned body is nil and the status 0; inspect the
-// *twitter.Error (errors.As) for Kind and RetryAfter.
+// *nitter.Error (errors.As) for Kind and RetryAfter.
 func (c *Client) Get(ctx context.Context, url string, headers map[string]string) ([]byte, int, error) {
 	body, status, _, err := c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
 	return body, status, err
@@ -258,7 +258,7 @@ func (c *Client) Post(ctx context.Context, url string, body []byte, headers map[
 // contract and additionally surfaces the response headers (as a plain
 // map[string][]string) for callers that must read one — the media probe
 // reads Content-Range from a ranged GET. On any error the body is nil, the
-// status 0 and the headers nil; the *twitter.Error surface is identical to
+// status 0 and the headers nil; the *nitter.Error surface is identical to
 // Get's (op httpx.Get).
 func (c *Client) GetMeta(ctx context.Context, url string, headers map[string]string) ([]byte, int, map[string][]string, error) {
 	return c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
@@ -270,7 +270,7 @@ func (c *Client) GetMeta(ctx context.Context, url string, headers map[string]str
 // header map rides along so GetMeta can surface it; Get and Post drop it.
 func (c *Client) send(ctx context.Context, op, method, url string, body []byte, headers map[string]string) ([]byte, int, map[string][]string, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op, "request not sent: %w", err)
+		return nil, 0, nil, nitter.Errorf(nitter.KindUnavailable, op, "request not sent: %w", err)
 	}
 	if err := c.pace(ctx); err != nil {
 		return nil, 0, nil, err
@@ -288,7 +288,7 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 		if err != nil {
 			// Parse failures carry the raw URL in their message — sanitize
 			// before wrapping (sdk redaction contract).
-			return nil, 0, nil, twitter.Errorf(twitter.KindInvalidArg, op, "build request: %w", sanitizeTransportErr(err))
+			return nil, 0, nil, nitter.Errorf(nitter.KindInvalidArg, op, "build request: %w", sanitizeTransportErr(err))
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -299,7 +299,7 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 			// A body over the size cap arrives already classified (its
 			// KindMalformed carries no *url.Error to sanitize): terminal —
 			// the response shape cannot improve by retrying.
-			var terr *twitter.Error
+			var terr *nitter.Error
 			if errors.As(err, &terr) {
 				return nil, 0, nil, err
 			}
@@ -312,7 +312,7 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 				}
 				continue
 			}
-			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op,
+			return nil, 0, nil, nitter.Errorf(nitter.KindUnavailable, op,
 				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
 		}
 
@@ -324,8 +324,8 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 		case status == fhttp.StatusTooManyRequests:
 			delay, valid := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
 			if retryAfterUsed {
-				e := &twitter.Error{
-					Kind: twitter.KindRateLimited,
+				e := &nitter.Error{
+					Kind: nitter.KindRateLimited,
 					Op:   op,
 					Err:  errors.New("instance returned HTTP 429 again after honoring Retry-After"),
 				}
@@ -335,8 +335,8 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 				return nil, 0, nil, e
 			}
 			if !valid {
-				return nil, 0, nil, &twitter.Error{
-					Kind: twitter.KindRateLimited,
+				return nil, 0, nil, &nitter.Error{
+					Kind: nitter.KindRateLimited,
 					Op:   op,
 					Err:  errors.New("instance returned HTTP 429 without a usable Retry-After"),
 				}
@@ -348,13 +348,13 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 			continue
 
 		case status == fhttp.StatusNotFound:
-			return nil, 0, nil, twitter.Errorf(twitter.KindNotFound, op, "instance returned HTTP 404")
+			return nil, 0, nil, nitter.Errorf(nitter.KindNotFound, op, "instance returned HTTP 404")
 
 		case status == fhttp.StatusUnauthorized || status == fhttp.StatusForbidden:
-			return nil, 0, nil, twitter.Errorf(twitter.KindChallenge, op, "instance returned HTTP %d", status)
+			return nil, 0, nil, nitter.Errorf(nitter.KindChallenge, op, "instance returned HTTP %d", status)
 
 		case status >= 400 && status < 500:
-			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op, "instance returned HTTP %d", status)
+			return nil, 0, nil, nitter.Errorf(nitter.KindUnavailable, op, "instance returned HTTP %d", status)
 
 		default:
 			// 5xx (and unexpected 1xx): retryable upstream failure.
@@ -364,7 +364,7 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 				}
 				continue
 			}
-			return nil, 0, nil, twitter.Errorf(twitter.KindUnavailable, op,
+			return nil, 0, nil, nitter.Errorf(nitter.KindUnavailable, op,
 				"instance returned HTTP %d after %d attempt(s)", status, attempt+1)
 		}
 	}
@@ -400,7 +400,7 @@ func (c *Client) doOnce(req *fhttp.Request) (*fhttp.Response, []byte, error) {
 		return nil, nil, &readBodyError{closeErr}
 	}
 	if c.maxBodyBytes > 0 && int64(len(body)) > c.maxBodyBytes {
-		return nil, nil, twitter.Errorf(twitter.KindMalformed, opGet,
+		return nil, nil, nitter.Errorf(nitter.KindMalformed, opGet,
 			"response exceeds %d bytes", c.maxBodyBytes)
 	}
 	return resp, body, nil
@@ -427,7 +427,7 @@ func (c *Client) pace(ctx context.Context) error {
 	if !c.lastStart.IsZero() {
 		if wait := c.minInterval - start.Sub(c.lastStart); wait > 0 {
 			if err := c.sleep(ctx, wait); err != nil {
-				return twitter.Errorf(twitter.KindUnavailable, opGet, "pacing wait aborted: %w", err)
+				return nitter.Errorf(nitter.KindUnavailable, opGet, "pacing wait aborted: %w", err)
 			}
 			start = c.now()
 		}
@@ -440,7 +440,7 @@ func (c *Client) pace(ctx context.Context) error {
 // cancellation) into a classified error mentioning the context.
 func (c *Client) wait(ctx context.Context, d time.Duration, what string) error {
 	if err := c.sleep(ctx, d); err != nil {
-		return twitter.Errorf(twitter.KindUnavailable, opGet, "%s wait aborted: %w", what, err)
+		return nitter.Errorf(nitter.KindUnavailable, opGet, "%s wait aborted: %w", what, err)
 	}
 	return nil
 }
@@ -492,7 +492,7 @@ func parseRetryAfter(v string, now time.Time) (time.Duration, bool) {
 // sanitizeTransportErr serves the sdk/errors.go redaction contract: net/url
 // wrappers render their full request URL — query string included — into
 // Error() text ("Get \"https://host/p?token=…\": dial tcp: …"), so they must
-// never reach the *twitter.Error chain. Since Go 1.27 the old
+// never reach the *nitter.Error chain. Since Go 1.27 the old
 // *url.ParseError is unified into *url.Error (Op "parse"), so one
 // type-assertion covers both the transport and the request-build paths.
 // The wrapper is replaced by its cause, keeping errors.Is/errors.As able to

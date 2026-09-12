@@ -1,4 +1,4 @@
-package twitter_test
+package nitter_test
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // fakeClock is an injectable clock: tests advance it explicitly so cooldown
@@ -35,7 +35,7 @@ func (f *fakeClock) Advance(d time.Duration) {
 // coolPrefix marks the first n instances of the chooser as failed, in config
 // order. Because a fresh chooser always picks the first non-cooling instance,
 // repeatedly picking and marking failures walks the prefix one by one.
-func coolPrefix(t *testing.T, c *twitter.Chooser, n int) {
+func coolPrefix(t *testing.T, c *nitter.Chooser, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
 		_, _, markFailure, err := c.Pick()
@@ -52,7 +52,7 @@ func coolPrefix(t *testing.T, c *twitter.Chooser, n int) {
 func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 	tests := []struct {
 		name     string
-		entries  []twitter.Instance
+		entries  []nitter.Instance
 		cool     int // number of leading instances to mark failed
 		advance  time.Duration
 		wantURL  string
@@ -60,35 +60,35 @@ func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 	}{
 		{
 			name:    "none cooling returns first in config order",
-			entries: []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}},
+			entries: []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}},
 			wantURL: "http://a",
 		},
 		{
 			name:    "single instance returned",
-			entries: []twitter.Instance{{URL: "http://only"}},
+			entries: []nitter.Instance{{URL: "http://only"}},
 			wantURL: "http://only",
 		},
 		{
 			name:    "cooling first is skipped",
-			entries: []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
+			entries: []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
 			cool:    1,
 			wantURL: "http://b",
 		},
 		{
 			name:    "two cooling instances are skipped",
-			entries: []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}},
+			entries: []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}},
 			cool:    2,
 			wantURL: "http://c",
 		},
 		{
 			name:     "all cooling errors",
-			entries:  []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
+			entries:  []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
 			cool:     2,
 			wantFail: true,
 		},
 		{
 			name:    "cooldown expired exactly is pickable again",
-			entries: []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
+			entries: []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
 			cool:    1,
 			// coolUntil == now+cooldown; a Pick at exactly that instant must
 			// not treat the instance as cooling (boundary: strictly-after).
@@ -97,7 +97,7 @@ func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 		},
 		{
 			name:    "cooldown expired is pickable again",
-			entries: []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
+			entries: []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}},
 			cool:    1,
 			advance: 60*time.Second + time.Nanosecond,
 			wantURL: "http://a",
@@ -106,7 +106,7 @@ func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := newFakeClock()
-			c := twitter.NewChooser(tc.entries, 60*time.Second, clock.Now)
+			c := nitter.NewChooser(tc.entries, 60*time.Second, clock.Now)
 			coolPrefix(t, c, tc.cool)
 			clock.Advance(tc.advance)
 
@@ -118,12 +118,12 @@ func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 				if markSuccess != nil || markFailure != nil {
 					t.Error("Pick() must return nil mark functions on error")
 				}
-				var sdkErr *twitter.Error
+				var sdkErr *nitter.Error
 				if !errors.As(err, &sdkErr) {
-					t.Fatalf("Pick() error %v is not *twitter.Error", err)
+					t.Fatalf("Pick() error %v is not *nitter.Error", err)
 				}
-				if sdkErr.Kind != twitter.KindUnavailable {
-					t.Errorf("Kind = %v, want %v", sdkErr.Kind, twitter.KindUnavailable)
+				if sdkErr.Kind != nitter.KindUnavailable {
+					t.Errorf("Kind = %v, want %v", sdkErr.Kind, nitter.KindUnavailable)
 				}
 				if got := sdkErr.Error(); got != "chooser: upstream_unavailable: all instances cooling down" {
 					t.Errorf("Error() = %q, want the stable all-cooling message", got)
@@ -147,7 +147,7 @@ func TestChooserPickReturnsFirstNonCoolingInstanceInOrder(t *testing.T) {
 
 func TestChooserMarkFailureEntersCooldown(t *testing.T) {
 	clock := newFakeClock()
-	c := twitter.NewChooser([]twitter.Instance{{URL: "http://a"}, {URL: "http://b"}}, 60*time.Second, clock.Now)
+	c := nitter.NewChooser([]nitter.Instance{{URL: "http://a"}, {URL: "http://b"}}, 60*time.Second, clock.Now)
 
 	first, _, markFailure, err := c.Pick()
 	if err != nil {
@@ -190,7 +190,7 @@ func TestChooserMarkFailureEntersCooldown(t *testing.T) {
 
 func TestChooserMarkSuccessResetsCooldown(t *testing.T) {
 	clock := newFakeClock()
-	c := twitter.NewChooser([]twitter.Instance{{URL: "http://a"}, {URL: "http://b"}}, time.Hour, clock.Now)
+	c := nitter.NewChooser([]nitter.Instance{{URL: "http://a"}, {URL: "http://b"}}, time.Hour, clock.Now)
 
 	// Pick a and drive it into cooldown, keeping its markSuccess closure.
 	_, markSuccessA, markFailureA, err := c.Pick()
@@ -237,7 +237,7 @@ func TestChooserMarkSuccessResetsCooldown(t *testing.T) {
 
 func TestChooserMarkSuccessOnHealthyInstanceIsNoop(t *testing.T) {
 	clock := newFakeClock()
-	c := twitter.NewChooser([]twitter.Instance{{URL: "http://a"}}, time.Hour, clock.Now)
+	c := nitter.NewChooser([]nitter.Instance{{URL: "http://a"}}, time.Hour, clock.Now)
 
 	_, markSuccess, _, err := c.Pick()
 	if err != nil {
@@ -251,7 +251,7 @@ func TestChooserMarkSuccessOnHealthyInstanceIsNoop(t *testing.T) {
 
 func TestChooserZeroCooldownNeverBlocks(t *testing.T) {
 	clock := newFakeClock()
-	c := twitter.NewChooser([]twitter.Instance{{URL: "http://a"}}, 0, clock.Now)
+	c := nitter.NewChooser([]nitter.Instance{{URL: "http://a"}}, 0, clock.Now)
 
 	_, _, markFailure, err := c.Pick()
 	if err != nil {
@@ -271,7 +271,7 @@ func TestChooserZeroCooldownNeverBlocks(t *testing.T) {
 
 func TestChooserNoInstancesConfiguredFails(t *testing.T) {
 	clock := newFakeClock()
-	c := twitter.NewChooser(nil, 60*time.Second, clock.Now)
+	c := nitter.NewChooser(nil, 60*time.Second, clock.Now)
 
 	url, markSuccess, markFailure, err := c.Pick()
 	if err == nil {
@@ -280,12 +280,12 @@ func TestChooserNoInstancesConfiguredFails(t *testing.T) {
 	if markSuccess != nil || markFailure != nil {
 		t.Error("Pick() must return nil mark functions on error")
 	}
-	var sdkErr *twitter.Error
+	var sdkErr *nitter.Error
 	if !errors.As(err, &sdkErr) {
-		t.Fatalf("Pick() error %v is not *twitter.Error", err)
+		t.Fatalf("Pick() error %v is not *nitter.Error", err)
 	}
-	if sdkErr.Kind != twitter.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", sdkErr.Kind, twitter.KindUnavailable)
+	if sdkErr.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", sdkErr.Kind, nitter.KindUnavailable)
 	}
 	if got := sdkErr.Error(); got != "chooser: upstream_unavailable: no instances configured" {
 		t.Errorf("Error() = %q, want the stable no-instances message", got)
@@ -293,15 +293,15 @@ func TestChooserNoInstancesConfiguredFails(t *testing.T) {
 }
 
 func TestChooserNilClockDefaultsToTimeNow(t *testing.T) {
-	c := twitter.NewChooser([]twitter.Instance{{URL: "http://a"}}, time.Minute, nil)
+	c := nitter.NewChooser([]nitter.Instance{{URL: "http://a"}}, time.Minute, nil)
 	if url, _, _, err := c.Pick(); err != nil || url != "http://a" {
 		t.Errorf("Pick() with nil clock = (%q, %v), want http://a", url, err)
 	}
 }
 
 func TestChooserDefensiveCopyOfInstances(t *testing.T) {
-	entries := []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}}
-	c := twitter.NewChooser(entries, time.Minute, newFakeClock().Now)
+	entries := []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}}
+	c := nitter.NewChooser(entries, time.Minute, newFakeClock().Now)
 
 	entries[0].URL = "http://mutated"
 	if url, _, _, err := c.Pick(); err != nil || url != "http://a" {
@@ -314,8 +314,8 @@ func TestChooserConcurrentPickAndMarks(t *testing.T) {
 	// (no cgo-capable toolchain), so this only proves the mutex design does
 	// not deadlock or panic under contention. Correctness is by construction:
 	// every access to the rotation state is guarded by Chooser.mu.
-	entries := []twitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}}
-	c := twitter.NewChooser(entries, time.Millisecond, time.Now)
+	entries := []nitter.Instance{{URL: "http://a"}, {URL: "http://b"}, {URL: "http://c"}}
+	c := nitter.NewChooser(entries, time.Millisecond, time.Now)
 
 	const workers = 8
 	const iterations = 200

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/config"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/config"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
 
 // tempHome redirects the home directory to a fresh temp dir (paths.New reads
@@ -23,14 +23,14 @@ func tempHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("TWITTER_DEFAULT_LIMIT", "")
-	t.Setenv("TWITTER_LOG_LEVEL", "")
-	t.Setenv("TWITTER_LOG_FORMAT", "")
+	t.Setenv("NITTER_DEFAULT_LIMIT", "")
+	t.Setenv("NITTER_LOG_LEVEL", "")
+	t.Setenv("NITTER_LOG_FORMAT", "")
 	return home
 }
 
 func configFile(home string) string {
-	return filepath.Join(home, ".twitter-cli", "config.toml")
+	return filepath.Join(home, ".nitter-cli", "config.toml")
 }
 
 func runCLI(t *testing.T, stdin string, args ...string) (int, string, string) {
@@ -125,7 +125,7 @@ func TestConfigPublishFailureExits1(t *testing.T) {
 	// Make the app dir path a regular file so MkdirAll inside
 	// EnsureDefaultConfigFile fails; a config publish failure is a plain
 	// error (exit 1), never a usage error.
-	if err := os.WriteFile(filepath.Join(home, ".twitter-cli"), []byte("not a dir"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".nitter-cli"), []byte("not a dir"), 0o600); err != nil {
 		t.Fatalf("write blocking file: %v", err)
 	}
 	code, _, errOut := runCLI(t, "", "config", "path")
@@ -206,7 +206,7 @@ func TestConfigGetPrefersEnvOverFile(t *testing.T) {
 	if err := os.WriteFile(configFile(home), []byte("default_limit = 7\n"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	t.Setenv("TWITTER_DEFAULT_LIMIT", "9")
+	t.Setenv("NITTER_DEFAULT_LIMIT", "9")
 
 	code, out, _ := runCLI(t, "", "config", "get", "default_limit")
 	if code != 0 {
@@ -244,7 +244,7 @@ func TestConfigSetUnknownKeyExits2WithoutCreatingFile(t *testing.T) {
 	if !strings.Contains(errOut, "nope") {
 		t.Fatalf("stderr = %q, want it to name the unknown key", errOut)
 	}
-	mustNotExist(t, filepath.Join(home, ".twitter-cli"))
+	mustNotExist(t, filepath.Join(home, ".nitter-cli"))
 }
 
 func TestConfigSetInvalidValuesAreUsageErrorsBeforeAnyWrite(t *testing.T) {
@@ -413,7 +413,7 @@ func TestConfigUnsetUnknownKeyExits2(t *testing.T) {
 	if !strings.Contains(errOut, "nope") {
 		t.Fatalf("stderr = %q, want it to name the unknown key", errOut)
 	}
-	mustNotExist(t, filepath.Join(home, ".twitter-cli"))
+	mustNotExist(t, filepath.Join(home, ".nitter-cli"))
 }
 
 func TestConfigSetUnsetRejectsArrayTables(t *testing.T) {

@@ -1,6 +1,6 @@
 package appapi
 
-// Search acquisition: the implementation behind `twitter search`. The Nitter
+// Search acquisition: the implementation behind `nitter search`. The Nitter
 // search page reuses the timeline markup (div.timeline-item plus a load-more
 // cursor), so the fetch pipeline is Timeline's HTML branch with a different
 // URL shape — no RSS layer is involved:
@@ -26,8 +26,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opSearch is the Op stamped on Search's own errors.
@@ -37,15 +37,15 @@ const opSearch = "appapi.Search"
 // after trimming (KindInvalidArg otherwise) — the check happens BEFORE any
 // rotation or network. The returned string is the base URL of the instance
 // that produced the result ("" only on error).
-func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]twitter.Tweet, string, error) {
+func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]nitter.Tweet, string, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, "", twitter.Errorf(twitter.KindInvalidArg, opSearch, "query must not be empty")
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opSearch, "query must not be empty")
 	}
 	if c.HTTP == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opSearch, "no transport wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opSearch, "no transport wired into the appapi client")
 	}
 	if c.Chooser == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opSearch, "no instance chooser wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opSearch, "no instance chooser wired into the appapi client")
 	}
 	maxPages := opts.MaxPages
 	if maxPages <= 0 {
@@ -76,7 +76,7 @@ func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]
 			if lastErr != nil {
 				return nil, "", lastErr
 			}
-			return nil, "", twitter.Errorf(twitter.KindUnavailable, opSearch, "all instances failed")
+			return nil, "", nitter.Errorf(nitter.KindUnavailable, opSearch, "all instances failed")
 		}
 		tried[base] = true
 		tweets, err := c.searchFromInstance(ctx, base, query, opts.Limit, maxPages)
@@ -99,7 +99,7 @@ func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]
 // pages (<…>&cursor=<escaped cursor>) while a cursor exists, the limit is
 // not met and the page budget lasts — the same bounds math as the HTML
 // timeline path.
-func (c *Client) searchFromInstance(ctx context.Context, base, query string, limit, maxPages int) ([]twitter.Tweet, error) {
+func (c *Client) searchFromInstance(ctx context.Context, base, query string, limit, maxPages int) ([]nitter.Tweet, error) {
 	first := base + "/search?f=tweets&q=" + url.QueryEscape(query)
 	body, _, err := c.HTTP.Get(ctx, first, nil)
 	if err != nil {
@@ -137,7 +137,7 @@ func (c *Client) searchFromInstance(ctx context.Context, base, query string, lim
 // searchParsePage classifies and parses one search page: ClassifyPage first
 // (challenge/error panels), then the shared ParseTimeline (the search page
 // carries the same timeline-item markup as user and list pages).
-func searchParsePage(body []byte, base string) ([]twitter.Tweet, string, error) {
+func searchParsePage(body []byte, base string) ([]nitter.Tweet, string, error) {
 	if err := html.ClassifyPage(body); err != nil {
 		return nil, "", err
 	}

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // validCfg returns Settings with valid duration strings (as settings.Load
@@ -90,9 +90,9 @@ func TestBuildRejectsInvalidProxyScheme(t *testing.T) {
 		if err == nil || w != nil {
 			t.Fatalf("%s: Build = (%v, %v), want error and no state", tc.name, w, err)
 		}
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
-			t.Fatalf("%s: err = %v (%T), want *twitter.Error KindInvalidArg", tc.name, err, err)
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
+			t.Fatalf("%s: err = %v (%T), want *nitter.Error KindInvalidArg", tc.name, err, err)
 		}
 		// Naming the scheme proves which source (flag vs config) was used —
 		// and the message must not echo the full proxy URL (credentials).
@@ -131,7 +131,7 @@ func TestBuildInvalidConfigDurationsArePlainErrors(t *testing.T) {
 			t.Fatalf("%s: Build = (%v, %v), want error", tc.key, w, err)
 		}
 		var ue *invocation.UsageError
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if errors.As(err, &ue) || errors.As(err, &terr) {
 			t.Fatalf("%s: err = %v (%T), want a plain error (settings.Load already validates these; exit 1 path)", tc.key, err, err)
 		}
@@ -161,12 +161,12 @@ func TestBuildNilArguments(t *testing.T) {
 }
 
 func TestAsUsageErrorMapsOnlyInvalidArg(t *testing.T) {
-	ue := client.AsUsageError(twitter.Errorf(twitter.KindInvalidArg, "op", "bad input"))
+	ue := client.AsUsageError(nitter.Errorf(nitter.KindInvalidArg, "op", "bad input"))
 	var got *invocation.UsageError
 	if !errors.As(ue, &got) {
 		t.Fatalf("AsUsageError(KindInvalidArg) = %v (%T), want *invocation.UsageError", ue, ue)
 	}
-	down := twitter.Errorf(twitter.KindUnavailable, "op", "down")
+	down := nitter.Errorf(nitter.KindUnavailable, "op", "down")
 	if mapped := client.AsUsageError(down); mapped != down {
 		t.Fatalf("AsUsageError(KindUnavailable) rewrote the error: %v", mapped)
 	}
@@ -190,12 +190,12 @@ func TestTimelineCapability(t *testing.T) {
 		t.Fatal("Timeline() returned nil")
 	}
 	_, _, err = src.Timeline(context.Background(), "NASA!", 1, 1)
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
 		t.Fatalf("Timeline(NASA!) = %v (%T), want KindInvalidArg", err, err)
 	}
 	_, _, err = src.Timeline(context.Background(), "NASA", 1, 1)
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("Timeline(NASA) with no instances = %v (%T), want KindUnavailable", err, err)
 	}
 }
@@ -218,7 +218,7 @@ func TestLoadEffectiveSettings(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		t.Setenv("USERPROFILE", home)
-		dir := filepath.Join(home, ".twitter-cli")
+		dir := filepath.Join(home, ".nitter-cli")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -241,7 +241,7 @@ func TestLoadEffectiveSettings(t *testing.T) {
 func neutralizeEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
-		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
 		"http_proxy", "https_proxy", "all_proxy",
 	} {

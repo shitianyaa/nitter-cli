@@ -1,4 +1,4 @@
-module github.com/shitianyaa/twitter-cli
+module github.com/shitianyaa/nitter-cli
 
 go 1.27.0
 

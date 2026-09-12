@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -18,7 +18,7 @@ func TestRunVersion(t *testing.T) {
 	if code := cli.Run([]string{"--version"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	if got := strings.TrimSpace(out.String()); got != "twitter version v0.1.0" {
+	if got := strings.TrimSpace(out.String()); got != "nitter version v0.1.0" {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -53,7 +53,7 @@ func TestRunVersionAndHelpNeverCreateConfig(t *testing.T) {
 		if code := cli.Run(args, strings.NewReader(""), &out, &errOut); code != 0 {
 			t.Fatalf("run %v: exit = %d, want 0 (stderr %q)", args, code, errOut.String())
 		}
-		if _, err := os.Stat(filepath.Join(home, ".twitter-cli")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(home, ".nitter-cli")); !os.IsNotExist(err) {
 			t.Fatalf("run %v must not create the app dir (stat err = %v)", args, err)
 		}
 	}
@@ -67,7 +67,7 @@ func TestRunBareInvocationPublishesBaselineConfig(t *testing.T) {
 	if code := cli.Run([]string{}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut.String())
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".twitter-cli", "config.toml"))
+	data, err := os.ReadFile(filepath.Join(home, ".nitter-cli", "config.toml"))
 	if err != nil {
 		t.Fatalf("read published baseline config: %v", err)
 	}

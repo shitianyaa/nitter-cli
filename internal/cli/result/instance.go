@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // InstanceReportHeader is the tab-separated header line for
@@ -28,7 +28,7 @@ func InstanceReportHeader() string {
 // itself (empty Err, e.g. fail(404)), the short redacted reason when the
 // probe failed on content or transport ("not rss", "timeout", …). Latency is
 // rendered at human precision (see formatLatency).
-func InstanceReportLine(r twitter.InstanceReport) string {
+func InstanceReportLine(r nitter.InstanceReport) string {
 	cells := []string{
 		r.URL,
 		formatProbe(r.RSS),
@@ -41,7 +41,7 @@ func InstanceReportLine(r twitter.InstanceReport) string {
 }
 
 // formatProbe renders one probe cell per InstanceReportLine's contract.
-func formatProbe(p twitter.Probe) string {
+func formatProbe(p nitter.Probe) string {
 	switch {
 	case p.OK:
 		return "ok"

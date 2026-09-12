@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const opSyndication = "media.syndication"
@@ -117,9 +117,9 @@ func syndicationKind(rawVideo json.RawMessage, video syndVideo) string {
 
 // syndVariants decodes one variants list (src preferred over url), skipping
 // entries without a URL (plugin: empty vurl entries are passed over).
-func syndVariants(items []json.RawMessage) []twitter.MediaVariant {
+func syndVariants(items []json.RawMessage) []nitter.MediaVariant {
 	decoded := unmarshalItems[syndVariant](items)
-	out := make([]twitter.MediaVariant, 0, len(decoded))
+	out := make([]nitter.MediaVariant, 0, len(decoded))
 	for _, v := range decoded {
 		u := v.Src
 		if u == "" {
@@ -128,7 +128,7 @@ func syndVariants(items []json.RawMessage) []twitter.MediaVariant {
 		if u == "" {
 			continue
 		}
-		out = append(out, twitter.MediaVariant{URL: u, Bitrate: v.Bitrate, ContentType: v.ContentType})
+		out = append(out, nitter.MediaVariant{URL: u, Bitrate: v.Bitrate, ContentType: v.ContentType})
 	}
 	return out
 }

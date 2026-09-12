@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 func TestParseVxFromFixture(t *testing.T) {
@@ -105,8 +105,8 @@ func TestParseVxKindDefaultsToImage(t *testing.T) {
 func TestParseVxMalformed(t *testing.T) {
 	for _, body := range [][]byte{[]byte("{nope"), []byte("[1,2]"), []byte("null")} {
 		_, err := parseVx(body)
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindMalformed {
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindMalformed {
 			t.Errorf("parseVx(%q) err = %v, want KindMalformed", body, err)
 		}
 	}

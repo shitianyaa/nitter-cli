@@ -1,4 +1,4 @@
-// Package pipeline implements the twitter.pipeline/v1 machine protocol:
+// Package pipeline implements the nitter.pipeline/v1 machine protocol:
 // typed NDJSON envelopes, output-mode resolution and in-place error
 // envelopes. It is the shared machine-output path for all data commands.
 //
@@ -17,8 +17,8 @@ import (
 	"io"
 	"syscall"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
 )
 
 // Mode is the resolved output mode of one command run.
@@ -32,12 +32,12 @@ const (
 	ModeText
 	// ModeJSON is the whole-result JSON document (--json).
 	ModeJSON
-	// ModeNDJSON is one twitter.pipeline/v1 envelope per record (--ndjson).
+	// ModeNDJSON is one nitter.pipeline/v1 envelope per record (--ndjson).
 	ModeNDJSON
 )
 
 // Schema is the fixed schema constant of every envelope line.
-const Schema = "twitter.pipeline/v1"
+const Schema = "nitter.pipeline/v1"
 
 // Kind values of the v1 protocol (additive-only).
 const (
@@ -79,7 +79,7 @@ type Meta struct {
 	Input     string `json:"input,omitempty"`
 }
 
-// Envelope is one twitter.pipeline/v1 record. Schema must be set to Schema
+// Envelope is one nitter.pipeline/v1 record. Schema must be set to Schema
 // by the caller (WriteEnvelope does not silently fix it up); ID is the
 // record's natural identity (tweet id, instance URL, …) and Data the typed
 // payload. A nil Meta omits the meta key.

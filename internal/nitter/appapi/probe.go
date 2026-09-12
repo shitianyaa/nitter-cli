@@ -1,6 +1,6 @@
 package appapi
 
-// Instance capability probe: the implementation behind `twitter instances
+// Instance capability probe: the implementation behind `nitter instances
 // test`. TestInstance drives one Nitter instance through the capabilities a
 // fetch needs — the RSS feed, the user HTML timeline, search and a list —
 // and reports each independently, so a diagnostic answers "what works on
@@ -45,7 +45,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opTestInstance is the Op stamped on TestInstance's own errors.
@@ -65,7 +65,7 @@ type TestOptions struct {
 	// defaults it to a stable public account.
 	User string
 	// IncludeSearch enables the search probe
-	// (<base>/search?f=tweets&q=twitter).
+	// (<base>/search?f=tweets&q=nitter).
 	IncludeSearch bool
 	// ListID enables the list probe (<base>/i/lists/<ListID>) when
 	// non-empty.
@@ -82,23 +82,23 @@ type TestOptions struct {
 // carry an http or https scheme (and a host). The report's URL is the
 // normalized form. Latency is the round trip of the RSS probe (including
 // body read), measured with the client clock — a fake clock yields 0.
-func (c *Client) TestInstance(ctx context.Context, baseURL string, opts TestOptions) (twitter.InstanceReport, error) {
+func (c *Client) TestInstance(ctx context.Context, baseURL string, opts TestOptions) (nitter.InstanceReport, error) {
 	base, err := normalizeBaseURL(baseURL)
 	if err != nil {
-		return twitter.InstanceReport{}, err
+		return nitter.InstanceReport{}, err
 	}
 	if opts.User == "" {
-		return twitter.InstanceReport{}, twitter.Errorf(twitter.KindInvalidArg, opTestInstance, "probe user must not be empty")
+		return nitter.InstanceReport{}, nitter.Errorf(nitter.KindInvalidArg, opTestInstance, "probe user must not be empty")
 	}
 	if c.HTTP == nil {
-		return twitter.InstanceReport{}, twitter.Errorf(twitter.KindLocalState, opTestInstance, "no transport wired into the appapi client")
+		return nitter.InstanceReport{}, nitter.Errorf(nitter.KindLocalState, opTestInstance, "no transport wired into the appapi client")
 	}
 
-	report := twitter.InstanceReport{URL: base}
+	report := nitter.InstanceReport{URL: base}
 	report.RSS, report.Latency = c.probeRSS(ctx, base, opts.User)
 	report.UserHTML = c.probeHTML(ctx, base, "/"+url.PathEscape(opts.User))
 	if opts.IncludeSearch {
-		report.Search = c.probeHTML(ctx, base, "/search?f=tweets&q=twitter")
+		report.Search = c.probeHTML(ctx, base, "/search?f=tweets&q=nitter")
 	}
 	if opts.ListID != "" {
 		report.List = c.probeHTML(ctx, base, "/i/lists/"+url.PathEscape(opts.ListID))
@@ -115,15 +115,15 @@ func normalizeBaseURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	switch {
 	case err != nil, u == nil, u.Scheme == "", u.Host == "":
-		return "", twitter.Errorf(twitter.KindInvalidArg, opTestInstance, "instance URL must be an absolute http or https URL")
+		return "", nitter.Errorf(nitter.KindInvalidArg, opTestInstance, "instance URL must be an absolute http or https URL")
 	case u.Scheme != "http" && u.Scheme != "https":
-		return "", twitter.Errorf(twitter.KindInvalidArg, opTestInstance, "instance URL scheme must be http or https")
+		return "", nitter.Errorf(nitter.KindInvalidArg, opTestInstance, "instance URL scheme must be http or https")
 	}
 	return strings.TrimRight(raw, "/"), nil
 }
 
 // probeRSS runs the RSS probe and measures its latency.
-func (c *Client) probeRSS(ctx context.Context, base, user string) (twitter.Probe, time.Duration) {
+func (c *Client) probeRSS(ctx context.Context, base, user string) (nitter.Probe, time.Duration) {
 	start := c.nowFunc()
 	body, status, err := c.HTTP.Get(ctx, base+"/"+url.PathEscape(user)+"/rss", nil)
 	latency := c.nowFunc().Sub(start)
@@ -135,7 +135,7 @@ func (c *Client) probeRSS(ctx context.Context, base, user string) (twitter.Probe
 
 // probeHTML runs one of the HTML probes (user timeline, search, list) against
 // base+path.
-func (c *Client) probeHTML(ctx context.Context, base, path string) twitter.Probe {
+func (c *Client) probeHTML(ctx context.Context, base, path string) nitter.Probe {
 	body, status, err := c.HTTP.Get(ctx, base+path, nil)
 	if err != nil {
 		return transportProbe(err)
@@ -148,14 +148,14 @@ func (c *Client) probeHTML(ctx context.Context, base, path string) twitter.Probe
 // reason (httpx does not follow redirects — the base URL is likely
 // misconfigured); 2xx fails on content with the caller's short reason when
 // the criterion does not hold.
-func contentProbe(status int, ok bool, contentErr string) twitter.Probe {
+func contentProbe(status int, ok bool, contentErr string) nitter.Probe {
 	switch {
 	case status >= 300:
-		return twitter.Probe{Status: status, Err: "redirect"}
+		return nitter.Probe{Status: status, Err: "redirect"}
 	case !ok:
-		return twitter.Probe{Status: status, Err: contentErr}
+		return nitter.Probe{Status: status, Err: contentErr}
 	default:
-		return twitter.Probe{OK: true, Status: status}
+		return nitter.Probe{OK: true, Status: status}
 	}
 }
 
@@ -165,39 +165,39 @@ func contentProbe(status int, ok bool, contentErr string) twitter.Probe {
 // carry an unambiguous status (404, 429); everything else degrades to stable
 // tokens — never the wrapped transport text, which can embed instance host
 // details.
-func transportProbe(err error) twitter.Probe {
+func transportProbe(err error) nitter.Probe {
 	switch {
 	case errors.Is(err, context.Canceled):
-		return twitter.Probe{Err: "canceled"}
+		return nitter.Probe{Err: "canceled"}
 	case errors.Is(err, context.DeadlineExceeded):
-		return twitter.Probe{Err: "timeout"}
+		return nitter.Probe{Err: "timeout"}
 	}
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {
-		return twitter.Probe{Err: "timeout"}
+		return nitter.Probe{Err: "timeout"}
 	}
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		return twitter.Probe{Err: "unavailable"}
+		return nitter.Probe{Err: "unavailable"}
 	}
 	switch terr.Kind {
-	case twitter.KindNotFound:
-		return twitter.Probe{Status: 404}
-	case twitter.KindRateLimited:
-		return twitter.Probe{Status: 429}
-	case twitter.KindChallenge:
+	case nitter.KindNotFound:
+		return nitter.Probe{Status: 404}
+	case nitter.KindRateLimited:
+		return nitter.Probe{Status: 429}
+	case nitter.KindChallenge:
 		// 401 and 403 are not distinguishable through the classified error.
-		return twitter.Probe{Err: "http 401/403"}
-	case twitter.KindUnavailable:
+		return nitter.Probe{Err: "http 401/403"}
+	case nitter.KindUnavailable:
 		// Network failure, other 4xx, or a 5xx after retries — the probe
 		// cannot tell them apart without the response.
-		return twitter.Probe{Err: "unreachable"}
-	case twitter.KindMalformed:
-		return twitter.Probe{Err: "malformed"}
-	case twitter.KindInvalidArg:
-		return twitter.Probe{Err: "invalid request"}
+		return nitter.Probe{Err: "unreachable"}
+	case nitter.KindMalformed:
+		return nitter.Probe{Err: "malformed"}
+	case nitter.KindInvalidArg:
+		return nitter.Probe{Err: "invalid request"}
 	default:
-		return twitter.Probe{Err: "unavailable"}
+		return nitter.Probe{Err: "unavailable"}
 	}
 }
 

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // MediaLine renders one media resolution as the human-readable,
@@ -17,7 +17,7 @@ import (
 // the resolution does not carry (label empty, no probed/source duration, no
 // probed size). Duration renders as a plain seconds number ("3.2"), size as
 // a plain byte count — both stay script-parseable.
-func MediaLine(res twitter.MediaResolution) string {
+func MediaLine(res nitter.MediaResolution) string {
 	label := res.Label
 	if label == "" {
 		label = "-"

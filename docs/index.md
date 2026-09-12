@@ -1,6 +1,6 @@
-# twitter-cli Documentation
+# nitter-cli Documentation
 
-`twitter-cli` is an unofficial command-line client and public Go SDK for public
+`nitter-cli` is an unofficial command-line client and public Go SDK for public
 tweets via self-hosted Nitter instances. Public interface documents are
 localized; maintainer documents have one canonical version so contributors can
 share the same architecture and delivery rules.
@@ -19,8 +19,8 @@ copies.
 
 ## Agent documentation
 
-- [Agent skill](../skills/twitter-cli/SKILL.md): operating rules, command tiers,
-  and semantics traps for driving the `twitter` binary from an AI agent.
+- [Agent skill](../skills/nitter-cli/SKILL.md): operating rules, command tiers,
+  and semantics traps for driving the `nitter` binary from an AI agent.
 
 ## Maintainer documentation
 

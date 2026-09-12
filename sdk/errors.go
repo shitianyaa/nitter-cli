@@ -1,4 +1,4 @@
-// Package twitter is the public SDK for twitter-cli. It is the only public
+// Package nitter is the public SDK for nitter-cli. It is the only public
 // capability surface of this module: CLI commands consume it, while the
 // packages under internal/ remain private implementation details.
 //
@@ -11,7 +11,7 @@
 //
 // This file freezes the v1 error contract: exported identifiers may only be
 // extended additively (see Kind).
-package twitter
+package nitter
 
 import (
 	"fmt"
@@ -62,7 +62,7 @@ func (e *Error) Error() string {
 		parts = append(parts, e.Err.Error())
 	}
 	if len(parts) == 0 {
-		return "twitter: unknown error"
+		return "nitter: unknown error"
 	}
 	return strings.Join(parts, ": ")
 }
@@ -74,7 +74,7 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// Errorf builds a *twitter.Error whose chain starts with the formatted
+// Errorf builds a *nitter.Error whose chain starts with the formatted
 // message. The format string and arguments must satisfy the redaction
 // contract: never pass credentials, URL query strings, request headers or
 // response bodies as arguments. Use %w in format to attach a cause error.

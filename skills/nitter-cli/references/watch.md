@@ -1,8 +1,8 @@
 # Watch: scheduling and dedup details
 
-`twitter watch` is the stateful core: poll sources in cycles, dedup against
-`~/.twitter-cli/state/seen.json`, and emit only new tweets. Command semantics
-are governed by the installed binary's `twitter watch --help`.
+`nitter watch` is the stateful core: poll sources in cycles, dedup against
+`~/.nitter-cli/state/seen.json`, and emit only new tweets. Command semantics
+are governed by the installed binary's `nitter watch --help`.
 
 ## Recommended form: `--once` + scheduler (Hermes)
 
@@ -11,7 +11,7 @@ the process boundary is the state boundary and stdout is consumed directly:
 
 ```bash
 # crontab: every 10 minutes
-*/10 * * * * twitter watch user:NASA tag:#AI --once --ndjson >> /var/log/twitter-watch.ndjson 2>> /var/log/twitter-watch.err
+*/10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>> /var/log/nitter-watch.err
 ```
 
 - Sources can be argv (`user:NASA tag:#AI list:12345`) or config
@@ -55,7 +55,7 @@ valid anywhere (watch sources, `[[watch.sources]]`, `seen --source`).
 
 ## State: `--state-dir` and the seen store
 
-- Default state location: `~/.twitter-cli/state/seen.json` (schema v1: per
+- Default state location: `~/.nitter-cli/state/seen.json` (schema v1: per
   source `initialized`, up to 300 `seen_ids` newest-first, up to 20 numeric
   first-page `watermark_ids`, `updated_at`).
 - `--state-dir DIR` points watch at another directory (created if missing) —
@@ -87,8 +87,8 @@ non-EPIPE write failure); SIGINT/SIGTERM exit 0.
 - Watch setup is stateful configuration: agree on sources, cadence, and
   `--max-new` with the user before writing a scheduler entry.
 - Diagnose a suspicious watch run in this order: exit code → stderr lines /
-  error envelopes → `twitter seen list` (default location only) →
-  `twitter instances test` for instance health.
+  error envelopes → `nitter seen list` (default location only) →
+  `nitter instances test` for instance health.
 - To re-emit a source's history deliberately: clear its state
-  (`twitter seen clear --source <key> --confirm`, consent required) or point
+  (`nitter seen clear --source <key> --confirm`, consent required) or point
   watch at a fresh `--state-dir`, then run with `--include-existing`.

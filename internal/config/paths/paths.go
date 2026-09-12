@@ -1,4 +1,4 @@
-// Package paths manages the on-disk locations of twitter-cli's config and
+// Package paths manages the on-disk locations of nitter-cli's config and
 // state files under a single data directory in the user home.
 package paths
 
@@ -10,7 +10,7 @@ import (
 )
 
 // AppDirName is the single data directory on every OS (javdb-cli convention).
-const AppDirName = ".twitter-cli"
+const AppDirName = ".nitter-cli"
 
 // Paths bundles the locations derived from the user home directory.
 type Paths struct {

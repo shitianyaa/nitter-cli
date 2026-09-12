@@ -5,8 +5,8 @@ package settings
 // verbatim, while the [[instances]] / [[watch.sources]] examples stay fully
 // commented out: nothing is enabled by default, so a fresh install behaves
 // exactly like a missing config file (pure Defaults()).
-const DefaultConfigTOML = `# twitter-cli configuration (~/.twitter-cli/config.toml)
-# Scalar keys below carry the defaults; edit them or use "twitter config set".
+const DefaultConfigTOML = `# nitter-cli configuration (~/.nitter-cli/config.toml)
+# Scalar keys below carry the defaults; edit them or use "nitter config set".
 # The [[instances]] and [[watch.sources]] examples at the bottom are commented
 # out on purpose: nothing is fetched until you enable them by hand.
 
@@ -20,7 +20,7 @@ proxy             = ""        # empty = use HTTPS_PROXY/ALL_PROXY env
 log_level         = "info"    # debug|info
 log_format        = "text"    # text|json
 
-# Array tables below are managed by hand-editing this file ("twitter config
+# Array tables below are managed by hand-editing this file ("nitter config
 # set" refuses them). Examples:
 
 # [[instances]]

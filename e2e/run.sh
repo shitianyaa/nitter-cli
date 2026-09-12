@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e/run.sh — offline e2e contract gate for twitter-cli.
+# e2e/run.sh — offline e2e contract gate for nitter-cli.
 #
 # Exit-code contract (javdb e2e convention):
 #   0 — every check passed (skips allowed)
@@ -9,14 +9,14 @@
 # Segments:
 #   - Offline contracts (always run, no network): --version line, fresh-HOME
 #     config publication (0600 where stat can see POSIX modes), help exit
-#     codes, usage-error exit codes, and twitter.pipeline/v1 NDJSON envelope
+#     codes, usage-error exit codes, and nitter.pipeline/v1 NDJSON envelope
 #     validation against an unreachable instance (connection refused is
 #     deterministic and offline).
-#   - Live read-only probes (env-gated): only when BOTH TWITTER_CLI_E2E_INSTANCE
-#     and TWITTER_CLI_E2E_USER are set; otherwise they count as skips.
+#   - Live read-only probes (env-gated): only when BOTH NITTER_CLI_E2E_INSTANCE
+#     and NITTER_CLI_E2E_USER are set; otherwise they count as skips.
 #
 # All runs are sandboxed: HOME/USERPROFILE point at a throwaway directory, so
-# the real ~/.twitter-cli is never touched. Invoked as `bash e2e/run.sh`.
+# the real ~/.nitter-cli is never touched. Invoked as `bash e2e/run.sh`.
 set -u
 
 cd "$(dirname "$0")/.."
@@ -67,8 +67,8 @@ export USERPROFILE="$SANDBOX/home" # os.UserHomeDir reads USERPROFILE on Windows
 mkdir -p "$HOME"
 
 # Build the binary if it is not there yet (CI runs scripts/build.sh first).
-if [ ! -x ./twitter ]; then
-	echo "building ./twitter (missing) via scripts/build.sh"
+if [ ! -x ./nitter ]; then
+	echo "building ./nitter (missing) via scripts/build.sh"
 	sh scripts/build.sh || {
 		echo "FAIL - build: scripts/build.sh failed"
 		exit 1
@@ -79,8 +79,8 @@ echo "== offline contracts =="
 
 # --version must print the stable version line, and a version probe must NOT
 # publish the baseline config (only real commands do).
-check "--version prints version line" 0 '^twitter version' -- ./twitter --version
-if [ -f "$HOME/.twitter-cli/config.toml" ]; then
+check "--version prints version line" 0 '^nitter version' -- ./nitter --version
+if [ -f "$HOME/.nitter-cli/config.toml" ]; then
 	fail "--version does not publish config" "config.toml exists after --version"
 else
 	pass "--version does not publish config"
@@ -88,15 +88,15 @@ fi
 
 # config path prints the app dir and the first real command publishes the
 # baseline config in the fresh HOME.
-check "config path prints app dir" 0 '\.twitter-cli' -- ./twitter config path
-if [ -f "$HOME/.twitter-cli/config.toml" ]; then
+check "config path prints app dir" 0 '\.nitter-cli' -- ./nitter config path
+if [ -f "$HOME/.nitter-cli/config.toml" ]; then
 	pass "config path publishes baseline config"
 else
 	fail "config path publishes baseline config" "config.toml missing after config path"
 fi
 case "$(uname -s)" in
 Linux | Darwin)
-	mode="$(stat -c '%a' "$HOME/.twitter-cli/config.toml")"
+	mode="$(stat -c '%a' "$HOME/.nitter-cli/config.toml")"
 	if [ "$mode" = "600" ]; then
 		pass "config file mode 0600"
 	else
@@ -108,17 +108,17 @@ Linux | Darwin)
 	;;
 esac
 
-check "user --help exits 0" 0 'Usage' -- ./twitter user --help
-check "watch without sources exits 2" 2 '' -- ./twitter watch --once --ndjson
-check "watch --json rejected (exit 2)" 2 '' -- ./twitter watch user:e2e --once --json
-check "seen list on empty store" 0 '\(empty\)' -- ./twitter seen list
-check "seen clear without --confirm exits 2" 2 '' -- ./twitter seen clear
+check "user --help exits 0" 0 'Usage' -- ./nitter user --help
+check "watch without sources exits 2" 2 '' -- ./nitter watch --once --ndjson
+check "watch --json rejected (exit 2)" 2 '' -- ./nitter watch user:e2e --once --json
+check "seen list on empty store" 0 '\(empty\)' -- ./nitter seen list
+check "seen clear without --confirm exits 2" 2 '' -- ./nitter seen clear
 
 # NDJSON error envelope: a config fixture pointing at an unreachable instance
 # (port 1 on loopback — connection refused, no network) must produce a
-# well-formed twitter.pipeline/v1 error envelope and exit 1 (--once with a
+# well-formed nitter.pipeline/v1 error envelope and exit 1 (--once with a
 # failed source).
-cat >"$HOME/.twitter-cli/config.toml" <<'TOML'
+cat >"$HOME/.nitter-cli/config.toml" <<'TOML'
 default_limit     = 20
 max_pages         = 5
 request_interval  = "0s"
@@ -132,7 +132,7 @@ log_format        = "text"
 [[instances]]
 url = "http://127.0.0.1:1"
 TOML
-./twitter watch user:e2eoffline --once --ndjson --state-dir "$SANDBOX/watch-state" \
+./nitter watch user:e2eoffline --once --ndjson --state-dir "$SANDBOX/watch-state" \
 	>"$SANDBOX/watch.ndjson" 2>"$SANDBOX/watch.err"
 rc=$?
 if [ "$rc" -ne 1 ]; then
@@ -146,7 +146,7 @@ lines = [l for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
 assert lines, "no NDJSON records on stdout"
 for line in lines:
     e = json.loads(line)
-    assert e.get("schema") == "twitter.pipeline/v1", e
+    assert e.get("schema") == "nitter.pipeline/v1", e
     assert e.get("kind") == "error", e
     d = e["data"]
     assert d["command"] == "watch", d
@@ -165,7 +165,7 @@ fi
 # instances test against the same unreachable instance: the report is the
 # product (exit 0) and the NDJSON stream carries an instance_report envelope
 # whose RSS probe failed.
-./twitter instances test http://127.0.0.1:1 --ndjson \
+./nitter instances test http://127.0.0.1:1 --ndjson \
 	>"$SANDBOX/instances.ndjson" 2>"$SANDBOX/instances.err"
 rc=$?
 if [ "$rc" -ne 0 ]; then
@@ -179,7 +179,7 @@ lines = [l for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
 assert lines, "no NDJSON records on stdout"
 for line in lines:
     e = json.loads(line)
-    assert e.get("schema") == "twitter.pipeline/v1", e
+    assert e.get("schema") == "nitter.pipeline/v1", e
     assert e.get("kind") == "instance_report", e
     assert e.get("id") == "http://127.0.0.1:1", e
     assert e["data"]["rss"]["ok"] is False, e
@@ -193,8 +193,8 @@ fi
 
 echo "== live read-only probes (env-gated) =="
 
-if [ -n "${TWITTER_CLI_E2E_INSTANCE:-}" ] && [ -n "${TWITTER_CLI_E2E_USER:-}" ]; then
-	cat >"$HOME/.twitter-cli/config.toml" <<TOML
+if [ -n "${NITTER_CLI_E2E_INSTANCE:-}" ] && [ -n "${NITTER_CLI_E2E_USER:-}" ]; then
+	cat >"$HOME/.nitter-cli/config.toml" <<TOML
 default_limit     = 5
 max_pages         = 1
 request_interval  = "0s"
@@ -206,10 +206,10 @@ log_level         = "info"
 log_format        = "text"
 
 [[instances]]
-url = "$TWITTER_CLI_E2E_INSTANCE"
+url = "$NITTER_CLI_E2E_INSTANCE"
 TOML
 
-	check "live user --json" 0 '' -- ./twitter user "$TWITTER_CLI_E2E_USER" --limit 5 --json
+	check "live user --json" 0 '' -- ./nitter user "$NITTER_CLI_E2E_USER" --limit 5 --json
 	if [ -z "$PY" ]; then
 		skip "live user --json field assertions" "no python interpreter"
 	else
@@ -233,7 +233,7 @@ PYEOF
 		fi
 	fi
 
-	check "live search --json" 0 '' -- ./twitter search "from:$TWITTER_CLI_E2E_USER" --limit 5 --json
+	check "live search --json" 0 '' -- ./nitter search "from:$NITTER_CLI_E2E_USER" --limit 5 --json
 	if [ -z "$PY" ]; then
 		skip "live search --json field assertions" "no python interpreter"
 	elif "$PY" - "$SANDBOX/check.out" <<'PYEOF'
@@ -254,7 +254,7 @@ PYEOF
 
 	if [ -f "$SANDBOX/live.id" ] && [ -s "$SANDBOX/live.id" ]; then
 		status_id="$(cat "$SANDBOX/live.id")"
-		check "live get --json" 0 '' -- ./twitter get "$status_id" --json
+		check "live get --json" 0 '' -- ./nitter get "$status_id" --json
 		if [ -z "$PY" ]; then
 			skip "live get --json field assertions" "no python interpreter"
 		elif "$PY" - "$SANDBOX/check.out" "$status_id" <<'PYEOF'
@@ -274,7 +274,7 @@ PYEOF
 		skip "live get --json" "no status id captured from the user probe"
 	fi
 else
-	skip "live user/search/get probes" "TWITTER_CLI_E2E_INSTANCE / TWITTER_CLI_E2E_USER not set"
+	skip "live user/search/get probes" "NITTER_CLI_E2E_INSTANCE / NITTER_CLI_E2E_USER not set"
 fi
 
 echo "summary: pass=$pass fail=$fail skip=$skip"

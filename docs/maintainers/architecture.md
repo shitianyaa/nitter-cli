@@ -1,40 +1,40 @@
 # 架构说明
 
-本页面向维护者，描述 twitter-cli 的目录结构、包边界与运行期流程。公开契约见
+本页面向维护者，描述 nitter-cli 的目录结构、包边界与运行期流程。公开契约见
 [CLI 参考](../zh-CN/cli-reference.md) 与 [Go SDK](../zh-CN/sdk.md)。
 
 ## 总体流程
 
-`cmd/twitter/main.go` 是唯一官方二进制入口，只负责把进程参数和标准流交给
+`cmd/nitter/main.go` 是唯一官方二进制入口，只负责把进程参数和标准流交给
 `internal/cli.Run` 并把返回值作为进程退出码。`internal/cli` 根包（`root.go`）
 组装 Cobra 命令树、探测 TTY、安装 SIGINT/SIGTERM 信号上下文，并在每次真实命令
 前发布基线配置。命令域位于 `internal/cli/commands/*`（每个真实命令一个同名
 目录），调用期数据由 `cli/invocation` 提供，取数 wiring 由 `cli/client` 提供，
 纯结果投影由 `cli/result` 提供，机器输出协议由 `cli/pipeline` 提供。远程取数
-只能经顶层公开 `sdk/`（package twitter）；协议实现细节在 `internal/nitter/*`。
+只能经顶层公开 `sdk/`（package nitter）；协议实现细节在 `internal/nitter/*`。
 
 ```text
-cmd/twitter → internal/cli (root.go → commands/*) → sdk (公开; package twitter)
+cmd/nitter → internal/cli (root.go → commands/*) → sdk (公开; package nitter)
                          ├── cli/invocation   （RootOptions + Streams + UsageError/退出码）
                          ├── cli/client       （唯一可导入 internal/nitter/* 的 CLI 层包）
-                         ├── cli/pipeline     （twitter.pipeline/v1 信封与输出模式）
+                         ├── cli/pipeline     （nitter.pipeline/v1 信封与输出模式）
                          ├── cli/result       （tweet/instance 纯投影）
                          ├── cli/commands/{config,instances,user,search,list,get,watch,seen}
                          └── internal/common/jsonx（NDJSON JSON 编码）
 sdk ← internal/nitter/appapi（Client 组合 → timeline/search/list/status/probe）
         └── internal/nitter/protocol/httpx（tls-client 传输：pacing/重试/429/脱敏）
 internal/watch（去重选推引擎，纯函数） → internal/storage/seen（seen.json 原子存储）
-internal/config/{paths,settings}（~/.twitter-cli 布局与 schema/env 优先级）
+internal/config/{paths,settings}（~/.nitter-cli 布局与 schema/env 优先级）
 internal/buildinfo（版本元数据）
 ```
 
 ## 边界规则（不可违反）
 
-- `cmd/twitter` 只委托：不承载命令逻辑、配置读取或 client 构造。
+- `cmd/nitter` 只委托：不承载命令逻辑、配置读取或 client 构造。
 - `internal/cli/root.go` 拥有命令树、共享流（`Streams`）与进程退出码；子命令包
   **不导入 `internal/cli`**——它们只拿 `*invocation.Streams`（与 `RootOptions`
   同住 invocation，规避导入环）。
-- 命令取数只经顶层 `sdk/`（package twitter）；命令包**禁止导入
+- 命令取数只经顶层 `sdk/`（package nitter）；命令包**禁止导入
   `internal/nitter/*`** 协议细节。
 - `internal/cli/client` 是**唯一**允许导入 `internal/nitter/{appapi,protocol/
   httpx}` 的 CLI 层包（裁决 R11）。命令消费的能力全部收窄为 client 导出的接口
@@ -58,10 +58,10 @@ internal/buildinfo（版本元数据）
 
 ### `internal/config/paths` + `settings`
 
-paths 管理 `~/.twitter-cli/` 布局（`config.toml`、`state/seen.json`），
+paths 管理 `~/.nitter-cli/` 布局（`config.toml`、`state/seen.json`），
 `EnsureDefaultConfigFile` 用临时文件 + `os.Link` 实现 no-replace 原子发布
 （并发/重复调用安全）。settings 拥有 config.toml schema：env > file > default
-优先级（`TWITTER_DEFAULT_LIMIT`/`TWITTER_LOG_LEVEL`/`TWITTER_LOG_FORMAT`），
+优先级（`NITTER_DEFAULT_LIMIT`/`NITTER_LOG_LEVEL`/`NITTER_LOG_FORMAT`），
 duration 字符串在 Load 时校验；`SaveKnown` 读整树 → 改已知键 → 原子写 0600，
 保留未知键与数组表，注释不保证保留。
 
@@ -89,7 +89,7 @@ watch 引擎是纯函数 `Select`（无 IO、无时钟）：首跑只记不推�
 
 ### `internal/cli/pipeline`
 
-twitter.pipeline/v1 信封协议：`ResolveOutputMode`（`--json`/`--ndjson` 互斥 →
+nitter.pipeline/v1 信封协议：`ResolveOutputMode`（`--json`/`--ndjson` 互斥 →
 用法错误；否则 TTY=human、非 TTY=text）、`WriteEnvelope`/`WriteErrorEnvelope`
 （单行信封，调用方拥有流）、`IsBrokenPipe`（sigpipe 优雅退出 0，Windows 上
 尽力而为）。kind 枚举 v1 只增不改；错误信封 `data={command,stage,code,message}`

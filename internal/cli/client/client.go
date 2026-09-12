@@ -4,7 +4,7 @@
 //
 // Package boundary (ruling R11, frozen): this is the ONLY CLI-layer package
 // allowed to import internal/nitter/{appapi,protocol/httpx} and internal/media.
-// Command packages consume data exclusively through sdk (package twitter)
+// Command packages consume data exclusively through sdk (package nitter)
 // models plus the capability types exported here (InstanceTester, TestOptions)
 // — they never import internal/nitter/* or internal/media themselves.
 package client
@@ -17,13 +17,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
-	"github.com/shitianyaa/twitter-cli/internal/media"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/media"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opBuild is the Op stamped on Build's own errors.
@@ -41,7 +41,7 @@ type TestOptions = appapi.TestOptions
 // backed by *appapi.Client (structurally); commands depend on this interface,
 // never on appapi.
 type InstanceTester interface {
-	TestInstance(ctx context.Context, baseURL string, opts TestOptions) (twitter.InstanceReport, error)
+	TestInstance(ctx context.Context, baseURL string, opts TestOptions) (nitter.InstanceReport, error)
 }
 
 // TimelineSource is the user-timeline acquisition capability a command
@@ -54,28 +54,28 @@ type InstanceTester interface {
 // result ("" on error): NDJSON meta.instance needs the provenance, and only
 // the acquisition layer knows which instance won the rotation.
 type TimelineSource interface {
-	Timeline(ctx context.Context, handle string, limit, maxPages int) ([]twitter.Tweet, string, error)
+	Timeline(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error)
 }
 
 // SearchSource is the search acquisition capability a command consumes
 // (same provenance contract as TimelineSource). Backed by *appapi.Client
 // through searchAdapter.
 type SearchSource interface {
-	Search(ctx context.Context, query string, limit, maxPages int) ([]twitter.Tweet, string, error)
+	Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error)
 }
 
 // ListSource is the list-timeline acquisition capability a command consumes
 // (same provenance contract as TimelineSource). Backed by *appapi.Client
 // through listAdapter.
 type ListSource interface {
-	ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]twitter.Tweet, string, error)
+	ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]nitter.Tweet, string, error)
 }
 
 // StatusSource is the single-status acquisition capability a command
 // consumes (same provenance contract as TimelineSource). Backed by
 // *appapi.Client through statusAdapter.
 type StatusSource interface {
-	Status(ctx context.Context, ref string) (twitter.Tweet, string, error)
+	Status(ctx context.Context, ref string) (nitter.Tweet, string, error)
 }
 
 // MediaResolver is the media-resolution capability a command consumes. The
@@ -92,7 +92,7 @@ type StatusSource interface {
 //     URL (duration from the mp4 head, size from the Content-Range total);
 //     every error is a "probe unavailable" signal, never a run failure.
 type MediaResolver interface {
-	ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]twitter.MediaResolution, error)
+	ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]nitter.MediaResolution, error)
 	ProbeMedia(ctx context.Context, mediaURL string) (durationSeconds float64, sizeBytes int64, err error)
 }
 
@@ -112,8 +112,8 @@ func ParseStatusRef(s string) (id, user string, err error) {
 type Wiring struct {
 	AppAPI    *appapi.Client
 	Transport *httpx.Client
-	Chooser   *twitter.Chooser
-	Instances []twitter.Instance
+	Chooser   *nitter.Chooser
+	Instances []nitter.Instance
 
 	// now and nitterBase feed the lazily built media resolver (Media()):
 	// the resolver clock, and the instance base the nitter strategy fetches
@@ -132,7 +132,7 @@ func (w *Wiring) Tester() InstanceTester { return w.AppAPI }
 // appapi method's PageOptions signature.
 type timelineAdapter struct{ app *appapi.Client }
 
-func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error) {
 	return a.app.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
 }
 
@@ -144,7 +144,7 @@ func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w.AppAPI} }
 // method's PageOptions signature.
 type searchAdapter struct{ app *appapi.Client }
 
-func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error) {
 	return a.app.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
 }
 
@@ -156,7 +156,7 @@ func (w *Wiring) Search() SearchSource { return searchAdapter{w.AppAPI} }
 // method's PageOptions signature.
 type listAdapter struct{ app *appapi.Client }
 
-func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]nitter.Tweet, string, error) {
 	return a.app.ListTimeline(ctx, listID, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
 }
 
@@ -168,7 +168,7 @@ func (w *Wiring) List() ListSource { return listAdapter{w.AppAPI} }
 // method (same shape — kept for symmetry with the other adapters).
 type statusAdapter struct{ app *appapi.Client }
 
-func (a statusAdapter) Status(ctx context.Context, ref string) (twitter.Tweet, string, error) {
+func (a statusAdapter) Status(ctx context.Context, ref string) (nitter.Tweet, string, error) {
 	return a.app.Status(ctx, ref)
 }
 
@@ -183,7 +183,7 @@ type mediaAdapter struct {
 	nitterBase string
 }
 
-func (a mediaAdapter) ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]twitter.MediaResolution, error) {
+func (a mediaAdapter) ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]nitter.MediaResolution, error) {
 	sts := make([]media.Strategy, len(strategies))
 	for i, s := range strategies {
 		sts[i] = media.Strategy(s)
@@ -215,7 +215,7 @@ func (w *Wiring) Media() MediaResolver {
 //
 //   - Proxy: rootOpts.Proxy when set, else cfg.Proxy; "" disables it. The
 //     scheme is validated up front (http, https, socks5, socks5h) — invalid
-//     input fails as *twitter.Error KindInvalidArg before anything is
+//     input fails as *nitter.Error KindInvalidArg before anything is
 //     constructed, so bad input never creates state.
 //   - Durations: parsed here from the settings strings. settings.Load
 //     validates and defaults them, so a parse failure (including an empty
@@ -254,12 +254,12 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 		return nil, err
 	}
 
-	instances := make([]twitter.Instance, len(cfg.Instances))
+	instances := make([]nitter.Instance, len(cfg.Instances))
 	for i, in := range cfg.Instances {
-		instances[i] = twitter.Instance{URL: in.URL, Username: in.Username, Password: in.Password}
+		instances[i] = nitter.Instance{URL: in.URL, Username: in.Username, Password: in.Password}
 	}
 	if rootOpts.Instance != "" {
-		instances = []twitter.Instance{{URL: rootOpts.Instance}}
+		instances = []nitter.Instance{{URL: rootOpts.Instance}}
 	}
 
 	if now == nil {
@@ -276,7 +276,7 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 	if err != nil {
 		return nil, fmt.Errorf("build transport: %w", err)
 	}
-	chooser := twitter.NewChooser(instances, cooldown, now)
+	chooser := nitter.NewChooser(instances, cooldown, now)
 	nitterBase := ""
 	if len(instances) > 0 {
 		nitterBase = instances[0].URL
@@ -300,13 +300,13 @@ func validateProxyScheme(proxy string) error {
 	}
 	u, err := url.Parse(proxy)
 	if err != nil {
-		return twitter.Errorf(twitter.KindInvalidArg, opBuild, "invalid proxy URL: scheme must be http, https, socks5 or socks5h")
+		return nitter.Errorf(nitter.KindInvalidArg, opBuild, "invalid proxy URL: scheme must be http, https, socks5 or socks5h")
 	}
 	switch u.Scheme {
 	case "http", "https", "socks5", "socks5h":
 		return nil
 	default:
-		return twitter.Errorf(twitter.KindInvalidArg, opBuild, "unsupported proxy scheme %q (must be http, https, socks5 or socks5h)", u.Scheme)
+		return nitter.Errorf(nitter.KindInvalidArg, opBuild, "unsupported proxy scheme %q (must be http, https, socks5 or socks5h)", u.Scheme)
 	}
 }
 
@@ -344,8 +344,8 @@ func LoadEffectiveSettings() (settings.Settings, error) {
 // exit 2; every other error — transport build failures, local-state errors —
 // passes through unchanged (exit 1).
 func AsUsageError(err error) error {
-	var terr *twitter.Error
-	if errors.As(err, &terr) && terr.Kind == twitter.KindInvalidArg {
+	var terr *nitter.Error
+	if errors.As(err, &terr) && terr.Kind == nitter.KindInvalidArg {
 		return &invocation.UsageError{Err: err}
 	}
 	return err

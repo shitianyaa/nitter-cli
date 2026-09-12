@@ -1,10 +1,10 @@
 // Package rss parses Nitter RSS feeds and projects their items into the sdk
-// (package twitter) Tweet shape.
+// (package nitter) Tweet shape.
 //
 // Boundary: this is a protocol-internal detail of the Nitter fetch path —
 // only sdk models appear in results. Parse consumes raw feed bytes (the HTTP
 // transport lives in internal/nitter/protocol/httpx); ItemToTweet projects a
-// single feed item onto twitter.Tweet under the models contract's
+// single feed item onto nitter.Tweet under the models contract's
 // no-fabrication rule: facts the feed does not carry (retweet markers, reply
 // targets, quoted statuses, media dimensions) stay at their zero value, and
 // an unparseable pubDate leaves PublishedAt zero rather than inventing a
@@ -27,9 +27,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/text"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/mediaurl"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/text"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -115,12 +115,12 @@ func Parse(data []byte) ([]Item, error) {
 	if bytes.Contains(data, []byte("<!DOCTYPE")) || bytes.Contains(data, []byte("<!ENTITY")) {
 		// XML keywords are case-sensitive, so the exact uppercase tokens are
 		// the whole story; a lowercase <!doctype is not valid XML anyway.
-		return nil, twitter.Errorf(twitter.KindMalformed, opParse,
+		return nil, nitter.Errorf(nitter.KindMalformed, opParse,
 			"rejected doctype/entity — potential entity expansion")
 	}
 	var doc feedXML
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		return nil, twitter.Errorf(twitter.KindMalformed, opParse, "parse RSS XML: %w", err)
+		return nil, nitter.Errorf(nitter.KindMalformed, opParse, "parse RSS XML: %w", err)
 	}
 	rawItems := doc.Channel.Item
 	if len(rawItems) == 0 {
@@ -164,13 +164,13 @@ func Parse(data []byte) ([]Item, error) {
 //     joined against the instance host derived from the matched status URL,
 //     and pbs.twimg.com/media URLs are rewritten to name=orig (existing
 //     name= replaced, otherwise appended) per the plugin's quality rule.
-func ItemToTweet(it Item) (twitter.Tweet, error) {
+func ItemToTweet(it Item) (nitter.Tweet, error) {
 	user, id, source, ok := locateStatus(it)
 	if !ok {
-		return twitter.Tweet{}, twitter.Errorf(twitter.KindMalformed, opItemToTweet,
+		return nitter.Tweet{}, nitter.Errorf(nitter.KindMalformed, opItemToTweet,
 			"item guid and link match no <account>/status/<id> URL")
 	}
-	tw := twitter.Tweet{
+	tw := nitter.Tweet{
 		ID:   id,
 		URL:  "https://x.com/" + user + "/status/" + id,
 		Text: projectText(it),
@@ -245,7 +245,7 @@ func projectText(it Item) string {
 	return text.CleanHTML(src)
 }
 
-// projectMedia maps extracted URLs onto twitter.Media. Empty input leaves the
+// projectMedia maps extracted URLs onto nitter.Media. Empty input leaves the
 // slice nil (Task 8's pinned null contract). Dedup runs on the canonical URL
 // string (ruling R13): an instance /pic/ proxy pointing at a pbs.twimg.com
 // media path canonicalizes onto the direct pbs URL (quality rewritten to
@@ -254,8 +254,8 @@ func projectText(it Item) string {
 // are not pbs media paths (video thumbnails) keep their absolutized proxy
 // form and dedup by string, as before. Nitter video thumbnails project as
 // "video" placeholder links; everything else is an image.
-func projectMedia(urls []string, base string) []twitter.Media {
-	var media []twitter.Media
+func projectMedia(urls []string, base string) []nitter.Media {
+	var media []nitter.Media
 	seen := make(map[string]bool, len(urls))
 	for _, raw := range urls {
 		u, _ := mediaurl.NormalizePicProxy(base, raw)
@@ -263,7 +263,7 @@ func projectMedia(urls []string, base string) []twitter.Media {
 			continue
 		}
 		seen[u] = true
-		media = append(media, twitter.Media{Type: mediaType(u), URL: u})
+		media = append(media, nitter.Media{Type: mediaType(u), URL: u})
 	}
 	return media
 }

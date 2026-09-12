@@ -1,4 +1,4 @@
-// Package update implements the `twitter update` command: report how to
+// Package update implements the `nitter update` command: report how to
 // update the binary, and (with --check) compare the installed version
 // against the latest GitHub release. The MVP performs no self-install —
 // `update/install` is future work — so the command is read-only in every
@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/internal/update"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/internal/update"
 )
 
 // apiBaseOverride is the test seam for the GitHub API endpoint (internal
@@ -39,7 +39,7 @@ type checkJSON struct {
 	ReleaseURL string `json:"release_url"`
 }
 
-// New builds the `twitter update` command over the shared streams.
+// New builds the `nitter update` command over the shared streams.
 //
 // Exit codes: the guidance form (without --check) and every successful
 // --check exit 0 — outdatedness is a reported result, not a failure. A
@@ -55,15 +55,15 @@ func New(s *invocation.Streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Show how to update, or check for a newer release with --check",
-		Long: `Reports how to update the twitter binary and — with --check — compares the
+		Long: `Reports how to update the nitter binary and — with --check — compares the
 installed version against the latest release on GitHub
 (` + buildinfo.Repo + `):
 
-  twitter update              How to update (package manager / manual download).
-  twitter update --check      Compare the installed version with the latest
+  nitter update              How to update (package manager / manual download).
+  nitter update --check      Compare the installed version with the latest
                               release; exits 0 and prints "up to date" or
                               "update available" with the release URL.
-  twitter update --check --json
+  nitter update --check --json
                               One JSON document: {current, latest, outdated,
                               prerelease, release_url}.
 
@@ -103,13 +103,13 @@ check and say so: there is no release to compare "dev" against.`,
 // runGuidance prints the update guidance (no self-install in the MVP) and
 // exits 0.
 func runGuidance(s *invocation.Streams) error {
-	fmt.Fprintf(s.Out, `twitter update performs no self-install in this version.
+	fmt.Fprintf(s.Out, `nitter update performs no self-install in this version.
 
 To update:
   - reinstall with your package manager, or
   - download the latest release from https://github.com/%s/releases
 
-To see whether a newer release exists: twitter update --check
+To see whether a newer release exists: nitter update --check
 `, buildinfo.Repo)
 	return nil
 }

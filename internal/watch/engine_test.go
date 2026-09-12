@@ -4,21 +4,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
-	"github.com/shitianyaa/twitter-cli/internal/watch"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
+	"github.com/shitianyaa/nitter-cli/internal/watch"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // tweets builds fetched tweets in timeline order: the first ID is the newest.
-func tweets(ids ...string) []twitter.Tweet {
-	out := make([]twitter.Tweet, 0, len(ids))
+func tweets(ids ...string) []nitter.Tweet {
+	out := make([]nitter.Tweet, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, twitter.Tweet{ID: id})
+		out = append(out, nitter.Tweet{ID: id})
 	}
 	return out
 }
 
-func onlyIDs(in []twitter.Tweet) []string {
+func onlyIDs(in []nitter.Tweet) []string {
 	out := make([]string, 0, len(in))
 	for _, tweet := range in {
 		out = append(out, tweet.ID)
@@ -357,14 +357,14 @@ func TestSelectRule7WatermarkReplacedNotMerged(t *testing.T) {
 // page ids are truncated to the newest 20.
 func TestSelectWatermarkCappedAt20(t *testing.T) {
 	prev := seen.SourceState{Initialized: true, UpdatedAt: pastTime()}
-	fetched := make([]twitter.Tweet, 0, 30)
+	fetched := make([]nitter.Tweet, 0, 30)
 	firstPageIDs := make([]string, 0, 30)
 	for i := 30; i >= 1; i-- { // newest first
 		id := ""
 		for _, part := range []string{string(rune('0' + i/10)), string(rune('0' + i%10))} {
 			id += part
 		}
-		fetched = append(fetched, twitter.Tweet{ID: id})
+		fetched = append(fetched, nitter.Tweet{ID: id})
 		firstPageIDs = append(firstPageIDs, id)
 	}
 

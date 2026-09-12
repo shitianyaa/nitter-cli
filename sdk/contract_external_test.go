@@ -15,68 +15,68 @@
 // are golden-pinned in models_test.go and NOT duplicated here; this file adds
 // the standalone sub-struct goldens (Author, Media, Quoted, Probe) that the
 // embedded Tweet golden does not isolate.
-package twitter_test
+package nitter_test
 
 import (
 	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // --- Client / New / Options -------------------------------------------------
 
 var (
-	_ func(...twitter.Options) (*twitter.Client, error) = twitter.New
-	_ func([]twitter.Instance) twitter.Options          = twitter.WithInstances
-	_ func(twitter.Transport) twitter.Options           = twitter.WithHTTPClient
-	_ func(time.Duration) twitter.Options               = twitter.WithCooldown
+	_ func(...nitter.Options) (*nitter.Client, error) = nitter.New
+	_ func([]nitter.Instance) nitter.Options          = nitter.WithInstances
+	_ func(nitter.Transport) nitter.Options           = nitter.WithHTTPClient
+	_ func(time.Duration) nitter.Options              = nitter.WithCooldown
 
 	// The concrete types behind the option values.
-	_ *twitter.Client   = (*twitter.Client)(nil)
-	_ twitter.Options   = nil
-	_ []twitter.Options = nil
-	_ twitter.Transport = (twitter.Transport)(nil)
-	_ twitter.Instance  = twitter.Instance{URL: "", Username: "", Password: ""}
+	_ *nitter.Client   = (*nitter.Client)(nil)
+	_ nitter.Options   = nil
+	_ []nitter.Options = nil
+	_ nitter.Transport = (nitter.Transport)(nil)
+	_ nitter.Instance  = nitter.Instance{URL: "", Username: "", Password: ""}
 )
 
 // --- Chooser -----------------------------------------------------------------
 
 var (
-	_ func([]twitter.Instance, time.Duration, func() time.Time) *twitter.Chooser = twitter.NewChooser
+	_ func([]nitter.Instance, time.Duration, func() time.Time) *nitter.Chooser = nitter.NewChooser
 	// Method expression: freezes Pick's exact signature on *Chooser.
-	_ func(*twitter.Chooser) (string, func(), func(), error) = (*twitter.Chooser).Pick
-	_ *twitter.Chooser                                       = (*twitter.Chooser)(nil)
+	_ func(*nitter.Chooser) (string, func(), func(), error) = (*nitter.Chooser).Pick
+	_ *nitter.Chooser                                       = (*nitter.Chooser)(nil)
 )
 
 // --- Errors ------------------------------------------------------------------
 
 var (
 	// Errorf's full signature: kind, op, format, args.
-	_ func(twitter.Kind, string, string, ...any) *twitter.Error = twitter.Errorf
+	_ func(nitter.Kind, string, string, ...any) *nitter.Error = nitter.Errorf
 
 	// The exported *Error struct shape (Kind/Op/Err/RetryAfter).
-	_ *twitter.Error = &twitter.Error{
-		Kind:       twitter.KindInvalidArg,
+	_ *nitter.Error = &nitter.Error{
+		Kind:       nitter.KindInvalidArg,
 		Op:         "",
 		Err:        nil,
 		RetryAfter: (*time.Duration)(nil),
 	}
 
 	// The error/unwrap methods, as satisfied by *Error.
-	_ func(*twitter.Error) string = (*twitter.Error).Error
-	_ func(*twitter.Error) error  = (*twitter.Error).Unwrap
+	_ func(*nitter.Error) string = (*nitter.Error).Error
+	_ func(*nitter.Error) error  = (*nitter.Error).Unwrap
 
 	// All seven v1 Kind constants — names, type AND wire values.
-	_ map[twitter.Kind]string = map[twitter.Kind]string{
-		twitter.KindChallenge:   "challenge_required",
-		twitter.KindRateLimited: "rate_limited",
-		twitter.KindNotFound:    "not_found",
-		twitter.KindUnavailable: "upstream_unavailable",
-		twitter.KindMalformed:   "malformed_upstream_response",
-		twitter.KindInvalidArg:  "invalid_argument",
-		twitter.KindLocalState:  "local_state_error",
+	_ map[nitter.Kind]string = map[nitter.Kind]string{
+		nitter.KindChallenge:   "challenge_required",
+		nitter.KindRateLimited: "rate_limited",
+		nitter.KindNotFound:    "not_found",
+		nitter.KindUnavailable: "upstream_unavailable",
+		nitter.KindMalformed:   "malformed_upstream_response",
+		nitter.KindInvalidArg:  "invalid_argument",
+		nitter.KindLocalState:  "local_state_error",
 	}
 )
 
@@ -85,14 +85,14 @@ var (
 // only an equality check can freeze the wire values themselves (they reach
 // NDJSON consumers through error envelopes).
 func TestKindWireValuesAreFrozen(t *testing.T) {
-	want := map[twitter.Kind]string{
-		twitter.KindChallenge:   "challenge_required",
-		twitter.KindRateLimited: "rate_limited",
-		twitter.KindNotFound:    "not_found",
-		twitter.KindUnavailable: "upstream_unavailable",
-		twitter.KindMalformed:   "malformed_upstream_response",
-		twitter.KindInvalidArg:  "invalid_argument",
-		twitter.KindLocalState:  "local_state_error",
+	want := map[nitter.Kind]string{
+		nitter.KindChallenge:   "challenge_required",
+		nitter.KindRateLimited: "rate_limited",
+		nitter.KindNotFound:    "not_found",
+		nitter.KindUnavailable: "upstream_unavailable",
+		nitter.KindMalformed:   "malformed_upstream_response",
+		nitter.KindInvalidArg:  "invalid_argument",
+		nitter.KindLocalState:  "local_state_error",
 	}
 	for kind, value := range want {
 		if string(kind) != value {
@@ -104,45 +104,45 @@ func TestKindWireValuesAreFrozen(t *testing.T) {
 // --- Data models (field shapes via composite literals) -----------------------
 
 var (
-	_ twitter.Tweet = twitter.Tweet{
+	_ nitter.Tweet = nitter.Tweet{
 		ID:   "",
 		URL:  "",
 		Text: "",
-		Author: twitter.Author{
+		Author: nitter.Author{
 			Handle:    "",
 			Name:      "",
 			AvatarURL: "",
 		},
 		PublishedAt: time.Time{},
-		Media:       []twitter.Media{{Type: "", URL: "", Width: 0, Height: 0}},
+		Media:       []nitter.Media{{Type: "", URL: "", Width: 0, Height: 0}},
 		IsRetweet:   false,
 		RepostedBy:  "",
 		ReplyTo:     "",
-		Quote: &twitter.Quoted{
+		Quote: &nitter.Quoted{
 			ID:     "",
 			URL:    "",
 			Text:   "",
-			Author: twitter.Author{},
+			Author: nitter.Author{},
 		},
 	}
-	_ twitter.Quoted = twitter.Quoted{}
-	_ twitter.Author = twitter.Author{}
-	_ twitter.Media  = twitter.Media{}
+	_ nitter.Quoted = nitter.Quoted{}
+	_ nitter.Author = nitter.Author{}
+	_ nitter.Media  = nitter.Media{}
 
-	_ twitter.Probe          = twitter.Probe{OK: false, Status: 0, Err: ""}
-	_ twitter.InstanceReport = twitter.InstanceReport{
+	_ nitter.Probe          = nitter.Probe{OK: false, Status: 0, Err: ""}
+	_ nitter.InstanceReport = nitter.InstanceReport{
 		URL:      "",
-		RSS:      twitter.Probe{},
-		UserHTML: twitter.Probe{},
-		Search:   twitter.Probe{},
-		List:     twitter.Probe{},
+		RSS:      nitter.Probe{},
+		UserHTML: nitter.Probe{},
+		Search:   nitter.Probe{},
+		List:     nitter.Probe{},
 		Latency:  0,
 	}
 
 	// Media resolution (additive M8 extension): field-name/type freeze via
 	// composite literals.
-	_ twitter.MediaVariant    = twitter.MediaVariant{URL: "", Bitrate: 0, ContentType: ""}
-	_ twitter.MediaResolution = twitter.MediaResolution{
+	_ nitter.MediaVariant    = nitter.MediaVariant{URL: "", Bitrate: 0, ContentType: ""}
+	_ nitter.MediaResolution = nitter.MediaResolution{
 		Ref:             "",
 		Source:          "",
 		Kind:            "",
@@ -153,12 +153,12 @@ var (
 		Height:          0,
 		DurationSeconds: 0,
 		SizeBytes:       0,
-		Variants:        []twitter.MediaVariant{{URL: "", Bitrate: 0, ContentType: ""}},
+		Variants:        []nitter.MediaVariant{{URL: "", Bitrate: 0, ContentType: ""}},
 	}
 
 	// The generic pagination envelope instantiated at the frozen type.
-	_ twitter.Page[twitter.Tweet]          = twitter.Page[twitter.Tweet]{Items: nil, NextCursor: ""}
-	_ twitter.Page[twitter.InstanceReport] = twitter.Page[twitter.InstanceReport]{Items: nil, NextCursor: ""}
+	_ nitter.Page[nitter.Tweet]          = nitter.Page[nitter.Tweet]{Items: nil, NextCursor: ""}
+	_ nitter.Page[nitter.InstanceReport] = nitter.Page[nitter.InstanceReport]{Items: nil, NextCursor: ""}
 )
 
 // --- Standalone sub-struct JSON goldens ---------------------------------------
@@ -168,7 +168,7 @@ var (
 // sub-structures that only appear embedded there.
 
 func TestAuthorJSONShapeIsTheDataContract(t *testing.T) {
-	b, err := json.Marshal(twitter.Author{Handle: "nasa", Name: "NASA", AvatarURL: "https://pbs.twimg.com/a.jpg"})
+	b, err := json.Marshal(nitter.Author{Handle: "nasa", Name: "NASA", AvatarURL: "https://pbs.twimg.com/a.jpg"})
 	if err != nil {
 		t.Fatalf("Marshal(Author) = error %v", err)
 	}
@@ -179,7 +179,7 @@ func TestAuthorJSONShapeIsTheDataContract(t *testing.T) {
 }
 
 func TestMediaJSONShapeIsTheDataContract(t *testing.T) {
-	b, err := json.Marshal(twitter.Media{Type: "gif", URL: "https://video.twimg.com/x.mp4", Width: 640, Height: 360})
+	b, err := json.Marshal(nitter.Media{Type: "gif", URL: "https://video.twimg.com/x.mp4", Width: 640, Height: 360})
 	if err != nil {
 		t.Fatalf("Marshal(Media) = error %v", err)
 	}
@@ -190,7 +190,7 @@ func TestMediaJSONShapeIsTheDataContract(t *testing.T) {
 }
 
 func TestQuotedJSONShapeIsTheDataContract(t *testing.T) {
-	b, err := json.Marshal(twitter.Quoted{ID: "7", URL: "https://x.com/esa/status/7", Text: "q"})
+	b, err := json.Marshal(nitter.Quoted{ID: "7", URL: "https://x.com/esa/status/7", Text: "q"})
 	if err != nil {
 		t.Fatalf("Marshal(Quoted) = error %v", err)
 	}
@@ -201,7 +201,7 @@ func TestQuotedJSONShapeIsTheDataContract(t *testing.T) {
 }
 
 func TestProbeJSONShapeIsTheDataContract(t *testing.T) {
-	b, err := json.Marshal(twitter.Probe{OK: false, Status: 429, Err: "instance returned HTTP 429"})
+	b, err := json.Marshal(nitter.Probe{OK: false, Status: 429, Err: "instance returned HTTP 429"})
 	if err != nil {
 		t.Fatalf("Marshal(Probe) = error %v", err)
 	}
@@ -215,14 +215,14 @@ func TestProbeJSONShapeIsTheDataContract(t *testing.T) {
 // encoding: the identity keys (ref/source/kind/url) marshal unconditionally,
 // every sparse field is omitempty, and a zero value carries only those four.
 func TestMediaResolutionJSONShapeIsTheDataContract(t *testing.T) {
-	b, err := json.Marshal(twitter.MediaResolution{
+	b, err := json.Marshal(nitter.MediaResolution{
 		Ref:    "https://x.com/nasa/status/7",
 		Source: "fx",
 		Kind:   "video",
 		URL:    "https://video.twimg.com/x.mp4",
 		Width:  720,
 		Height: 1280,
-		Variants: []twitter.MediaVariant{
+		Variants: []nitter.MediaVariant{
 			{URL: "https://video.twimg.com/x.mp4", Bitrate: 2176000, ContentType: "video/mp4"},
 		},
 	})
@@ -235,7 +235,7 @@ func TestMediaResolutionJSONShapeIsTheDataContract(t *testing.T) {
 		t.Errorf("MediaResolution JSON mismatch:\n got %s\nwant %s", b, want)
 	}
 
-	zero, err := json.Marshal(twitter.MediaResolution{})
+	zero, err := json.Marshal(nitter.MediaResolution{})
 	if err != nil {
 		t.Fatalf("Marshal(zero MediaResolution) = error %v", err)
 	}

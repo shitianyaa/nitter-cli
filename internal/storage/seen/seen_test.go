@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 func testPath(t *testing.T) string {
@@ -174,12 +174,12 @@ func TestOpenCorruptFileErrorsAndKeepsBytes(t *testing.T) {
 			if store != nil {
 				t.Fatalf("Open() returned non-nil store with error")
 			}
-			var sdkErr *twitter.Error
+			var sdkErr *nitter.Error
 			if !errors.As(openErr, &sdkErr) {
-				t.Fatalf("Open() error = %v, want *twitter.Error chain", openErr)
+				t.Fatalf("Open() error = %v, want *nitter.Error chain", openErr)
 			}
-			if sdkErr.Kind != twitter.KindLocalState {
-				t.Fatalf("Open() error kind = %q, want %q", sdkErr.Kind, twitter.KindLocalState)
+			if sdkErr.Kind != nitter.KindLocalState {
+				t.Fatalf("Open() error kind = %q, want %q", sdkErr.Kind, nitter.KindLocalState)
 			}
 
 			after, err := os.ReadFile(path)
@@ -222,8 +222,8 @@ func TestOpenStrictDecodeRejections(t *testing.T) {
 			if store != nil {
 				t.Fatalf("Open() returned non-nil store with error")
 			}
-			var sdkErr *twitter.Error
-			if !errors.As(err, &sdkErr) || sdkErr.Kind != twitter.KindLocalState {
+			var sdkErr *nitter.Error
+			if !errors.As(err, &sdkErr) || sdkErr.Kind != nitter.KindLocalState {
 				t.Fatalf("Open() error = %v, want KindLocalState chain", err)
 			}
 		})

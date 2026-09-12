@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // rssBody builds a Nitter-shaped RSS feed listing the given status ids.
@@ -93,11 +93,11 @@ func newTimelineClient(t *testing.T, baseURLs ...string) *appapi.Client {
 	if err != nil {
 		t.Fatalf("build transport: %v", err)
 	}
-	instances := make([]twitter.Instance, len(baseURLs))
+	instances := make([]nitter.Instance, len(baseURLs))
 	for i, u := range baseURLs {
-		instances[i] = twitter.Instance{URL: u}
+		instances[i] = nitter.Instance{URL: u}
 	}
-	return &appapi.Client{HTTP: hx, Chooser: twitter.NewChooser(instances, time.Minute, nil), Now: time.Now}
+	return &appapi.Client{HTTP: hx, Chooser: nitter.NewChooser(instances, time.Minute, nil), Now: time.Now}
 }
 
 func TestTimelineRSSPathReturnsTweets(t *testing.T) {
@@ -232,12 +232,12 @@ func TestTimelineInvalidHandleIsInvalidArgBeforeNetwork(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Timeline(%q) = (%v, %q), want an error", handle, tweets, instance)
 		}
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if !errors.As(err, &terr) {
-			t.Fatalf("Timeline(%q) error = %T (%v), want *twitter.Error", handle, err, err)
+			t.Fatalf("Timeline(%q) error = %T (%v), want *nitter.Error", handle, err, err)
 		}
-		if terr.Kind != twitter.KindInvalidArg {
-			t.Errorf("Timeline(%q) Kind = %v, want %v (before any network)", handle, terr.Kind, twitter.KindInvalidArg)
+		if terr.Kind != nitter.KindInvalidArg {
+			t.Errorf("Timeline(%q) Kind = %v, want %v (before any network)", handle, terr.Kind, nitter.KindInvalidArg)
 		}
 	}
 }
@@ -301,8 +301,8 @@ func TestTimelineBothStagesFailReturnsClassifiedError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Timeline = (%v, %q), want an error", tweets, instance)
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	// Retries are disabled: exactly one RSS attempt and one HTML attempt.
@@ -318,8 +318,8 @@ func TestTimelineChallengePropagates(t *testing.T) {
 		timelineRoute{"/NASA", 200, login},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindChallenge {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindChallenge {
 		t.Fatalf("err = %v (%T), want KindChallenge from ClassifyPage", err, err)
 	}
 }
@@ -375,8 +375,8 @@ func TestTimelineNoInstancesConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Timeline = (%v, %q), want an error", tweets, instance)
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	if !strings.Contains(err.Error(), "no instances configured") {
@@ -397,9 +397,9 @@ func TestTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Timeline = nil error, want the last instance failure")
 	}
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if !errors.As(err, &terr) {
-		t.Fatalf("err = %v (%T), want *twitter.Error", err, err)
+		t.Fatalf("err = %v (%T), want *nitter.Error", err, err)
 	}
 	for _, rec := range []*recorder{rec1, rec2} {
 		if got := rec.requests(); !slices.Equal(got, []string{"/NASA/rss", "/NASA"}) {
@@ -408,7 +408,7 @@ func TestTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
 	}
 	// The last error is the last instance's classification: HTTP 404 →
 	// KindNotFound (srv1's 503 stays behind).
-	if terr.Kind != twitter.KindNotFound || !strings.Contains(err.Error(), "404") {
+	if terr.Kind != nitter.KindNotFound || !strings.Contains(err.Error(), "404") {
 		t.Errorf("err = %v, want the last instance's classification (404 / KindNotFound)", err)
 	}
 }
@@ -436,7 +436,7 @@ func TestTimelineOversizeRSSBodyFallsBackToHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build transport: %v", err)
 	}
-	c := &appapi.Client{HTTP: hx, Chooser: twitter.NewChooser([]twitter.Instance{{URL: srv.URL}}, 0, nil), Now: time.Now}
+	c := &appapi.Client{HTTP: hx, Chooser: nitter.NewChooser([]nitter.Instance{{URL: srv.URL}}, 0, nil), Now: time.Now}
 	tweets, _, err := c.Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)

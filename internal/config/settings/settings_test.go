@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
 
 func envMap(m map[string]string) func(string) string {
@@ -146,8 +146,8 @@ func TestLoad(t *testing.T) {
 		}
 
 		got, err := settings.Load(cfgPath, envMap(map[string]string{
-			"TWITTER_DEFAULT_LIMIT": "9",
-			"TWITTER_LOG_FORMAT":    "json",
+			"NITTER_DEFAULT_LIMIT": "9",
+			"NITTER_LOG_FORMAT":    "json",
 		}))
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
@@ -163,17 +163,17 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid TWITTER_DEFAULT_LIMIT errors", func(t *testing.T) {
+	t.Run("invalid NITTER_DEFAULT_LIMIT errors", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
 
 		_, err := settings.Load(cfgPath, envMap(map[string]string{
-			"TWITTER_DEFAULT_LIMIT": "abc",
+			"NITTER_DEFAULT_LIMIT": "abc",
 		}))
 		if err == nil {
 			t.Fatal("Load() error = nil, want error")
 		}
-		if !strings.Contains(err.Error(), "TWITTER_DEFAULT_LIMIT") {
-			t.Fatalf("Load() error = %v, want it to name TWITTER_DEFAULT_LIMIT", err)
+		if !strings.Contains(err.Error(), "NITTER_DEFAULT_LIMIT") {
+			t.Fatalf("Load() error = %v, want it to name NITTER_DEFAULT_LIMIT", err)
 		}
 	})
 }
@@ -204,18 +204,18 @@ func TestLoadValidationError(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid TWITTER_DEFAULT_LIMIT env value carries the key", func(t *testing.T) {
+	t.Run("invalid NITTER_DEFAULT_LIMIT env value carries the key", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
 
 		_, err := settings.Load(cfgPath, envMap(map[string]string{
-			"TWITTER_DEFAULT_LIMIT": "abc",
+			"NITTER_DEFAULT_LIMIT": "abc",
 		}))
 		var verr *settings.ValidationError
 		if !errors.As(err, &verr) {
 			t.Fatalf("Load() error = %v, want *settings.ValidationError", err)
 		}
-		if verr.Key != "TWITTER_DEFAULT_LIMIT" {
-			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "TWITTER_DEFAULT_LIMIT")
+		if verr.Key != "NITTER_DEFAULT_LIMIT" {
+			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "NITTER_DEFAULT_LIMIT")
 		}
 	})
 

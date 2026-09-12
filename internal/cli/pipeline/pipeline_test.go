@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
 )
 
 func TestResolveOutputMode(t *testing.T) {
@@ -70,7 +70,7 @@ func TestWriteEnvelopeGolden(t *testing.T) {
 	}
 	// Exact key order (schema,kind,id,data,meta), single line, one trailing
 	// \n, and no HTML escaping (& < > stay raw — jsonx contract).
-	want := `{"schema":"twitter.pipeline/v1","kind":"tweet","id":"1830000000000000001","data":{"text":"a & b < c > d"},"meta":{"source":"rss","instance":"https://nitter.example","fetched_at":"2026-09-12T08:30:00Z"}}` + "\n"
+	want := `{"schema":"nitter.pipeline/v1","kind":"tweet","id":"1830000000000000001","data":{"text":"a & b < c > d"},"meta":{"source":"rss","instance":"https://nitter.example","fetched_at":"2026-09-12T08:30:00Z"}}` + "\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("envelope bytes =\n%q\nwant\n%q", got, want)
 	}
@@ -87,7 +87,7 @@ func TestWriteEnvelopeOmitempty(t *testing.T) {
 		t.Fatalf("WriteEnvelope: %v", err)
 	}
 	// Empty ID and nil Meta must vanish, key order otherwise unchanged.
-	want := `{"schema":"twitter.pipeline/v1","kind":"tweet","data":{"text":"plain"}}` + "\n"
+	want := `{"schema":"nitter.pipeline/v1","kind":"tweet","data":{"text":"plain"}}` + "\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("envelope bytes =\n%q\nwant\n%q", got, want)
 	}
@@ -115,13 +115,13 @@ func TestWriteEnvelopeSingleLine(t *testing.T) {
 
 func TestWriteErrorEnvelopeGolden(t *testing.T) {
 	var buf bytes.Buffer
-	err := pipeline.WriteErrorEnvelope(&buf, "twitter get", "fetch", "instance_unreachable", "lts37200", "all instances failed")
+	err := pipeline.WriteErrorEnvelope(&buf, "nitter get", "fetch", "instance_unreachable", "lts37200", "all instances failed")
 	if err != nil {
 		t.Fatalf("WriteErrorEnvelope: %v", err)
 	}
 	// Shape: {schema,kind:"error",data:{command,stage,code,message},meta:{input}}.
 	// The input field is caller-supplied; it must never carry secrets.
-	want := `{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"twitter get","stage":"fetch","code":"instance_unreachable","message":"all instances failed"},"meta":{"input":"lts37200"}}` + "\n"
+	want := `{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"nitter get","stage":"fetch","code":"instance_unreachable","message":"all instances failed"},"meta":{"input":"lts37200"}}` + "\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("error envelope bytes =\n%q\nwant\n%q", got, want)
 	}
@@ -129,10 +129,10 @@ func TestWriteErrorEnvelopeGolden(t *testing.T) {
 
 func TestWriteErrorEnvelopeEmptyInputOmitted(t *testing.T) {
 	var buf bytes.Buffer
-	if err := pipeline.WriteErrorEnvelope(&buf, "twitter get", "fetch", "no_input", "", "nothing matched"); err != nil {
+	if err := pipeline.WriteErrorEnvelope(&buf, "nitter get", "fetch", "no_input", "", "nothing matched"); err != nil {
 		t.Fatalf("WriteErrorEnvelope: %v", err)
 	}
-	want := `{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"twitter get","stage":"fetch","code":"no_input","message":"nothing matched"},"meta":{}}` + "\n"
+	want := `{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"nitter get","stage":"fetch","code":"no_input","message":"nothing matched"},"meta":{}}` + "\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("error envelope bytes =\n%q\nwant\n%q", got, want)
 	}

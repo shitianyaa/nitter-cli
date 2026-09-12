@@ -1,18 +1,18 @@
 # Media: resolution strategies, quality and delivery
 
-`twitter media <REF>...` resolves status references into directly
+`nitter media <REF>...` resolves status references into directly
 downloadable media links (video mp4 variants, original images, GIFs). The
 command resolves; downloading is the caller's job. Semantics are governed by
-the installed binary's `twitter media --help`.
+the installed binary's `nitter media --help`.
 
 ## References and batching
 
-- REF shapes (the same as `twitter get`): a bare numeric status ID, or a
+- REF shapes (the same as `nitter get`): a bare numeric status ID, or a
   status URL — `x.com`, `twitter.com` or any Nitter instance, shape
   `/<user>/status/<id>`; `/photo/N` and `/video/1` suffixes are accepted.
 - Multiple REFs run as one batch, streamed in ref order under `--ndjson`.
   With no positional REF and a non-TTY stdin, refs are read from stdin, one
-  per non-empty line (`twitter media < refs.txt`). Passing refs both as
+  per non-empty line (`nitter media < refs.txt`). Passing refs both as
   arguments and on stdin is an ambiguity error (exit 2).
 - A ref that fails — including a status with **no media**, classified
   `not_found` — produces an in-place error report (a `kind:"error"` envelope
@@ -82,7 +82,7 @@ source-reported duration is never overwritten. Images are not probed.
   otherwise, `[]` when nothing resolved. Fields `ref`, `source`, `kind`,
   `url` are always present; `fallback_url`, `label`, `width`, `height`,
   `duration_seconds`, `size_bytes`, `variants` appear only when non-empty.
-- `--ndjson`: one `twitter.pipeline/v1` envelope per entry (`kind:"media"`,
+- `--ndjson`: one `nitter.pipeline/v1` envelope per entry (`kind:"media"`,
   `id` = the download URL, `meta.input` = the raw ref) plus one
   `kind:"error"` envelope per failed ref. A consumer closing the stream
   early (EPIPE) is a graceful exit 0.

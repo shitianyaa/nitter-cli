@@ -9,8 +9,8 @@
 package tweetfilter
 
 import (
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	twitter "github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	nitter "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // mediaTypes are the exact --media-type values. The models contract defines
@@ -22,7 +22,7 @@ var mediaTypes = map[string]bool{"image": true, "video": true, "gif": true}
 // commands. The zero value filters nothing.
 type Filters struct {
 	// NoReposts drops pure retweets (IsRetweet true). Note the repost
-	// marker is only carried by the HTML parse path (twitter.Tweet.IsRetweet).
+	// marker is only carried by the HTML parse path (nitter.Tweet.IsRetweet).
 	NoReposts bool
 	// MediaOnly drops tweets without any media entries.
 	MediaOnly bool
@@ -45,11 +45,11 @@ func (f Filters) Validate() error {
 // mutation. With no filter set the input slice comes back as-is (a nil
 // input stays nil). Filtering runs before output in the one-shot commands
 // and before selection/dedup in watch — callers own the placement.
-func Apply(ts []twitter.Tweet, f Filters) []twitter.Tweet {
+func Apply(ts []nitter.Tweet, f Filters) []nitter.Tweet {
 	if !f.NoReposts && !f.MediaOnly && f.MediaType == "" {
 		return ts
 	}
-	out := make([]twitter.Tweet, 0, len(ts))
+	out := make([]nitter.Tweet, 0, len(ts))
 	for _, tw := range ts {
 		if f.keeps(tw) {
 			out = append(out, tw)
@@ -61,7 +61,7 @@ func Apply(ts []twitter.Tweet, f Filters) []twitter.Tweet {
 // keeps reports whether one tweet passes the filter set. --media-type
 // subsumes --media-only (a tweet carrying the wanted kind has media), so a
 // set MediaType short-circuits the media-only check.
-func (f Filters) keeps(tw twitter.Tweet) bool {
+func (f Filters) keeps(tw nitter.Tweet) bool {
 	if f.NoReposts && tw.IsRetweet {
 		return false
 	}
@@ -76,7 +76,7 @@ func (f Filters) keeps(tw twitter.Tweet) bool {
 
 // hasMediaType reports whether the media list carries at least one entry of
 // the wanted type.
-func hasMediaType(ms []twitter.Media, want string) bool {
+func hasMediaType(ms []nitter.Media, want string) bool {
 	for _, m := range ms {
 		if m.Type == want {
 			return true

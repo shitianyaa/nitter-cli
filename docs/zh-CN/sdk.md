@@ -1,17 +1,17 @@
-# twitter Go SDK
+# nitter Go SDK
 
 [文档导航](../index.zh-CN.md) · [English](../en/sdk.md)
 
-公开 SDK 是 Go 包 `github.com/shitianyaa/twitter-cli/sdk`（package 名
-`twitter`）。它是本模块唯一的公开能力面：CLI 自身的命令消费它，外部 Go 调用方
+公开 SDK 是 Go 包 `github.com/shitianyaa/nitter-cli/sdk`（package 名
+`nitter`）。它是本模块唯一的公开能力面：CLI 自身的命令消费它，外部 Go 调用方
 同样可以使用。`internal/` 下的一切都是私有实现细节，不属于集成 API。
 
 ```bash
-go get github.com/shitianyaa/twitter-cli
+go get github.com/shitianyaa/nitter-cli
 ```
 
 ```go
-import "github.com/shitianyaa/twitter-cli/sdk"
+import "github.com/shitianyaa/nitter-cli/sdk"
 ```
 
 ## 稳定性契约
@@ -32,12 +32,12 @@ import "github.com/shitianyaa/twitter-cli/sdk"
 ## Client
 
 ```go
-client, err := twitter.New(
-    twitter.WithInstances([]twitter.Instance{
+client, err := nitter.New(
+    nitter.WithInstances([]nitter.Instance{
         {URL: "http://nitter.internal:8080"},
     }),
-    twitter.WithHTTPClient(transport), // 实现 Transport
-    twitter.WithCooldown(30 * time.Second),
+    nitter.WithHTTPClient(transport), // 实现 Transport
+    nitter.WithCooldown(30 * time.Second),
 )
 ```
 
@@ -68,7 +68,7 @@ SDK 的窄 HTTP 边界：恰好是抓取所需，别无其他。真实传输层�
 
 ### 实例（轮换）语义
 
-`twitter.Instance` 为 `{URL string; Username, Password string}`——Nitter 实例的
+`nitter.Instance` 为 `{URL string; Username, Password string}`——Nitter 实例的
 可选 basic-auth 凭证。凭证会随对象携带，但绝不回显进错误（脱敏契约）。
 
 轮换由 `Chooser` 严格按序执行：按配置顺序挑选实例；请求失败（429、网络错误）
@@ -180,6 +180,6 @@ type Error struct {
 ```
 
 - `Error()` 渲染稳定且脱敏的消息 `"<op>: <kind>: <chain>"`，空部分省略。
-- 用 `twitter.Errorf(kind, op, format, args...)` 构造错误；format 中用 `%w`
-  挂载根因。调用方以 `errors.As(*twitter.Error)` 判型并按 `Kind` 分派。
+- 用 `nitter.Errorf(kind, op, format, args...)` 构造错误；format 中用 `%w`
+  挂载根因。调用方以 `errors.As(*nitter.Error)` 判型并按 `Kind` 分派。
 - `Kind` 集合在 v1 内稳定：取值只能增加，绝不删除、重命名或复用。

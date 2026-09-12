@@ -1,5 +1,5 @@
-/twitter
-/twitter-cli
+/nitter
+/nitter-cli
 /dist/
 *.db
 .superpowers/

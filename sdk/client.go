@@ -6,7 +6,7 @@
 // The transport is therefore an interface defined HERE (Transport) and
 // satisfied structurally by *httpx.Client; the CLI wiring layer (later
 // milestone) injects the real transport through WithHTTPClient.
-package twitter
+package nitter
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // opChooser and opNew are the Op values stamped on chooser and New errors.
 const (
 	opChooser = "chooser"
-	opNew     = "twitter.New"
+	opNew     = "nitter.New"
 )
 
 const (

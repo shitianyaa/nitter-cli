@@ -1,4 +1,4 @@
-# twitter-cli 设计 Spec
+# nitter-cli 设计 Spec
 
 > 状态：定稿候选（v1 MVP）
 > 日期：2026-09-11
@@ -29,33 +29,33 @@
 
 | 项 | 值 |
 | --- | --- |
-| 仓库名 | `twitter-cli` |
-| Go module | `github.com/shitianyaa/twitter-cli`（发布前按实际 GitHub 账号调整） |
-| 二进制名 | `twitter` |
-| 公开 SDK 包 | 顶层 `sdk/`，`package twitter` |
-| 数据目录 | `~/.twitter-cli/`（全平台统一，沿用 javdb-cli 惯例） |
-| 配置文件 | `~/.twitter-cli/config.toml` |
-| 状态文件 | `~/.twitter-cli/state/seen.json` |
-| 输出协议 | NDJSON 信封 `twitter.pipeline/v1`（结构对齐 javdb-cli `javdb.pipeline/v1`） |
+| 仓库名 | `nitter-cli` |
+| Go module | `github.com/shitianyaa/nitter-cli`（发布前按实际 GitHub 账号调整） |
+| 二进制名 | `nitter` |
+| 公开 SDK 包 | 顶层 `sdk/`，`package nitter` |
+| 数据目录 | `~/.nitter-cli/`（全平台统一，沿用 javdb-cli 惯例） |
+| 配置文件 | `~/.nitter-cli/config.toml` |
+| 状态文件 | `~/.nitter-cli/state/seen.json` |
+| 输出协议 | NDJSON 信封 `nitter.pipeline/v1`（结构对齐 javdb-cli `javdb.pipeline/v1`） |
 
 命令形态示例：
 
 ```bash
-twitter user NASA --limit 10 --json
-twitter search "#ブルアカ" --ndjson
-twitter list 12345
-twitter get https://x.com/NASA/status/123...
-twitter watch user:NASA tag:%23AI list:12345 --interval 10m --once --ndjson
-twitter seen list
-twitter instances test
-twitter config set default_limit 20
+nitter user NASA --limit 10 --json
+nitter search "#ブルアカ" --ndjson
+nitter list 12345
+nitter get https://x.com/NASA/status/123...
+nitter watch user:NASA tag:%23AI list:12345 --interval 10m --once --ndjson
+nitter seen list
+nitter instances test
+nitter config set default_limit 20
 ```
 
 ## 3. 目录结构（镜像 javdb-cli，已声明同构）
 
 ```
-twitter-cli/
-├── cmd/twitter/main.go              # 12 行：os.Exit(cli.Run(...))
+nitter-cli/
+├── cmd/nitter/main.go              # 12 行：os.Exit(cli.Run(...))
 ├── internal/
 │   ├── cli/                         # 组合根 root.go（唯一文件 + root_test.go）
 │   │   ├── commands/<name>/         # 每命令一目录，New(options, streams) *cobra.Command
@@ -76,10 +76,10 @@ twitter-cli/
 │   ├── common/                      # 纯叶子工具（jsonx、timex、strx）
 │   ├── buildinfo/                   # -ldflags 注入 Version/Commit/BuildDate
 │   └── update/                      # --check 查询 GitHub Releases（MVP 只查不装）
-├── sdk/                             # package twitter —— 唯一公开 Go SDK
+├── sdk/                             # package nitter —— 唯一公开 Go SDK
 │   ├── client.go models.go errors.go page.go pipeline.go
 │   └── contract_external_test.go    # 编译期签名冻结
-├── skills/twitter-cli/              # 随仓库分发的 Agent Skill（SKILL.md + references/）
+├── skills/nitter-cli/              # 随仓库分发的 Agent Skill（SKILL.md + references/）
 ├── docs/{en,zh-CN,maintainers}/     # 双语文档 + 维护者架构/开发文档
 ├── changelog/{unreleased,vX.Y.Z}/   # Keep a Changelog（unreleased 驱动）
 ├── e2e/run.sh                       # exit 0 过 / 1 挂 / 2 仅 SKIP（凭证缺失）
@@ -93,8 +93,8 @@ twitter-cli/
 
 **边界规则**（与模版一致，写进 AGENTS.md）：
 
-- `cmd/twitter` 只委托；`internal/cli/root.go` 拥有命令树与组装；子命令包不导入 `internal/cli`。
-- CLI 命令只经 `sdk`（`package twitter`）取数，绝不导入 `internal/nitter/*`（协议细节）。
+- `cmd/nitter` 只委托；`internal/cli/root.go` 拥有命令树与组装；子命令包不导入 `internal/cli`。
+- CLI 命令只经 `sdk`（`package nitter`）取数，绝不导入 `internal/nitter/*`（协议细节）。
 - `internal/common` 不接收 `io.Writer`、不含用户文案；`internal/cli/result` 不编码 JSON、不建 cobra 命令。
 - 顶层 `sdk/` 的导出签名是兼容契约：只增不改不删，`contract_external_test.go` 冻结。
 
@@ -166,7 +166,7 @@ RSS 与 HTML 两条解析路径统一投影到 `Tweet`（RSS 拿不到的字段�
 
 ## 7. 去重与定时（`watch` + `storage/seen`）
 
-状态文件 `~/.twitter-cli/state/seen.json`，schema v1：
+状态文件 `~/.nitter-cli/state/seen.json`，schema v1：
 
 ```json
 {
@@ -197,12 +197,12 @@ RSS 与 HTML 两条解析路径统一投影到 `Tweet`（RSS 拿不到的字段�
 
 `watch` 运行形态：
 
-- `twitter watch <source>... [--interval 10m]`：常驻循环，逐轮输出新推文 NDJSON，SIGINT/SIGTERM 优雅退出。
+- `nitter watch <source>... [--interval 10m]`：常驻循环，逐轮输出新推文 NDJSON，SIGINT/SIGTERM 优雅退出。
 - `--once`：单轮即退。**这是给 Hermes 的推荐形态**：由 Hermes/计划任务定时拉起，stdout 直接被消费，进程边界即状态边界。
 - 源可以走 argv，也可以走配置 `[[watch.sources]]`（argv 为空时的默认）。
 - `--state-dir` 可覆盖状态目录（测试/多机隔离）。
 
-`twitter seen list [--json]`、`twitter seen clear [--source S] [--confirm]`：状态可检视、可清（clear 默认要求 `--confirm`，对齐「状态变更需显式授权」的 skill 规则）。
+`nitter seen list [--json]`、`nitter seen clear [--source S] [--confirm]`：状态可检视、可清（clear 默认要求 `--confirm`，对齐「状态变更需显式授权」的 skill 规则）。
 
 ## 8. 输出协议（`internal/cli/pipeline`）
 
@@ -211,14 +211,14 @@ RSS 与 HTML 两条解析路径统一投影到 `Tweet`（RSS 拿不到的字段�
 - `pipeline.ResolveOutputMode(ndjsonFlag, jsonFlag, stdoutIsTTY)`：`--json`/`--ndjson` 互斥（usage error）；TTY 默认人类文本，非 TTY 默认稳定行文本。
 - **人类文本**：纯制表符行 + 空列表提示到 stderr；无 ANSI 颜色（两模版均无，保持）；`internal/cli/result` 纯投影。
 - **`--json`**：单条 = 命令自身形状；多条 = 信封数组（cardinality 规则）。
-- **`--ndjson`**：`twitter.pipeline/v1` 信封：
+- **`--ndjson`**：`nitter.pipeline/v1` 信封：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…Tweet…},"meta":{"source":"user:ErroR_eroi","instance":"http://nitter:8080","fetched_at":"2026-09-11T15:04:05Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…Tweet…},"meta":{"source":"user:ErroR_eroi","instance":"http://nitter:8080","fetched_at":"2026-09-11T15:04:05Z"}}
 ```
 
   kind 枚举 v1：`tweet | user | list | instance_report | seen_entry | error`。错误信封 `data={command,stage,code,message}`，永不携带密钥/URL 查询串/实例凭证。
-- **stdin 管道**：`twitter get` 等 ref 类命令支持 stdin 传入 URL/ID；NDJSON 流可经 `--on-error skip|fail-fast` 逐行消费（pixiv-cli pipeline 模式，MVP 只做 ref 单值，流式消费列为后续）。
+- **stdin 管道**：`nitter get` 等 ref 类命令支持 stdin 传入 URL/ID；NDJSON 流可经 `--on-error skip|fail-fast` 逐行消费（pixiv-cli pipeline 模式，MVP 只做 ref 单值，流式消费列为后续）。
 - **退出码**：0 成功；1 运行时失败（含批次部分失败）；2 usage/flag/输入契约错误。`usageError` 只包参数与输入问题，SDK/网络错误一律不包（pixiv-cli 铁律）。NDJSON 下游 EPIPE = 成功退出（pixiv-cli sigpipe 政策）。
 - **诊断**：stderr 输出，`log_level=debug` 时启用；`log_format=json` 单行 JSON；正常模式无日志污染 stdout。
 
@@ -243,7 +243,7 @@ type Error struct { Kind Kind; Op string; Err error; RetryAfter *time.Duration }
 - 错误链永不包含：实例凭证、完整 URL 查询串、请求头、响应体（与 pixiv-cli 脱敏铁律一致）。
 - CLI 侧按 Kind 映射人类文案与退出策略；`KindChallenge` 的文案指引自检实例部署（照插件常见错误表）。
 
-## 10. 配置（`~/.twitter-cli/config.toml`）
+## 10. 配置（`~/.nitter-cli/config.toml`）
 
 ```toml
 default_limit     = 20        # 手动命令默认条数
@@ -265,7 +265,7 @@ url = "http://nitter:8080"
 id = "user:NASA"             # watch 无 argv 源时的默认
 ```
 
-- 优先级：CLI flag > env > file > 默认（javdb-cli 语义）。Env：`TWITTER_LOG_LEVEL`、`TWITTER_LOG_FORMAT`、`TWITTER_DEFAULT_LIMIT`、`HTTPS_PROXY`。
+- 优先级：CLI flag > env > file > 默认（javdb-cli 语义）。Env：`NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`、`NITTER_DEFAULT_LIMIT`、`HTTPS_PROXY`。
 - `config get/set/unset/path`：未知键先拒绝再落盘；写入用「读整树→改已知键→原子写」保留未知键（注释不保证保留，javdb-cli 同款语义；若将来需要保留注释再引入 `creachadair/tomledit`）；`0600`。
 - 敏感值（未来实例凭证）在 `config get` 中输出 `<redacted>`。
 - 首次运行 `EnsureDefaultConfigFile` 生成基线文件：临时文件 + `os.Link` 不覆盖语义，并发安全。
@@ -277,11 +277,11 @@ id = "user:NASA"             # watch 无 argv 源时的默认
 | 单元测试 | 每包邻接 `*_test.go`；解析器用 `testdata/*.html`/`*.xml` fixture（从插件测试样例与真实页面裁剪）；外部测试包优先 |
 | SDK 契约 | `sdk/contract_external_test.go` 编译期 `var _` 冻结全部导出签名 |
 | 纯函数测试重点 | `watch` 选推逻辑（首跑/上限裁剪/水位推进/失败不落盘）表驱动全覆盖 |
-| e2e | `e2e/run.sh`：离线契约（版本格式、config 落盘、`--help`、NDJSON 信封 schema）；实网只读探针 `TWITTER_CLI_E2E_INSTANCE=...` env 门控；exit 2 = 仅 SKIP 视为软通过 |
+| e2e | `e2e/run.sh`：离线契约（版本格式、config 落盘、`--help`、NDJSON 信封 schema）；实网只读探针 `NITTER_CLI_E2E_INSTANCE=...` env 门控；exit 2 = 仅 SKIP 视为软通过 |
 | pre-commit | `gofmt -l` 必须为空 + `go test ./...`（两模版一致） |
 | CI | ci.yml：gofmt / vet / `go test ./... -count=1` / `-race` / `scripts/build.sh`；e2e.yml 读 evn 门控；release.yml 后置（见 §13） |
 | 提交 | Conventional Commits 单行英文小写 subject（`feat(cli): ...`）；changelog/unreleased 双语条目带 PR 链接 |
-| 文档义务 | CLI 行为/配置键/输出语义变更必须同步：双语 cli-reference、README、skills/twitter-cli、changelog |
+| 文档义务 | CLI 行为/配置键/输出语义变更必须同步：双语 cli-reference、README、skills/nitter-cli、changelog |
 
 ## 12. 安全与合规边界（写进 SKILL.md 与 README）
 
@@ -294,9 +294,9 @@ id = "user:NASA"             # watch 无 argv 源时的默认
 
 | 里程碑 | 内容 | 交付判据 |
 | --- | --- | --- |
-| M0 骨架 | 仓库脚手架、root、版本、构建脚本、AGENTS.md | `twitter --version` 可构建可测 |
-| M1 配置与传输 | config 子系统、httpx、分类错误、instances test | `twitter instances test` 对真实自建实例出报告 |
-| M2 时间线 | RSS/HTML 解析、sdk.UserTimeline、pipeline、`twitter user` | 三种输出模式 + 契约测试 |
+| M0 骨架 | 仓库脚手架、root、版本、构建脚本、AGENTS.md | `nitter --version` 可构建可测 |
+| M1 配置与传输 | config 子系统、httpx、分类错误、instances test | `nitter instances test` 对真实自建实例出报告 |
+| M2 时间线 | RSS/HTML 解析、sdk.UserTimeline、pipeline、`nitter user` | 三种输出模式 + 契约测试 |
 | M3 搜索/List/单条 | search、list、get | 三命令三输出模式 |
 | M4 watch + 去重 | seen 存储、watch 引擎、seen 命令 | `--once` 全语义表驱动验证 |
 | M5 文档与发布 | 双语文档、Skill、e2e、update --check、release workflow | skill 可被 Agent 直接使用 |
@@ -306,8 +306,8 @@ id = "user:NASA"             # watch 无 argv 源时的默认
 ## 14. 假设与待确认问题
 
 - **Q1「定时发推文」释义**：本 spec 按「定时**推送**抓取到的新推文给 Hermes/下游」设计（watch 模式）。若实际含义是「定时**发帖到 X**」，需要 X 官方付费 API，属于完全不同的能力包，请确认后再立补充 spec。当前按前者推进。
-- **Q2 二进制名**：默认 `twitter`（repo `twitter-cli`）。若介意与 X 商标重名或与本机命令冲突，可在 M0 前改名（改 `AppDirName`、module、cobra `Use` 共 3 处 + 文档）。
-- **Q3 SDK module 路径**：`github.com/shitianyaa/twitter-cli` 按插件 repo 作者推断，发布前确认。
+- **Q2 二进制名**：默认 `nitter`（repo `nitter-cli`）。若介意与 X 商标重名或与本机命令冲突，可在 M0 前改名（改 `AppDirName`、module、cobra `Use` 共 3 处 + 文档）。
+- **Q3 SDK module 路径**：`github.com/shitianyaa/nitter-cli` 按插件 repo 作者推断，发布前确认。
 - **Q4 Hermes 对接形态**：MVP 以「计划任务拉起 `watch --once` + stdout NDJSON」为准；若 Hermes 支持 MCP，M7 的 MCP server 是更优通道（pixiv-cli 已验证该模式）。
 
 ## 15. 双后端决策记录（2026-09-12）
@@ -318,7 +318,7 @@ id = "user:NASA"             # watch 无 argv 源时的默认
 - 抽象边界：`sdk.Tweet/Page/Client` 是唯一上层契约；后端差异只存在于取数实现层（`internal/nitter` ↔ `internal/x`），config 增 `backend = "nitter" | "direct"` 键选择。命令、pipeline、seen/watch、输出协议全部复用，零改动。
 - direct 后端设计要点：
   - **认证**：仅会话 cookie 导入（`auth_token` + `ct0`），支持 devtools 粘贴与浏览器解密读取（pixiv-cli `internal/browsercookies` 模式）；**不做密码登录**（X 登录流有强 bot 防护）。
-  - **多账号**：账号池是一等公民——`twitter auth import/list/use/remove/check` + 429 冷却轮换 + CAS 落盘（SQLite modernc，纯 Go），完整复刻 pixiv-cli pool 模式。
+  - **多账号**：账号池是一等公民——`nitter auth import/list/use/remove/check` + 429 冷却轮换 + CAS 落盘（SQLite modernc，纯 Go），完整复刻 pixiv-cli pool 模式。
   - **协议**：`x.com/i/api/graphql/<queryId>/<Op>`，公开 web Bearer 常量 + `x-csrf-token` 头；queryId 运行时从 x.com JS bundle 动态提取并本地缓存（twikit 式），**不移植 Nitter 源码**（AGPL 传染风险）；提取失败明确报错，无静默兜底。
   - **所需操作仅 5 个**：UserByScreenName、UserTweets、SearchTimeline、ListLatestTweetsTimeline、TweetDetail；响应投影到 `sdk.Tweet`（插件 `output/status_*.json` 即该 JSON 形状的现成样例）。
 - 风险（须写入 README 与 Skill）：GraphQL 端点/字段随 X 迭代可能失效（动态提取缓解，非免疫）；真实账号高频抓取有限速与封号风险，需节奏控制 + 账号冷却（与自建 Nitter 挂账号同性质）；`auth_token` 因登出/换浏览器失效，需重新导入。

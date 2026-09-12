@@ -1,4 +1,4 @@
-// Package watch implements the `twitter watch` command: persistent dedup
+// Package watch implements the `nitter watch` command: persistent dedup
 // polling of one or more sources, the project's core deliverable. Each cycle
 // fetches every source, runs the internal/watch selection engine over the
 // result against the persistent per-source state (internal/storage/seen) and
@@ -25,16 +25,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/internal/cli/tweetfilter"
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
-	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
-	watchengine "github.com/shitianyaa/twitter-cli/internal/watch"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/cli/tweetfilter"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
+	watchengine "github.com/shitianyaa/nitter-cli/internal/watch"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opWatch is the command name stamped into error envelopes.
@@ -56,7 +56,7 @@ const (
 	defaultMaxNew = 10
 )
 
-// New builds the `twitter watch [SOURCE...]` command over the shared streams.
+// New builds the `nitter watch [SOURCE...]` command over the shared streams.
 //
 // Exit codes (repo-wide semantics): a --once cycle with every source healthy
 // exits 0 (also: SIGINT/SIGTERM graceful exit, EPIPE on stdout); a --once
@@ -80,7 +80,7 @@ func New(s *invocation.Streams) *cobra.Command {
 		Use:   "watch [SOURCE...]",
 		Short: "Poll sources persistently and emit only new tweets (dedup state on disk)",
 		Long: `Poll one or more sources in cycles and print only tweets that are new
-against the persistent dedup state (~/.twitter-cli/state/seen.json, or
+against the persistent dedup state (~/.nitter-cli/state/seen.json, or
 <--state-dir>/seen.json):
 
   <SOURCE>... is any list of user:<handle>, tag:<query> and list:<id>
@@ -109,7 +109,7 @@ exits 0 in both modes: when tweets were delivered but the state write was
 cut short, the next round re-pushes them (宁重勿丢 — prefer duplicates over
 losses).
 
---ndjson prints one twitter.pipeline/v1 envelope per record: kind tweet
+--ndjson prints one nitter.pipeline/v1 envelope per record: kind tweet
 (the tweet as data, provenance meta.source/meta.instance/meta.fetched_at)
 and kind error for per-source fetch failures. --json is rejected: watch is
 a stream of mixed tweets and errors, which is not a single JSON document.
@@ -147,11 +147,11 @@ HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Fetch-page budget per cycle (default: config max_pages; built-in default 5)")
 	cmd.Flags().StringVar(&stateDirFlag, "state-dir", "",
-		"State directory holding seen.json (default: ~/.twitter-cli/state)")
+		"State directory holding seen.json (default: ~/.nitter-cli/state)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Not supported: watch streams NDJSON (usage error; use --ndjson)")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
-		"Print one twitter.pipeline/v1 envelope per record (tweets and errors)")
+		"Print one nitter.pipeline/v1 envelope per record (tweets and errors)")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
 		"Drop pure retweets (retweet-header detection) before dedup")
 	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
@@ -410,7 +410,7 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 // cycle fetches everything within the MaxPages budget and lets Select dedup
 // (ruling R18). The returned string is the base URL of the instance that
 // produced the result (NDJSON meta.instance provenance).
-func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, maxPages int) ([]twitter.Tweet, string, error) {
+func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, maxPages int) ([]nitter.Tweet, string, error) {
 	switch src.Kind {
 	case watchengine.KindUser:
 		return w.Timeline().Timeline(ctx, src.Ref, 0, maxPages)
@@ -421,14 +421,14 @@ func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, 
 	default:
 		// Unreachable through this command (ParseSource validates the kind
 		// at the flag level); kept as the engine contract's backstop.
-		return nil, "", twitter.Errorf(twitter.KindInvalidArg, opWatch, "unknown source kind %q", src.Kind)
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opWatch, "unknown source kind %q", src.Kind)
 	}
 }
 
 // firstPageIDs slices the watermark supply off the fetch result: the first
 // min(20, len) tweet IDs (the fetch arrives newest-first), then filtered to
 // pure-numeric IDs, deduplicated and capped by seen.CapWatermark.
-func firstPageIDs(fetched []twitter.Tweet) []string {
+func firstPageIDs(fetched []nitter.Tweet) []string {
 	first := fetched
 	if len(first) > seen.WatermarkLimit {
 		first = first[:seen.WatermarkLimit]
@@ -443,7 +443,7 @@ func firstPageIDs(fetched []twitter.Tweet) []string {
 // reportSourceError reports one source's fetch failure: an in-place error
 // envelope on the NDJSON stream (command "watch", stage "fetch", code = the
 // SDK error Kind of the failure — extracted with errors.As, so wrapped
-// *twitter.Error values classify too; "error" as the fallback for anything
+// *nitter.Error values classify too; "error" as the fallback for anything
 // not a classified SDK error — meta.input = the source key), or a plain
 // stderr line in the default modes. The source kind ("user"/"tag"/"list")
 // is never the code: it is already visible in meta.input. Stderr writes
@@ -451,7 +451,7 @@ func firstPageIDs(fetched []twitter.Tweet) []string {
 func reportSourceError(s *invocation.Streams, mode pipeline.Mode, src watchengine.Source, key string, err error) error {
 	if mode == pipeline.ModeNDJSON {
 		code := "error"
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if errors.As(err, &terr) {
 			code = string(terr.Kind)
 		}
@@ -461,11 +461,11 @@ func reportSourceError(s *invocation.Streams, mode pipeline.Mode, src watchengin
 	return nil
 }
 
-// emitTweets delivers one round's selected tweets: one twitter.pipeline/v1
+// emitTweets delivers one round's selected tweets: one nitter.pipeline/v1
 // tweet envelope each in NDJSON mode (meta.source = the source key,
 // meta.instance = the producing instance, meta.fetched_at = RFC3339 UTC), or
 // one TweetRow line each in the default modes.
-func emitTweets(s *invocation.Streams, mode pipeline.Mode, tweets []twitter.Tweet, key, instance, fetchedAt string) error {
+func emitTweets(s *invocation.Streams, mode pipeline.Mode, tweets []nitter.Tweet, key, instance, fetchedAt string) error {
 	if mode == pipeline.ModeNDJSON {
 		for _, tw := range tweets {
 			env := pipeline.Envelope{

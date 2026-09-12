@@ -1,20 +1,20 @@
-# M8 媒体解析（twitter media）实现计划
+# M8 媒体解析（nitter media）实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 `twitter` CLI 增加媒体解析能力——把一条推文解析成**可直接下载的媒体直链**（视频 mp4 变体、图片原链、GIF），复刻插件 `media_support` 已验证的三种解析方式；下载动作本身留给 Hermes（与整体设计一致：CLI 出数据，Agent 出动作）。
+**Goal:** 为 `nitter` CLI 增加媒体解析能力——把一条推文解析成**可直接下载的媒体直链**（视频 mp4 变体、图片原链、GIF），复刻插件 `media_support` 已验证的三种解析方式；下载动作本身留给 Hermes（与整体设计一致：CLI 出数据，Agent 出动作）。
 
-**Architecture:** 新增 `internal/media`（解析实现层：fx/vx/syndication JSON 客户端、xdown 页面解析、mp4/大小探测）+ `sdk` 只增类型（`MediaVariant`/`MediaResolution`）+ `twitter media` 命令（策略编排 + 输出模式）。策略顺序与插件一致：fx → vx → syndication → nitter → xdown。
+**Architecture:** 新增 `internal/media`（解析实现层：fx/vx/syndication JSON 客户端、xdown 页面解析、mp4/大小探测）+ `sdk` 只增类型（`MediaVariant`/`MediaResolution`）+ `nitter media` 命令（策略编排 + 输出模式）。策略顺序与插件一致：fx → vx → syndication → nitter → xdown。
 
 **Tech Stack:** 既有栈（tls-client/httpx、goquery、pipeline、tweetfilter 模式）；无新依赖。
 
-**Spec 依据:** `docs/superpowers/specs/2026-09-11-twitter-cli-spec.md` §1 非目标修订（媒体解析入列）+ 本文档；插件语义真源：`media_support/status_resolve.py`、`service.py:397-505`、`xdown.py`、`video_probe.py`。
+**Spec 依据:** `docs/superpowers/specs/2026-09-11-nitter-cli-spec.md` §1 非目标修订（媒体解析入列）+ 本文档；插件语义真源：`media_support/status_resolve.py`、`service.py:397-505`、`xdown.py`、`video_probe.py`。
 
 ## Global Constraints
 
 - `sdk/` 只增不改；新增类型带 JSON tag（NDJSON 契约）与英文 GoDoc。
 - 错误脱敏铁律沿用；第三方服务（fxtwitter/vxtwitter/syndication/xdown）的失败要**如实报告策略名**，不得静默换源伪装成功。
-- 输出协议沿用 `twitter.pipeline/v1`；新增 kind `media`（只增）。
+- 输出协议沿用 `nitter.pipeline/v1`；新增 kind `media`（只增）。
 - 质量档位：`--quality high|medium|low`（视频按码率排名选变体：high=最高码率、medium=中位、low=最低非零；图片走 pbs `name=orig|large|small` 重写）。默认 high。
 - 信任边界：fx/vx/syndication/xdown 是**第三方公共服务**（与自建 Nitter 不同），文档与 skill 必须写明「解析请求会把推文 URL 发给该服务」。
 - 不做下载、不做缓存持久化（MVP）；`--probe` 的探测请求按需发起。
@@ -38,7 +38,7 @@ type Strategy string // "fx" | "vx" | "syndication" | "nitter" | "xdown"
 type Resolver struct{ HTTP *httpx.Client; Now func() time.Time } // 复用既有传输（重试/节奏/代理）
 
 // Resolve 按 strategy 拉取并投影；source 列表逐一尝试，全部失败返回最后一个分类错误（错误消息含各策略名，脱敏）。
-func (r *Resolver) Resolve(ctx context.Context, ref twitter.StatusRef, opts Options) ([]twitter.MediaResolution, error)
+func (r *Resolver) Resolve(ctx context.Context, ref nitter.StatusRef, opts Options) ([]nitter.MediaResolution, error)
 // Options{ Strategies []Strategy; Quality string }
 
 // 各 backend 投影要点（语义真源 status_resolve.py）：
@@ -83,17 +83,17 @@ func (r *Resolver) Resolve(ctx context.Context, ref twitter.StatusRef, opts Opti
 - Produces: `Probe(ctx, url string) (DurationSeconds float64, SizeBytes int64, err error)`——时长：Range 请求抓 mp4 头部若干 KB，解析 mvhd box（port video_probe.find_mp4_duration/parse_mvhd_duration）；大小：`Content-Range: bytes 0-0/TOTAL`。两个探测各自失败互不影响（留零值）。仅 `--probe` 时调用（每条媒体多 1-2 个请求，文档写明）。
 - [ ] TDD → Commit `feat(media): mp4 duration and content-range size probes`
 
-### Task 4: `twitter media` 命令
+### Task 4: `nitter media` 命令
 
 **Files:**
 - Create: `internal/cli/commands/media/media.go`、`media_test.go`、`internal/cli/result/media.go`
 - Modify: `internal/cli/client/client.go`（Wiring 增加 media Resolver 构造；`--proxy` 沿用）、`internal/cli/pipeline/pipeline.go`（kind 增加 `media`）、`internal/cli/client/client.go` 或 commands 内复用 `ParseStatusRef`
-- Modify: `docs/{en,zh-CN}/cli-reference.md`、`skills/twitter-cli/SKILL.md`（速查表 + 陷阱：第三方解析服务的隐私边界、视频优先于图片的选取规则）、skill 版本 →0.2.0、`changelog/unreleased/*`
+- Modify: `docs/{en,zh-CN}/cli-reference.md`、`skills/nitter-cli/SKILL.md`（速查表 + 陷阱：第三方解析服务的隐私边界、视频优先于图片的选取规则）、skill 版本 →0.2.0、`changelog/unreleased/*`
 
 **Interfaces:**
 
 ```
-twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] [--quality high|medium|low] [--probe] [--json|--ndjson]
+nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] [--quality high|medium|low] [--probe] [--json|--ndjson]
 # auto 顺序: fx → vx → syndication → nitter(取 Nitter status 页 /video/ 链接) → xdown
 # 输出: 每条媒体一个记录——人类=制表行；--json=单对象/数组；--ndjson=kind:"media" 信封
 #       data: MediaResolution{ref, source(策略名), kind, url, fallback_url, label, width/height?, duration?, size?, variants?}
@@ -102,12 +102,12 @@ twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] [--quali
 ```
 
 - [ ] **Step 1:** 失败测试（httptest 假 fx 服务 + 假 Nitter status 页：auto 顺序、quality 三档变体选择、视频跳过图片、strategy 显式指定、批次部分失败 exit 1、`--probe` 触发探测请求）
-- [ ] **Step 2:** 实现 → 全绿 → Commit `feat(cli): twitter media resolution command`
+- [ ] **Step 2:** 实现 → 全绿 → Commit `feat(cli): nitter media resolution command`
 - [ ] **Step 3:** Skill/cli-reference/changelog 同步 → Commit `docs: media command in reference and skill`
 
 ### Task 5: 真实实例冒烟（用户配合）
 
-- [ ] 用真实视频推文/GIF/多图推文各一条跑 `twitter media <url> --json`：确认 fx 直链可下载（curl -I 200）、`--probe` 时长/大小合理、xdown 兜底路径可达
+- [ ] 用真实视频推文/GIF/多图推文各一条跑 `nitter media <url> --json`：确认 fx 直链可下载（curl -I 200）、`--probe` 时长/大小合理、xdown 兜底路径可达
 - [ ] 对照插件同推文的解析结果（media_quality 三档各一次）
 - [ ] 结论写回台账；skill 增补真实陷阱（如有）
 

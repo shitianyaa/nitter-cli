@@ -1,5 +1,5 @@
-// Package config implements the `twitter config` command family: path, get,
-// set and unset over ~/.twitter-cli/config.toml. Only the nine scalar keys
+// Package config implements the `nitter config` command family: path, get,
+// set and unset over ~/.nitter-cli/config.toml. Only the nine scalar keys
 // listed in knownKeys are managed; the [[instances]] / [[watch.sources]]
 // array tables are hand-edited TOML and rejected here. All input-contract
 // violations are validated before any file read/write.
@@ -14,10 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
 
 // knownKeys is the exact, ordered set of scalar keys this command manages;
@@ -56,11 +56,11 @@ func isKnownKey(key string) bool {
 	return ok
 }
 
-// New builds the `twitter config` command tree over the shared streams.
+// New builds the `nitter config` command tree over the shared streams.
 func New(s *invocation.Streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Inspect and manage the twitter-cli configuration file",
+		Short: "Inspect and manage the nitter-cli configuration file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Keep the repo-wide exit semantics: an unknown subcommand under
 			// config exits 1 (root does the same for the top level).
@@ -220,7 +220,7 @@ func valueInput(s *invocation.Streams, key string, args []string) (string, error
 		return args[1], nil
 	}
 	if s.InIsTTY {
-		return "", invocation.Usagef("config set %s: missing VALUE; pass it as an argument or pipe it on stdin (e.g. echo 30 | twitter config set %s)", key, key)
+		return "", invocation.Usagef("config set %s: missing VALUE; pass it as an argument or pipe it on stdin (e.g. echo 30 | nitter config set %s)", key, key)
 	}
 	sc := bufio.NewScanner(s.In)
 	sc.Scan()

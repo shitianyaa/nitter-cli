@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -99,7 +99,7 @@ func TestTestInstanceAllProbesOK(t *testing.T) {
 	if report.URL != srv.URL {
 		t.Errorf("report.URL = %q, want the normalized base %q", report.URL, srv.URL)
 	}
-	for name, p := range map[string]twitter.Probe{
+	for name, p := range map[string]nitter.Probe{
 		"rss":       report.RSS,
 		"user_html": report.UserHTML,
 		"search":    report.Search,
@@ -114,7 +114,7 @@ func TestTestInstanceAllProbesOK(t *testing.T) {
 	}
 	// Probes hit the documented endpoints, in order, with the pinned search
 	// query (f before q).
-	want := []string{"/NASA/rss", "/NASA", "/search?f=tweets&q=twitter", "/i/lists/123"}
+	want := []string{"/NASA/rss", "/NASA", "/search?f=tweets&q=nitter", "/i/lists/123"}
 	if got := rec.requests(); !slices.Equal(got, want) {
 		t.Errorf("requests = %v, want %v", got, want)
 	}
@@ -242,7 +242,7 @@ func TestTestInstanceSkipsDisabledProbes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestInstance: %v", err)
 	}
-	if report.Search != (twitter.Probe{}) || report.List != (twitter.Probe{}) {
+	if report.Search != (nitter.Probe{}) || report.List != (nitter.Probe{}) {
 		t.Errorf("search/list = %+v/%+v, want zero probes when disabled", report.Search, report.List)
 	}
 	want := []string{"/NASA/rss", "/NASA"}
@@ -272,12 +272,12 @@ func TestTestInstanceInvalidBaseURLIsKindInvalidArg(t *testing.T) {
 		if err == nil {
 			t.Fatalf("TestInstance(%q) = %+v, want error", raw, report)
 		}
-		if report != (twitter.InstanceReport{}) {
+		if report != (nitter.InstanceReport{}) {
 			t.Errorf("TestInstance(%q) report = %+v, want zero value on error", raw, report)
 		}
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
-			t.Fatalf("TestInstance(%q) err = %v (%T), want *twitter.Error KindInvalidArg", raw, err, err)
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
+			t.Fatalf("TestInstance(%q) err = %v (%T), want *nitter.Error KindInvalidArg", raw, err, err)
 		}
 		// Redaction contract: the error must not echo the rejected input.
 		if probe := strings.TrimSpace(raw); probe != "" && strings.Contains(err.Error(), probe) {
@@ -288,18 +288,18 @@ func TestTestInstanceInvalidBaseURLIsKindInvalidArg(t *testing.T) {
 
 func TestTestInstanceEmptyUserIsKindInvalidArg(t *testing.T) {
 	_, err := newProbeClient(t).TestInstance(context.Background(), "http://example.com", appapi.TestOptions{User: ""})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
-		t.Fatalf("err = %v (%T), want *twitter.Error KindInvalidArg", err, err)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
+		t.Fatalf("err = %v (%T), want *nitter.Error KindInvalidArg", err, err)
 	}
 }
 
 func TestTestInstanceWithoutTransportIsKindLocalState(t *testing.T) {
 	c := &appapi.Client{Now: time.Now}
 	_, err := c.TestInstance(context.Background(), "http://example.com", appapi.TestOptions{User: "NASA"})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindLocalState {
-		t.Fatalf("err = %v (%T), want *twitter.Error KindLocalState", err, err)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
+		t.Fatalf("err = %v (%T), want *nitter.Error KindLocalState", err, err)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestTestInstanceTransportFailureFailsProbesWithoutError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestInstance = error %v, want nil error (probe failures live in the report)", err)
 	}
-	for name, p := range map[string]twitter.Probe{
+	for name, p := range map[string]nitter.Probe{
 		"rss":       report.RSS,
 		"user_html": report.UserHTML,
 		"search":    report.Search,

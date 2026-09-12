@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // tweetDateLayout is the human date cell precision: minutes, UTC.
@@ -44,7 +44,7 @@ func (r TweetRow) Line() string {
 //
 // An empty input projects to no rows: nothing goes to stdout, and the
 // caller prints the (empty) hint to stderr — this package stays io-free.
-func TweetRows(ts []twitter.Tweet) []TweetRow {
+func TweetRows(ts []nitter.Tweet) []TweetRow {
 	rows := make([]TweetRow, 0, len(ts))
 	for _, t := range ts {
 		rows = append(rows, TweetRow{

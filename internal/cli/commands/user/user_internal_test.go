@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/user"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/user"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 )
 
 // epipeWriter fails every write with syscall.EPIPE, the portable shape of a

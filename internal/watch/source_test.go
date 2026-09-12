@@ -3,7 +3,7 @@ package watch_test
 import (
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/watch"
+	"github.com/shitianyaa/nitter-cli/internal/watch"
 )
 
 // ParseSource accepts the three MVP source shapes (and only those), trims

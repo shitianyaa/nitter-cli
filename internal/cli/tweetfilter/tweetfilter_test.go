@@ -5,27 +5,27 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/tweetfilter"
-	twitter "github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/tweetfilter"
+	nitter "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // media builders keep the fixture table readable.
-func img() twitter.Media {
-	return twitter.Media{Type: "image", URL: "https://pbs.twimg.com/media/x.jpg"}
+func img() nitter.Media {
+	return nitter.Media{Type: "image", URL: "https://pbs.twimg.com/media/x.jpg"}
 }
-func vid() twitter.Media { return twitter.Media{Type: "video", URL: "https://x.com/i/video/1"} }
-func gif() twitter.Media {
-	return twitter.Media{Type: "gif", URL: "https://pbs.twimg.com/tweet_video/x"}
+func vid() nitter.Media { return nitter.Media{Type: "video", URL: "https://x.com/i/video/1"} }
+func gif() nitter.Media {
+	return nitter.Media{Type: "gif", URL: "https://pbs.twimg.com/tweet_video/x"}
 }
 
 // tw builds one tweet with the given id, retweet marker and media list.
-func tw(id string, isRetweet bool, media ...twitter.Media) twitter.Tweet {
-	return twitter.Tweet{ID: id, IsRetweet: isRetweet, Media: media}
+func tw(id string, isRetweet bool, media ...nitter.Media) nitter.Tweet {
+	return nitter.Tweet{ID: id, IsRetweet: isRetweet, Media: media}
 }
 
 // ids projects a tweet slice onto its IDs.
-func ids(ts []twitter.Tweet) []string {
+func ids(ts []nitter.Tweet) []string {
 	out := make([]string, 0, len(ts))
 	for _, t := range ts {
 		out = append(out, t.ID)
@@ -34,7 +34,7 @@ func ids(ts []twitter.Tweet) []string {
 }
 
 // fixture: the whole filter matrix in one timeline-ordered slice.
-var fixture = []twitter.Tweet{
+var fixture = []nitter.Tweet{
 	tw("101", false),        // plain, no media
 	tw("102", true),         // pure retweet, no media
 	tw("103", false, img()), // photo
@@ -49,7 +49,7 @@ func TestApplyTable(t *testing.T) {
 	tests := []struct {
 		name string
 		f    tweetfilter.Filters
-		in   []twitter.Tweet
+		in   []nitter.Tweet
 		want []string
 	}{
 		{
@@ -121,7 +121,7 @@ func TestApplyTable(t *testing.T) {
 		{
 			name: "no filters on empty input",
 			f:    tweetfilter.Filters{},
-			in:   []twitter.Tweet{},
+			in:   []nitter.Tweet{},
 			want: []string{},
 		},
 	}
@@ -138,7 +138,7 @@ func TestApplyTable(t *testing.T) {
 // TestApplyOrderPreservedOnReversedInput: the filtered slice keeps the input
 // order even when it is not the canonical newest-first shape.
 func TestApplyOrderPreservedOnReversedInput(t *testing.T) {
-	in := []twitter.Tweet{tw("303", false, img()), tw("302", true), tw("301", false, img())}
+	in := []nitter.Tweet{tw("303", false, img()), tw("302", true), tw("301", false, img())}
 	got := tweetfilter.Apply(in, tweetfilter.Filters{NoReposts: true})
 	if !reflect.DeepEqual(ids(got), []string{"303", "301"}) {
 		t.Errorf("Apply ids = %v, want [303 301] (input order)", ids(got))
@@ -148,7 +148,7 @@ func TestApplyOrderPreservedOnReversedInput(t *testing.T) {
 // TestApplyDoesNotMutateInput: the input slice and its tweets are untouched.
 func TestApplyDoesNotMutateInput(t *testing.T) {
 	in := fixture
-	before := append([]twitter.Tweet(nil), in...)
+	before := append([]nitter.Tweet(nil), in...)
 	_ = tweetfilter.Apply(in, tweetfilter.Filters{NoReposts: true, MediaType: "image"})
 	if !reflect.DeepEqual(in, before) {
 		t.Errorf("Apply mutated the input slice")

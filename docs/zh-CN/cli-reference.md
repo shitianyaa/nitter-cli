@@ -1,9 +1,9 @@
-# twitter CLI 参考
+# nitter CLI 参考
 
 [文档导航](../index.zh-CN.md) · [English](../en/cli-reference.md)
 
-本文是 `twitter` 二进制的公开命令契约。自动化某条命令前先运行
-`twitter <command> --help`；当前安装二进制的帮助文本才是其接受 flag 的真源。
+本文是 `nitter` 二进制的公开命令契约。自动化某条命令前先运行
+`nitter <command> --help`；当前安装二进制的帮助文本才是其接受 flag 的真源。
 
 ## 全局选项
 
@@ -14,7 +14,7 @@
 | `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy` > 环境变量（配置为空时走 `HTTPS_PROXY`/`ALL_PROXY`）。 |
 | `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
 
-`twitter --version` 输出 `twitter version <版本号>`；裸调用 `twitter` 显示帮助。
+`nitter --version` 输出 `nitter version <版本号>`；裸调用 `nitter` 显示帮助。
 未知子命令退出 1（不是 2）。
 
 ## 退出码
@@ -38,10 +38,10 @@ ANSI 颜色）。
   转义渲染）。
 - **`--json`**：恰好一条记录时是单个 JSON 对象，否则是 JSON 数组，空结果是
   字面量 `[]`。
-- **`--ndjson`**：每条记录一个 `twitter.pipeline/v1` 信封：
+- **`--ndjson`**：每条记录一个 `nitter.pipeline/v1` 信封：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta` 携带溯源信息：`source`（命令输入，形如 `kind:ref` 的键）、`instance`
@@ -52,7 +52,7 @@ ANSI 颜色）。
 失败）：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
 错误信封的 `data` 为 `{command, stage, code, message}`；`code` 是本次失败的
@@ -76,10 +76,10 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
 - 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
   （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
 
-## twitter user
+## nitter user
 
 ```bash
-twitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -97,10 +97,10 @@ HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 
 - `--media-only` 丢弃不带任何媒体附件的推文。
 - `--media-type image|video|gif` 只保留携带至少一个该类型媒体条目的推文。
 
-## twitter search
+## nitter search
 
 ```bash
-twitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -112,10 +112,10 @@ twitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only]
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
 
-## twitter list
+## nitter list
 
 ```bash
-twitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -127,10 +127,10 @@ twitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only]
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
 
-## twitter get
+## nitter get
 
 ```bash
-twitter get <REF> [--json|--ndjson]
+nitter get <REF> [--json|--ndjson]
 ```
 
 抓取单条推文。`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
@@ -147,15 +147,15 @@ stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出�
 {"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
 
-## twitter media
+## nitter media
 
 ```bash
-twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
 把每条 status REF 解析成可直接下载的媒体直链——视频 mp4 变体、图片原图、
-GIF。`REF` 的形态与 `twitter get` 相同（纯数字 ID，或 x.com / twitter.com /
+GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitter.com /
 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与 `/video/1` 后缀）。多个 REF
 按批次运行；不给位置参数且 stdin 非 TTY 时，从 stdin 读取引用（每行一个，
 空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
@@ -198,7 +198,7 @@ https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/e
 `meta.input` = 原始 ref），每个失败的 REF 一个 `kind:"error"` 信封：
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
 ```
 
 退出码：成功为 0（探测失败不计）；单个 REF 解析失败会得到就地错误报告
@@ -207,10 +207,10 @@ https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/e
 failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--strategy`/
 `--quality` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出）退出 2。
 
-## twitter instances test
+## nitter instances test
 
 ```bash
-twitter instances test [URL] [--full] [--list-id ID] [--user HANDLE] [--json|--ndjson]
+nitter instances test [URL] [--full] [--list-id ID] [--user HANDLE] [--json|--ndjson]
 ```
 
 探测实例能力，每个实例一行输出：
@@ -237,16 +237,16 @@ http://nitter.internal:8080	ok	ok	fail(404)	-	212ms
   一个信封（`kind` 为 `instance_report`，实例 URL 作为 `id`，报告作为 `data`，
   无 `meta`）。
 
-## twitter config
+## nitter config
 
 ```bash
-twitter config path
-twitter config get [KEY]
-twitter config set KEY [VALUE]
-twitter config unset KEY
+nitter config path
+nitter config get [KEY]
+nitter config set KEY [VALUE]
+nitter config unset KEY
 ```
 
-管理 `~/.twitter-cli/config.toml` 的九个标量键（默认值、环境变量覆盖与数组表见
+管理 `~/.nitter-cli/config.toml` 的九个标量键（默认值、环境变量覆盖与数组表见
 [README](../README.zh-CN.md#配置)）：
 
 ```text
@@ -275,15 +275,15 @@ instance_cooldown, proxy, log_level, log_format
 退出码：成功 0；键/值/参数个数不合法 2。配置文件无法读取或解析（非法 TOML）
 以退出码 1 失败；值未通过 schema 校验（如非法时长）是用法错误，退出 2。
 
-## twitter watch
+## nitter watch
 
 ```bash
-twitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
+nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
   [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
   [--no-reposts] [--media-only] [--media-type image|video|gif]
 ```
 
-按轮询周期抓取各来源，对照持久化去重状态（`~/.twitter-cli/state/seen.json`，或
+按轮询周期抓取各来源，对照持久化去重状态（`~/.nitter-cli/state/seen.json`，或
 `<--state-dir>/seen.json`）只输出新推文。
 
 **来源**为任意一组 `user:<handle>`、`tag:<query>`、`list:<id>`，例如
@@ -301,7 +301,7 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 | `--max-new N` | `10` | 每源每轮最多输出的新推文数（从新到旧）。`0` 不输出任何内容，并把当前首页封存为新基准；负数是用法错误。 |
 | `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；`0` = 用默认值。 |
 | `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
-| `--state-dir DIR` | `~/.twitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
+| `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
 | `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |
 | `--json` | — | **不支持**：watch 是推文与错误混合的流，不是单个 JSON 文档；恒为用法错误。 |
 | `--no-reposts` | 关 | 在**去重之前**丢弃纯转推（转推标记只存在于 HTML 解析路径）。 |
@@ -337,28 +337,28 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
   检测是尽力而为（管道断裂可能以 `ERROR_BROKEN_PIPE` 呈现）。
 
 **状态**按源存储：最多 300 条已见 ID（从新到旧），外加最近 20 个首页纯数字 ID
-作为扫描水位。用 `twitter seen list` 检视；注意 `seen` 没有 `--state-dir`——
+作为扫描水位。用 `nitter seen list` 检视；注意 `seen` 没有 `--state-dir`——
 如果你用 `watch --state-dir <dir>`，请直接读取该目录下的 `seen.json`。
 
 示例——调度器消费 NDJSON 流（示意）：
 
 ```bash
-twitter watch user:NASA tag:#AI --once --ndjson --max-new 50
+nitter watch user:NASA tag:#AI --once --ndjson --max-new 50
 ```
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
-## twitter seen
+## nitter seen
 
 ```bash
-twitter seen list [--source SOURCE] [--json]
-twitter seen clear [--source SOURCE] --confirm
+nitter seen list [--source SOURCE] [--json]
+nitter seen clear [--source SOURCE] --confirm
 ```
 
-检视与清除 **默认位置** `~/.twitter-cli/state/seen.json` 的 watch 去重状态——
+检视与清除 **默认位置** `~/.nitter-cli/state/seen.json` 的 watch 去重状态——
 `seen` 没有 `--state-dir`。
 
 - `seen list` 按键排序，每源一行制表符分隔：
@@ -380,18 +380,18 @@ twitter seen clear [--source SOURCE] --confirm
 - 状态文件损坏是硬错误（退出 1）——存储层绝不静默重置状态，因为静默重置会把
   整个 watch 历史重新推送一遍。
 
-## twitter update
+## nitter update
 
 ```bash
-twitter update
-twitter update --check [--prerelease] [--json]
+nitter update
+nitter update --check [--prerelease] [--json]
 ```
 
 报告二进制的更新方式。**MVP 不做自替换安装**——不带 `--check` 的形式只打印
 「请用包管理器重装 / 手动下载」的指引，退出 0。
 
 - `--check` 经 GitHub Releases API 将当前版本与
-  `github.com/shitianyaa/twitter-cli` 的最新发布版比较。草稿版恒被排除；
+  `github.com/shitianyaa/nitter-cli` 的最新发布版比较。草稿版恒被排除；
   `--prerelease` 允许预发布版参与"最新版"遴选。遴选按严格 semver 优先级
   （`v` 前缀可选、忽略构建元数据、遵循 semver 预发布排序）在 API 首页内
   进行，而非按发布时间。所有成功的检查均退出 0——过时是报告结果而非失败：

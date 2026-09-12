@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
+	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
 )
 
 // Source is one parsed watch source. Kind is one of KindUser, KindTag or

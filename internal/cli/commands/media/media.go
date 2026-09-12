@@ -1,4 +1,4 @@
-// Package media implements the `twitter media` command: resolve one or more
+// Package media implements the `nitter media` command: resolve one or more
 // status references into directly downloadable media links (video mp4
 // variants, original images, GIFs) through the wiring layer's resolution
 // strategies. Data acquisition goes through internal/cli/client and sdk
@@ -17,12 +17,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opMedia is the command name stamped into error envelopes.
@@ -53,11 +53,11 @@ var validQualities = map[string]bool{
 	"low":    true,
 }
 
-// New builds the `twitter media <REF>...` command over the shared streams.
+// New builds the `nitter media <REF>...` command over the shared streams.
 //
 // REF is a bare numeric status ID or a status URL (x.com, twitter.com or any
 // Nitter instance, shape /<user>/status/<id>; /photo/N and /video/1 suffixes
-// are accepted) — the same reference shapes `twitter get` takes. Multiple
+// are accepted) — the same reference shapes `nitter get` takes. Multiple
 // REFs run as a batch. With no positional argument and a non-TTY stdin, the
 // references are read from stdin (one per non-empty line); giving refs both
 // ways is an ambiguity error.
@@ -119,7 +119,7 @@ probed.
 
 --json prints the resolutions as one JSON document: a single object when
 exactly one media entry resolved, an array otherwise, [] when nothing
-resolved. --ndjson instead prints one twitter.pipeline/v1 envelope per
+resolved. --ndjson instead prints one nitter.pipeline/v1 envelope per
 media entry (kind media, the download URL as id, meta.input = the raw ref)
 and one kind:"error" envelope per failed ref. --json and --ndjson are
 mutually exclusive. A status without media resolves as a not_found error
@@ -138,7 +138,7 @@ mutually exclusive. A status without media resolves as a not_found error
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print the resolutions as one JSON document (single object when exactly one entry, array otherwise)")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
-		"Print one twitter.pipeline/v1 envelope per media entry (kind media)")
+		"Print one nitter.pipeline/v1 envelope per media entry (kind media)")
 	return cmd
 }
 
@@ -202,7 +202,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, strategy, qua
 	}
 
 	resolver := w.Media()
-	emitted := make([]twitter.MediaResolution, 0, len(pairs))
+	emitted := make([]nitter.MediaResolution, 0, len(pairs))
 	failed := 0
 	for _, pair := range pairs {
 		if err := ctx.Err(); err != nil {
@@ -289,7 +289,7 @@ func collectRefs(s *invocation.Streams, args []string) ([]string, error) {
 		}
 	}
 	if len(refs) == 0 {
-		return nil, invocation.Usagef("usage: twitter media <REF>...")
+		return nil, invocation.Usagef("usage: nitter media <REF>...")
 	}
 	return refs, nil
 }
@@ -312,7 +312,7 @@ func nonEmptyLines(r io.Reader) []string {
 // values are filled (a source-reported duration is never overwritten), on
 // ANY error the resolution keeps its values and the batch continues —
 // probing is never fatal (Task 3 review mandate). Images are not probed.
-func applyProbe(ctx context.Context, resolver client.MediaResolver, res []twitter.MediaResolution) {
+func applyProbe(ctx context.Context, resolver client.MediaResolver, res []nitter.MediaResolution) {
 	for i := range res {
 		if res[i].Kind != "video" && res[i].Kind != "gif" {
 			continue
@@ -338,7 +338,7 @@ func applyProbe(ctx context.Context, resolver client.MediaResolver, res []twitte
 func reportRefError(s *invocation.Streams, mode pipeline.Mode, ref string, err error) error {
 	if mode == pipeline.ModeNDJSON {
 		code := "error"
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if errors.As(err, &terr) {
 			code = string(terr.Kind)
 		}
@@ -348,12 +348,12 @@ func reportRefError(s *invocation.Streams, mode pipeline.Mode, ref string, err e
 	return nil
 }
 
-// writeNDJSON emits one twitter.pipeline/v1 envelope per media entry —
+// writeNDJSON emits one nitter.pipeline/v1 envelope per media entry —
 // kind media, the download URL as id, the MediaResolution as data, the raw
 // input ref as meta.input — in resolution order. It writes exactly one
 // ref's share per call (the caller streams per-ref, in ref order); a write
 // error is returned for the caller to classify (EPIPE = consumer hung up).
-func writeNDJSON(out io.Writer, res []twitter.MediaResolution) error {
+func writeNDJSON(out io.Writer, res []nitter.MediaResolution) error {
 	for _, r := range res {
 		env := pipeline.Envelope{
 			Schema: pipeline.Schema,

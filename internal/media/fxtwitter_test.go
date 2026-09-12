@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // TestParseFxFromFixture pins the three media kinds of the fx payload:
@@ -31,7 +31,7 @@ func TestParseFxFromFixture(t *testing.T) {
 	if len(cands[1].Variants) != 3 {
 		t.Fatalf("video variants = %d, want 3", len(cands[1].Variants))
 	}
-	want := []twitter.MediaVariant{
+	want := []nitter.MediaVariant{
 		{URL: "https://video.twimg.com/ext_tw_video/100/pu/pl.m3u8", Bitrate: 0, ContentType: "application/x-mpegURL"},
 		{URL: "https://video.twimg.com/ext_tw_video/100/pu/vid/480x848/832.mp4", Bitrate: 832000, ContentType: "video/mp4"},
 		{URL: "https://video.twimg.com/ext_tw_video/100/pu/vid/720x1280/2176.mp4", Bitrate: 2176000, ContentType: "video/mp4"},
@@ -157,8 +157,8 @@ func TestParseFxKindMapping(t *testing.T) {
 func TestParseFxMalformed(t *testing.T) {
 	for _, body := range [][]byte{[]byte("{nope"), []byte("[]"), []byte("null"), nil} {
 		_, err := parseFx(body)
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || terr.Kind != twitter.KindMalformed {
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindMalformed {
 			t.Errorf("parseFx(%q) err = %v, want KindMalformed", body, err)
 		}
 	}

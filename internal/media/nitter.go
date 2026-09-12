@@ -31,9 +31,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/mediaurl"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const opNitter = "media.nitter"
@@ -43,10 +43,10 @@ const opNitter = "media.nitter"
 // page that parses but carries no media yields an empty slice with a nil
 // error (the next-strategy semantics ResolveStatus applies); transport
 // failures and classified page errors return the classified error.
-func (r *Resolver) ResolveNitter(ctx context.Context, ref StatusRef, opts Options) ([]twitter.MediaResolution, error) {
+func (r *Resolver) ResolveNitter(ctx context.Context, ref StatusRef, opts Options) ([]nitter.MediaResolution, error) {
 	base := strings.TrimRight(strings.TrimSpace(opts.NitterBase), "/")
 	if base == "" {
-		return nil, twitter.Errorf(twitter.KindLocalState, opNitter, "no nitter instance configured for the nitter strategy")
+		return nil, nitter.Errorf(nitter.KindLocalState, opNitter, "no nitter instance configured for the nitter strategy")
 	}
 	path := "/status/" + ref.ID
 	if ref.User != "" {
@@ -66,10 +66,10 @@ func (r *Resolver) ResolveNitter(ctx context.Context, ref StatusRef, opts Option
 		return nil, err
 	}
 	if tw.ID != ref.ID {
-		return nil, twitter.Errorf(twitter.KindMalformed, opNitter, "status page did not contain the requested status")
+		return nil, nitter.Errorf(nitter.KindMalformed, opNitter, "status page did not contain the requested status")
 	}
 	quality := normalizeQuality(opts.Quality)
-	res := make([]twitter.MediaResolution, 0, len(tw.Media))
+	res := make([]nitter.MediaResolution, 0, len(tw.Media))
 	seen := make(map[string]bool, len(tw.Media))
 	for _, m := range tw.Media {
 		u := m.URL
@@ -80,7 +80,7 @@ func (r *Resolver) ResolveNitter(ctx context.Context, ref StatusRef, opts Option
 			continue
 		}
 		seen[u] = true
-		res = append(res, twitter.MediaResolution{
+		res = append(res, nitter.MediaResolution{
 			Kind:   m.Type,
 			URL:    u,
 			Width:  m.Width,

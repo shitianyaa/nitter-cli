@@ -34,7 +34,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -49,7 +49,7 @@ const (
 // media) yields an empty slice with a nil error — the next-strategy
 // semantics ResolveStatus applies; transport failures and malformed payloads
 // return the classified error.
-func (r *Resolver) ResolveXdown(ctx context.Context, ref StatusRef, opts Options) ([]twitter.MediaResolution, error) {
+func (r *Resolver) ResolveXdown(ctx context.Context, ref StatusRef, opts Options) ([]nitter.MediaResolution, error) {
 	form := url.Values{"q": {ref.String()}, "lang": {"zh-cn"}}.Encode()
 	body, _, err := r.post(ctx, xdownSearchURL, []byte(form), xdownHeaders())
 	if err != nil {

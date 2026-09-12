@@ -1,7 +1,7 @@
 package html
 
 // Single-status page parsing (the implementation detail behind
-// `twitter get`): a Nitter status page (/<user>/status/<id>) is a
+// `nitter get`): a Nitter status page (/<user>/status/<id>) is a
 // conversation view — the focused status plus thread/reply context and, when
 // the status quotes another tweet, a .quote subtree inside the focused item.
 // ParseStatus projects the FOCUSED status into the sdk Tweet shape:
@@ -31,8 +31,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/text"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/text"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opParseStatus is the Op stamped on ParseStatus's own errors.
@@ -40,22 +40,22 @@ const opParseStatus = "html.ParseStatus"
 
 // ParseStatus parses one single-status page against the instance base (used
 // to absolutize media URLs, as in ParseTimeline).
-func ParseStatus(body []byte, instance string) (twitter.Tweet, error) {
+func ParseStatus(body []byte, instance string) (nitter.Tweet, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		// Unreachable for in-memory bytes (the HTML parser is error-tolerant
 		// and a bytes.Reader cannot fail); kept explicit over silent swallowing.
-		return twitter.Tweet{}, twitter.Errorf(twitter.KindMalformed, opParseStatus, "decode page: %w", err)
+		return nitter.Tweet{}, nitter.Errorf(nitter.KindMalformed, opParseStatus, "decode page: %w", err)
 	}
 	main := selectMainItem(doc)
 	if main == nil {
-		return twitter.Tweet{}, twitter.Errorf(twitter.KindMalformed, opParseStatus,
+		return nitter.Tweet{}, nitter.Errorf(nitter.KindMalformed, opParseStatus,
 			"status page carries no identifiable main status")
 	}
 	clone := maskQuoteSubtrees(main)
 	user, id, ok := locateItem(clone)
 	if !ok {
-		return twitter.Tweet{}, twitter.Errorf(twitter.KindMalformed, opParseStatus,
+		return nitter.Tweet{}, nitter.Errorf(nitter.KindMalformed, opParseStatus,
 			"status page carries no status identity")
 	}
 	tw := buildTweet(clone, user, id, instance)
@@ -95,7 +95,7 @@ func selectMainItem(doc *goquery.Document) *goquery.Selection {
 // div.tweet-content fallback, folded through text.CleanHTML on a
 // nested-quote-masked clone. A quote without an identifiable status link
 // leaves Tweet.Quote nil — a partial quote is never invented.
-func extractQuote(main *goquery.Selection) *twitter.Quoted {
+func extractQuote(main *goquery.Selection) *nitter.Quoted {
 	q := main.Find(".quote").First()
 	if q.Length() == 0 {
 		return nil
@@ -104,10 +104,10 @@ func extractQuote(main *goquery.Selection) *twitter.Quoted {
 	if !ok {
 		return nil
 	}
-	quoted := &twitter.Quoted{
+	quoted := &nitter.Quoted{
 		ID:     id,
 		URL:    "https://x.com/" + user + "/status/" + id,
-		Author: twitter.Author{Handle: user},
+		Author: nitter.Author{Handle: user},
 	}
 	// Text: Nitter's own quoted-body element (.quote-text), taken from the
 	// unmasked subtree — the quote's own body element is the first

@@ -1,9 +1,9 @@
 package appapi
 
-// Single-status acquisition: the implementation behind `twitter get`.
+// Single-status acquisition: the implementation behind `nitter get`.
 //
 // Ref contract (ParseStatusRef, pure and network-free): a bare numeric
-// status ID, an https://(x|twitter).com/<user>/status/<id> URL (optional
+// status ID, an https://(x|nitter).com/<user>/status/<id> URL (optional
 // /photo/N or /video/1 suffix), or a nitter-style URL of the same path
 // shape — where the user segment is optional (stock Nitter also serves the
 // user-less /status/<id> route). A scheme-less ref whose first path segment
@@ -32,8 +32,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -56,7 +56,7 @@ func isStatusSegment(seg string) bool {
 func ParseStatusRef(s string) (id, user string, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef, "status reference must not be empty")
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef, "status reference must not be empty")
 	}
 	if statusIDRe.MatchString(s) {
 		return s, "", nil
@@ -77,7 +77,7 @@ func ParseStatusRef(s string) (id, user string, err error) {
 	}
 	u, err := url.Parse(s)
 	if err != nil || u.Host == "" {
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 			"not a status reference: use a numeric ID or a <user>/status/<id> URL")
 	}
 	var segs []string
@@ -94,25 +94,25 @@ func ParseStatusRef(s string) (id, user string, err error) {
 		}
 	}
 	if si < 0 {
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 			"URL carries no /status/<id> path")
 	}
 	// At most ONE segment may sit between the host and the status segment;
 	// more (x.com/i/web/status/…) is a shape this parser does not claim.
 	if si > 1 {
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 			"unsupported status URL shape")
 	}
 	user = ""
 	if si == 1 {
 		user = segs[0]
 		if !handleRe.MatchString(user) {
-			return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+			return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 				"URL user segment is not a valid handle")
 		}
 	}
 	if si+1 >= len(segs) || !statusIDRe.MatchString(segs[si+1]) {
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 			"URL carries no numeric status ID after /status/")
 	}
 	id = segs[si+1]
@@ -123,7 +123,7 @@ func ParseStatusRef(s string) (id, user string, err error) {
 	case len(rest) == 0:
 	case len(rest) == 2 && (rest[0] == "photo" || rest[0] == "video") && statusIDRe.MatchString(rest[1]):
 	default:
-		return "", "", twitter.Errorf(twitter.KindInvalidArg, opParseStatusRef,
+		return "", "", nitter.Errorf(nitter.KindInvalidArg, opParseStatusRef,
 			"unsupported suffix after the status ID")
 	}
 	return id, user, nil
@@ -132,23 +132,23 @@ func ParseStatusRef(s string) (id, user string, err error) {
 // Status fetches one single status. The ref is parsed BEFORE any rotation
 // or network (KindInvalidArg otherwise). The returned string is the base
 // URL of the instance that produced the tweet ("" only on error).
-func (c *Client) Status(ctx context.Context, ref string) (twitter.Tweet, string, error) {
+func (c *Client) Status(ctx context.Context, ref string) (nitter.Tweet, string, error) {
 	id, user, err := ParseStatusRef(ref)
 	if err != nil {
-		return twitter.Tweet{}, "", err
+		return nitter.Tweet{}, "", err
 	}
 	if c.HTTP == nil {
-		return twitter.Tweet{}, "", twitter.Errorf(twitter.KindLocalState, opStatus, "no transport wired into the appapi client")
+		return nitter.Tweet{}, "", nitter.Errorf(nitter.KindLocalState, opStatus, "no transport wired into the appapi client")
 	}
 	if c.Chooser == nil {
-		return twitter.Tweet{}, "", twitter.Errorf(twitter.KindLocalState, opStatus, "no instance chooser wired into the appapi client")
+		return nitter.Tweet{}, "", nitter.Errorf(nitter.KindLocalState, opStatus, "no instance chooser wired into the appapi client")
 	}
 
 	tried := make(map[string]bool)
 	var lastErr error
 	for {
 		if err := ctx.Err(); err != nil {
-			return twitter.Tweet{}, "", err
+			return nitter.Tweet{}, "", err
 		}
 		base, markSuccess, markFailure, err := c.Chooser.Pick()
 		if err != nil {
@@ -156,9 +156,9 @@ func (c *Client) Status(ctx context.Context, ref string) (twitter.Tweet, string,
 			// already attempted someone, their failure is the better report;
 			// otherwise pass the chooser's answer through.
 			if lastErr != nil {
-				return twitter.Tweet{}, "", lastErr
+				return nitter.Tweet{}, "", lastErr
 			}
-			return twitter.Tweet{}, "", err
+			return nitter.Tweet{}, "", err
 		}
 		if tried[base] {
 			// Every configured instance has been attempted (a disabled
@@ -166,16 +166,16 @@ func (c *Client) Status(ctx context.Context, ref string) (twitter.Tweet, string,
 			// failed for us to still be looping; the guard keeps the
 			// contract exact even if that invariant ever breaks.
 			if lastErr != nil {
-				return twitter.Tweet{}, "", lastErr
+				return nitter.Tweet{}, "", lastErr
 			}
-			return twitter.Tweet{}, "", twitter.Errorf(twitter.KindUnavailable, opStatus, "all instances failed")
+			return nitter.Tweet{}, "", nitter.Errorf(nitter.KindUnavailable, opStatus, "all instances failed")
 		}
 		tried[base] = true
 		tw, err := c.statusFromInstance(ctx, base, id, user)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				// The caller gave up: abort instead of rotating on.
-				return twitter.Tweet{}, "", err
+				return nitter.Tweet{}, "", err
 			}
 			markFailure()
 			lastErr = err
@@ -191,7 +191,7 @@ func (c *Client) Status(ctx context.Context, ref string) (twitter.Tweet, string,
 // or unidentifiable content; the user-less route directly otherwise. The
 // parsed page must identify the REQUESTED status — anything else is
 // KindMalformed (never a fabricated pick of some other tweet).
-func (c *Client) statusFromInstance(ctx context.Context, base, id, user string) (twitter.Tweet, error) {
+func (c *Client) statusFromInstance(ctx context.Context, base, id, user string) (nitter.Tweet, error) {
 	if user != "" {
 		tw, err := c.fetchStatusPage(ctx, base, "/"+user+"/status/"+id)
 		if err == nil && tw.ID == id {
@@ -200,34 +200,34 @@ func (c *Client) statusFromInstance(ctx context.Context, base, id, user string) 
 		if err == nil {
 			// The page parsed but carries a different main status: same
 			// retry class as an empty page.
-			err = twitter.Errorf(twitter.KindMalformed, opStatus,
+			err = nitter.Errorf(nitter.KindMalformed, opStatus,
 				"status page did not contain the requested status")
 		}
-		var terr *twitter.Error
-		if !errors.As(err, &terr) || (terr.Kind != twitter.KindNotFound && terr.Kind != twitter.KindMalformed) {
-			return twitter.Tweet{}, err
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || (terr.Kind != nitter.KindNotFound && terr.Kind != nitter.KindMalformed) {
+			return nitter.Tweet{}, err
 		}
 		// Fall through to the user-less route.
 	}
 	tw, err := c.fetchStatusPage(ctx, base, "/status/"+id)
 	if err != nil {
-		return twitter.Tweet{}, err
+		return nitter.Tweet{}, err
 	}
 	if tw.ID != id {
-		return twitter.Tweet{}, twitter.Errorf(twitter.KindMalformed, opStatus,
+		return nitter.Tweet{}, nitter.Errorf(nitter.KindMalformed, opStatus,
 			"status page did not contain the requested status")
 	}
 	return tw, nil
 }
 
 // fetchStatusPage fetches, classifies and parses one status page.
-func (c *Client) fetchStatusPage(ctx context.Context, base, path string) (twitter.Tweet, error) {
+func (c *Client) fetchStatusPage(ctx context.Context, base, path string) (nitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+path, nil)
 	if err != nil {
-		return twitter.Tweet{}, err
+		return nitter.Tweet{}, err
 	}
 	if err := html.ClassifyPage(body); err != nil {
-		return twitter.Tweet{}, err
+		return nitter.Tweet{}, err
 	}
 	return html.ParseStatus(body, base)
 }

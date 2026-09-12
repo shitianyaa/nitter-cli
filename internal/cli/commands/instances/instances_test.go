@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 const (
@@ -38,7 +38,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -48,7 +48,7 @@ func tempHome(t *testing.T) string {
 
 func writeConfig(t *testing.T, home, body string) {
 	t.Helper()
-	dir := filepath.Join(home, ".twitter-cli")
+	dir := filepath.Join(home, ".nitter-cli")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -480,8 +480,8 @@ func TestInstancesTestNDJSONOneEnvelopePerInstance(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &env); err != nil {
 			t.Fatalf("line %d is not one JSON object: %v\n%s", i+1, err, line)
 		}
-		if env.Schema != "twitter.pipeline/v1" {
-			t.Errorf("line %d schema = %q, want twitter.pipeline/v1", i+1, env.Schema)
+		if env.Schema != "nitter.pipeline/v1" {
+			t.Errorf("line %d schema = %q, want nitter.pipeline/v1", i+1, env.Schema)
 		}
 		if env.Kind != "instance_report" {
 			t.Errorf("line %d kind = %q, want instance_report", i+1, env.Kind)

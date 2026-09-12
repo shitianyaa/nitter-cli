@@ -1,4 +1,4 @@
-// Package update implements the `twitter update --check` machinery: a strict
+// Package update implements the `nitter update --check` machinery: a strict
 // semver comparison (semver.go) and a GitHub Releases lookup (release.go).
 //
 // It deliberately uses plain net/http instead of the internal/nitter

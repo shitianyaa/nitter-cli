@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
@@ -19,7 +19,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -39,7 +39,7 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 // layout.
 func seenPath(t *testing.T, home string) string {
 	t.Helper()
-	return filepath.Join(home, ".twitter-cli", "state", "seen.json")
+	return filepath.Join(home, ".nitter-cli", "state", "seen.json")
 }
 
 // seedSeen writes a seen.json fixture with two sources (distinct counts and

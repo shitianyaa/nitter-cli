@@ -36,8 +36,8 @@
 package watch
 
 import (
-	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // Source kinds for Options.Kind. The MVP source set is exactly these three.
@@ -75,7 +75,7 @@ type Options struct {
 // all (false = first-run seeding, a MaxNew == 0 stop, or an empty-fetch
 // round that changed nothing).
 type Result struct {
-	Tweets  []twitter.Tweet
+	Tweets  []nitter.Tweet
 	State   seen.SourceState
 	Emitted bool
 }
@@ -89,7 +89,7 @@ type Result struct {
 // The returned state must only be persisted after the tweets have been
 // delivered (准备/抓取失败不落盘): on fetch or delivery failure the caller
 // discards Result entirely and keeps the previous state.
-func Select(fetched []twitter.Tweet, firstPageIDs []string, prev seen.SourceState, opts Options) Result {
+func Select(fetched []nitter.Tweet, firstPageIDs []string, prev seen.SourceState, opts Options) Result {
 	watermark := seen.CapWatermark(firstPageIDs)
 
 	if !prev.Initialized {
@@ -159,7 +159,7 @@ func Select(fetched []twitter.Tweet, firstPageIDs []string, prev seen.SourceStat
 		known[id] = struct{}{}
 	}
 
-	var newTweets []twitter.Tweet
+	var newTweets []nitter.Tweet
 	newIDs := make([]string, 0, len(fetched))
 	for _, tweet := range fetched {
 		if tweet.ID == "" {

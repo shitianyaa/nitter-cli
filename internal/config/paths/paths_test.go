@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
 )
 
 func TestNewUnderTempHome(t *testing.T) {
@@ -35,7 +35,7 @@ func TestNewUnderTempHome(t *testing.T) {
 }
 
 func TestEnsureDefaultConfigFileCreatesOnce(t *testing.T) {
-	const defaultTOML = "# twitter-cli configuration\ndefault_limit = 20\n"
+	const defaultTOML = "# nitter-cli configuration\ndefault_limit = 20\n"
 
 	t.Run("first call creates the file with identical content", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), paths.AppDirName, "config.toml")

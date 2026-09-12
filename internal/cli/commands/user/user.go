@@ -1,4 +1,4 @@
-// Package user implements the `twitter user` command: fetch one account's
+// Package user implements the `nitter user` command: fetch one account's
 // timeline through the wiring layer and render it in the resolved output
 // mode. Data acquisition goes through internal/cli/client and sdk models
 // only — per ruling R11 this package never imports internal/nitter/*.
@@ -15,13 +15,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/internal/cli/tweetfilter"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/cli/tweetfilter"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // handleRe is the X handle contract: 1-15 letters, digits or underscores.
@@ -30,7 +30,7 @@ import (
 // R11-internal backstop.
 var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
 
-// New builds the `twitter user <HANDLE>` command over the shared streams.
+// New builds the `nitter user <HANDLE>` command over the shared streams.
 //
 // Exit codes (repo-wide semantics): success — including an empty timeline —
 // exits 0; acquisition failure (every instance failed) exits 1 with the
@@ -65,13 +65,13 @@ without the flag the config's max_pages applies.
 
 --json prints a machine-readable document: one JSON object for a single
 tweet, an array otherwise (an empty timeline prints []). --ndjson instead
-prints one twitter.pipeline/v1 envelope per tweet (kind tweet, the tweet ID
+prints one nitter.pipeline/v1 envelope per tweet (kind tweet, the tweet ID
 as id, the Tweet as data, provenance in meta). --json and --ndjson are
 mutually exclusive. An empty result prints nothing on stdout in NDJSON mode
 and the (empty) hint on stderr in the default modes.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return invocation.Usagef("usage: twitter user <HANDLE>")
+				return invocation.Usagef("usage: nitter user <HANDLE>")
 			}
 			return nil
 		},
@@ -86,7 +86,7 @@ and the (empty) hint on stderr in the default modes.`,
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
-		"Print one twitter.pipeline/v1 envelope per tweet (kind tweet)")
+		"Print one nitter.pipeline/v1 envelope per tweet (kind tweet)")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
 		"Drop pure retweets (retweet-header detection) from the output")
 	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
@@ -174,7 +174,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, ma
 
 // writeRows prints one row per tweet; an empty timeline prints the (empty)
 // hint on stderr and nothing on stdout.
-func writeRows(s *invocation.Streams, tweets []twitter.Tweet) error {
+func writeRows(s *invocation.Streams, tweets []nitter.Tweet) error {
 	rows := result.TweetRows(tweets)
 	if len(rows) == 0 {
 		fmt.Fprintln(s.Err, "(empty)")
@@ -189,9 +189,9 @@ func writeRows(s *invocation.Streams, tweets []twitter.Tweet) error {
 // writeJSON prints the tweets as one JSON document: a single object when
 // exactly one tweet was fetched, an array otherwise — and a literal []
 // for an empty timeline (a nil slice must not become null).
-func writeJSON(out io.Writer, tweets []twitter.Tweet) error {
+func writeJSON(out io.Writer, tweets []nitter.Tweet) error {
 	if tweets == nil {
-		tweets = []twitter.Tweet{}
+		tweets = []nitter.Tweet{}
 	}
 	var v any = tweets
 	if len(tweets) == 1 {
@@ -205,11 +205,11 @@ func writeJSON(out io.Writer, tweets []twitter.Tweet) error {
 	return err
 }
 
-// writeNDJSON prints one twitter.pipeline/v1 envelope per tweet: kind tweet,
+// writeNDJSON prints one nitter.pipeline/v1 envelope per tweet: kind tweet,
 // the tweet ID as id, the Tweet as data, and provenance in meta (source
 // "user:<handle>", the instance base URL that produced the batch, and the
 // RFC3339 UTC fetch timestamp).
-func writeNDJSON(out io.Writer, tweets []twitter.Tweet, handle, instance, fetchedAt string) error {
+func writeNDJSON(out io.Writer, tweets []nitter.Tweet, handle, instance, fetchedAt string) error {
 	for _, tw := range tweets {
 		env := pipeline.Envelope{
 			Schema: pipeline.Schema,

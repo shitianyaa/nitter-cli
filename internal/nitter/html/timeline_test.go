@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	sdk "github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	sdk "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // Fixtures are shaped after documented Nitter HTML timeline markup and the

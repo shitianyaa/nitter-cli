@@ -14,20 +14,20 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/shitianyaa/twitter-cli/internal/buildinfo"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/config"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/get"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/instances"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/list"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/media"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/search"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/seen"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/update"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/user"
-	"github.com/shitianyaa/twitter-cli/internal/cli/commands/watch"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
-	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/config"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/get"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/instances"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/list"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/media"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/search"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/seen"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/update"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/user"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/watch"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
+	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
 
 // Streams is re-exported from invocation so Run/New keep their historical
@@ -56,7 +56,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 func New(s *Streams) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "twitter",
+		Use:           "nitter",
 		Short:         "Fetch public tweets from your own Nitter instances",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -70,13 +70,13 @@ func New(s *Streams) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	root.SetVersionTemplate("twitter version {{.Version}}\n")
+	root.SetVersionTemplate("nitter version {{.Version}}\n")
 	root.SetFlagErrorFunc(invocation.WrapFlagError)
 	root.PersistentFlags().StringVar(&s.RootOptions.Proxy, "proxy", "",
 		"Proxy URL (else HTTPS_PROXY/ALL_PROXY/config)")
 	root.PersistentFlags().StringVar(&s.RootOptions.Instance, "instance", "",
 		"Nitter instance URL override for this invocation (else config)")
-	// Baseline config publish on first real run: ensure ~/.twitter-cli/
+	// Baseline config publish on first real run: ensure ~/.nitter-cli/
 	// config.toml exists (no-replace). cobra handles --version and
 	// --help/-h before the PreRun stage, so they never get here; the
 	// auto-generated help subcommand is skipped explicitly below. The

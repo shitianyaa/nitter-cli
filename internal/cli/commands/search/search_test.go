@@ -1,6 +1,6 @@
 package search_test
 
-// End-to-end tests for `twitter search`: httptest fake instances, temp-HOME
+// End-to-end tests for `nitter search`: httptest fake instances, temp-HOME
 // config fixtures and cli.Run-level exit code assertions, mirroring the user
 // command's test style.
 
@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
@@ -31,7 +31,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -41,7 +41,7 @@ func tempHome(t *testing.T) string {
 
 func writeConfig(t *testing.T, home, body string) {
 	t.Helper()
-	dir := filepath.Join(home, ".twitter-cli")
+	dir := filepath.Join(home, ".nitter-cli")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestSearchNDJSONEnvelopes(t *testing.T) {
 		if i == 1 {
 			wantID = "302"
 		}
-		if env.Schema != "twitter.pipeline/v1" || env.Kind != "tweet" || env.ID != wantID {
+		if env.Schema != "nitter.pipeline/v1" || env.Kind != "tweet" || env.ID != wantID {
 			t.Errorf("line %d envelope = %s, want kind tweet / id %s", i+1, line, wantID)
 		}
 		if env.Data.Author["handle"] != "nasa" {

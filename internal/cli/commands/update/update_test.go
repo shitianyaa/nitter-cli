@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 // tempHome redirects the home directory to a fresh temp dir (the root
@@ -28,7 +28,7 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-// TestUpdateWithoutCheckPrintsGuidance: bare `twitter update` performs no
+// TestUpdateWithoutCheckPrintsGuidance: bare `nitter update` performs no
 // network call and prints the package-manager/manual-download guidance
 // (MVP does not self-install), exit 0.
 func TestUpdateWithoutCheckPrintsGuidance(t *testing.T) {

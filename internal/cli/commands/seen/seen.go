@@ -1,4 +1,4 @@
-// Package seen implements the `twitter seen` commands: inspect (list) and
+// Package seen implements the `nitter seen` commands: inspect (list) and
 // clear the persistent watch dedup state (seen.json). The commands operate
 // on the default state location (paths.SeenFile) — the same file the watch
 // command reads and writes by default. Source references are parsed with
@@ -15,26 +15,26 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/internal/config/paths"
-	seenstore "github.com/shitianyaa/twitter-cli/internal/storage/seen"
-	"github.com/shitianyaa/twitter-cli/internal/watch"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/internal/config/paths"
+	seenstore "github.com/shitianyaa/nitter-cli/internal/storage/seen"
+	"github.com/shitianyaa/nitter-cli/internal/watch"
 )
 
-// New builds the `twitter seen` command group over the shared streams.
-// Bare `twitter seen` shows the help (cobra convention for command groups).
+// New builds the `nitter seen` command group over the shared streams.
+// Bare `nitter seen` shows the help (cobra convention for command groups).
 func New(s *invocation.Streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "seen",
 		Short: "Inspect and clear the persistent watch dedup state (seen.json)",
-		Long: `Inspect and clear the persistent watch dedup state that twitter watch
-keeps in ~/.twitter-cli/state/seen.json.
+		Long: `Inspect and clear the persistent watch dedup state that nitter watch
+keeps in ~/.nitter-cli/state/seen.json.
 
-  twitter seen list [--source SOURCE] [--json]
+  nitter seen list [--source SOURCE] [--json]
       One summary line per source (or a JSON array with --json).
 
-  twitter seen clear [--source SOURCE] --confirm
+  nitter seen clear [--source SOURCE] --confirm
       Delete one source's entry, or every entry without --source. State
       changes need explicit authorization: --confirm is required.
 
@@ -45,7 +45,7 @@ resets state, because a silent reset would re-push a whole watch history.`,
 	return cmd
 }
 
-// newList builds `twitter seen list`.
+// newList builds `nitter seen list`.
 //
 // Exit codes: success (including an empty store) exits 0; usage problems
 // (a bad --source value) exit 2; a corrupt state file exits 1.
@@ -180,7 +180,7 @@ func writeEmpty(s *invocation.Streams, asJSON bool) error {
 	return nil
 }
 
-// newClear builds `twitter seen clear`.
+// newClear builds `nitter seen clear`.
 //
 // Exit codes: success exits 0 (including an absent --source target —
 // clearing what is not there is idempotent and reports "not found" on
@@ -245,7 +245,7 @@ func runClear(s *invocation.Streams, sourceFlag string, confirm bool) error {
 
 // parseSourceFlag parses the shared --source flag value: empty means "no
 // filter", anything else must parse as a watch source (same "user:NASA"
-// contract as twitter watch).
+// contract as nitter watch).
 func parseSourceFlag(sourceFlag string) (string, error) {
 	if strings.TrimSpace(sourceFlag) == "" {
 		return "", nil

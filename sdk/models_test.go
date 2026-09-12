@@ -1,4 +1,4 @@
-package twitter_test
+package nitter_test
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // The structs in models.go/page.go are the NDJSON data contract: their JSON
@@ -31,28 +31,28 @@ func marshalNDJSON(t *testing.T, v any) string {
 
 func TestTweetJSONShapeIsTheDataContract(t *testing.T) {
 	published := time.Date(2026, 7, 27, 9, 9, 40, 0, time.UTC)
-	tw := twitter.Tweet{
+	tw := nitter.Tweet{
 		ID:   "2081668333762687236",
 		URL:  "https://x.com/NASA/status/2081668333762687236",
 		Text: "line one\nline two",
-		Author: twitter.Author{
+		Author: nitter.Author{
 			Handle:    "NASA",
 			Name:      "NASA",
 			AvatarURL: "https://pbs.twimg.com/profile_images/x_normal.jpg",
 		},
 		PublishedAt: published,
-		Media: []twitter.Media{
+		Media: []nitter.Media{
 			{Type: "image", URL: "https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig", Width: 1200, Height: 800},
 			{Type: "video", URL: "https://video.twimg.com/vid/abc.mp4"},
 		},
 		IsRetweet:  true,
 		RepostedBy: "nasa",
 		ReplyTo:    "esa",
-		Quote: &twitter.Quoted{
+		Quote: &nitter.Quoted{
 			ID:   "123",
 			URL:  "https://x.com/esa/status/123",
 			Text: "quoted text",
-			Author: twitter.Author{
+			Author: nitter.Author{
 				Handle: "esa",
 				Name:   "ESA",
 			},
@@ -77,7 +77,7 @@ func TestTweetJSONShapeIsTheDataContract(t *testing.T) {
 func TestTweetZeroValueMarshalsEveryContractKey(t *testing.T) {
 	// The NDJSON shape must be stable regardless of content: every field is
 	// always present (no omitempty), so consumers can rely on key presence.
-	b, err := json.Marshal(twitter.Tweet{})
+	b, err := json.Marshal(nitter.Tweet{})
 	if err != nil {
 		t.Fatalf("Marshal(zero Tweet) = error %v", err)
 	}
@@ -93,7 +93,7 @@ func TestTweetZeroValueMarshalsEveryContractKey(t *testing.T) {
 func TestPublishedAtMarshalsRFC3339UTC(t *testing.T) {
 	// Producers store UTC (spec section 5); the marshaled form must be the
 	// RFC3339 UTC rendering.
-	tw := twitter.Tweet{PublishedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	tw := nitter.Tweet{PublishedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
 	b, err := json.Marshal(tw)
 	if err != nil {
 		t.Fatalf("Marshal = error %v", err)
@@ -104,8 +104,8 @@ func TestPublishedAtMarshalsRFC3339UTC(t *testing.T) {
 }
 
 func TestPageJSONShapeIsTheDataContract(t *testing.T) {
-	page := twitter.Page[twitter.Tweet]{
-		Items:      []twitter.Tweet{{ID: "1"}},
+	page := nitter.Page[nitter.Tweet]{
+		Items:      []nitter.Tweet{{ID: "1"}},
 		NextCursor: "cursor-42",
 	}
 	b, err := json.Marshal(page)
@@ -122,12 +122,12 @@ func TestPageJSONShapeIsTheDataContract(t *testing.T) {
 }
 
 func TestInstanceReportJSONShapeIsTheDataContract(t *testing.T) {
-	report := twitter.InstanceReport{
+	report := nitter.InstanceReport{
 		URL:      "http://nitter:8080",
-		RSS:      twitter.Probe{OK: true},
-		UserHTML: twitter.Probe{OK: true},
-		Search:   twitter.Probe{OK: false, Status: 404, Err: "instance returned HTTP 404"},
-		List:     twitter.Probe{},
+		RSS:      nitter.Probe{OK: true},
+		UserHTML: nitter.Probe{OK: true},
+		Search:   nitter.Probe{OK: false, Status: 404, Err: "instance returned HTTP 404"},
+		List:     nitter.Probe{},
 		Latency:  1500 * time.Millisecond,
 	}
 	b, err := json.Marshal(report)

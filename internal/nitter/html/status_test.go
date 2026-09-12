@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	sdk "github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	sdk "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // statusDate is the main fixture tweet's date.

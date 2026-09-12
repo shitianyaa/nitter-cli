@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
 )
 
 func TestNewClientDefaults(t *testing.T) {

@@ -3,7 +3,7 @@ package mediaurl_test
 import (
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/mediaurl"
 )
 
 func TestRewritePBSOrig(t *testing.T) {

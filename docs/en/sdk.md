@@ -1,19 +1,19 @@
-# twitter Go SDK
+# nitter Go SDK
 
 [Documentation](../index.md) · [简体中文](../zh-CN/sdk.md)
 
-The public SDK is the Go package `github.com/shitianyaa/twitter-cli/sdk`
-(package name `twitter`). It is the only public capability surface of this
+The public SDK is the Go package `github.com/shitianyaa/nitter-cli/sdk`
+(package name `nitter`). It is the only public capability surface of this
 module: the CLI's own commands consume it, and external Go callers are invited
 to do the same. Everything under `internal/` is private implementation detail
 and not an integration API.
 
 ```bash
-go get github.com/shitianyaa/twitter-cli
+go get github.com/shitianyaa/nitter-cli
 ```
 
 ```go
-import "github.com/shitianyaa/twitter-cli/sdk"
+import "github.com/shitianyaa/nitter-cli/sdk"
 ```
 
 ## Stability contract
@@ -37,12 +37,12 @@ import "github.com/shitianyaa/twitter-cli/sdk"
 ## Client
 
 ```go
-client, err := twitter.New(
-    twitter.WithInstances([]twitter.Instance{
+client, err := nitter.New(
+    nitter.WithInstances([]nitter.Instance{
         {URL: "http://nitter.internal:8080"},
     }),
-    twitter.WithHTTPClient(transport), // implements Transport
-    twitter.WithCooldown(30 * time.Second),
+    nitter.WithHTTPClient(transport), // implements Transport
+    nitter.WithCooldown(30 * time.Second),
 )
 ```
 
@@ -75,7 +75,7 @@ the SDK must not import `internal/*` (the dependency direction is frozen:
 
 ### Instance (rotation) semantics
 
-`twitter.Instance` is `{URL string; Username, Password string}` — the optional
+`nitter.Instance` is `{URL string; Username, Password string}` — the optional
 basic-auth credentials of a Nitter instance. Credentials are carried but never
 echoed into errors (redaction contract).
 
@@ -192,8 +192,8 @@ type Error struct {
 
 - `Error()` renders the stable, redacted message `"<op>: <kind>: <chain>"`,
   omitting empty parts.
-- Build errors with `twitter.Errorf(kind, op, format, args...)`; use `%w` in
-  the format to attach a cause. Callers classify with `errors.As(*twitter.Error)`
+- Build errors with `nitter.Errorf(kind, op, format, args...)`; use `%w` in
+  the format to attach a cause. Callers classify with `errors.As(*nitter.Error)`
   and switch on `Kind`.
 - The `Kind` set is v1-stable: values may only be added, never removed, renamed
   or reused.

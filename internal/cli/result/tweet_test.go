@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 func TestTweetRowLine(t *testing.T) {
@@ -70,10 +70,10 @@ func TestTweetRowLine(t *testing.T) {
 func TestTweetRows(t *testing.T) {
 	t.Run("fields and UTC date formatting", func(t *testing.T) {
 		published := time.Date(2026, 9, 12, 10, 30, 5, 0, time.UTC)
-		rows := result.TweetRows([]twitter.Tweet{{
+		rows := result.TweetRows([]nitter.Tweet{{
 			ID:          "1830",
 			Text:        "hello",
-			Author:      twitter.Author{Handle: "nasa", Name: "NASA"},
+			Author:      nitter.Author{Handle: "nasa", Name: "NASA"},
 			PublishedAt: published,
 		}})
 		if len(rows) != 1 {
@@ -88,19 +88,19 @@ func TestTweetRows(t *testing.T) {
 		// Producers must store UTC, but the projection formats defensively:
 		// the same instant in a +08:00 location shows as its UTC wall clock.
 		located := time.Date(2026, 9, 12, 18, 30, 0, 0, time.FixedZone("UTC+8", 8*3600))
-		rows := result.TweetRows([]twitter.Tweet{{ID: "1", PublishedAt: located}})
+		rows := result.TweetRows([]nitter.Tweet{{ID: "1", PublishedAt: located}})
 		if rows[0].Date != "2026-09-12 10:30" {
 			t.Fatalf("date = %q, want the UTC wall clock 2026-09-12 10:30", rows[0].Date)
 		}
 	})
 	t.Run("zero PublishedAt renders an empty date cell", func(t *testing.T) {
-		rows := result.TweetRows([]twitter.Tweet{{ID: "1", Text: "no date"}})
+		rows := result.TweetRows([]nitter.Tweet{{ID: "1", Text: "no date"}})
 		if rows[0].Date != "" {
 			t.Fatalf("date = %q, want the empty string", rows[0].Date)
 		}
 	})
 	t.Run("order is preserved", func(t *testing.T) {
-		rows := result.TweetRows([]twitter.Tweet{
+		rows := result.TweetRows([]nitter.Tweet{
 			{ID: "2", PublishedAt: time.Date(2026, 9, 12, 9, 0, 0, 0, time.UTC)},
 			{ID: "1", PublishedAt: time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)},
 		})

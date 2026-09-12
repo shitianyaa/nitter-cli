@@ -1,9 +1,9 @@
-# twitter CLI reference
+# nitter CLI reference
 
 [Documentation](../index.md) · [简体中文](../zh-CN/cli-reference.md)
 
-This is the public command contract for the `twitter` binary. Run
-`twitter <command> --help` before automating a command; the help text of the
+This is the public command contract for the `nitter` binary. Run
+`nitter <command> --help` before automating a command; the help text of the
 installed binary is the source of truth for the exact flags it accepts.
 
 ## Global options
@@ -15,7 +15,7 @@ Every command accepts these persistent options:
 | `--proxy URL` | Proxy for this invocation (`http`, `https`, `socks5`, `socks5h`). Precedence: flag > config `proxy` > environment (`HTTPS_PROXY`/`ALL_PROXY` when the config value is empty). |
 | `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
 
-`twitter --version` prints `twitter version <version>`; a bare `twitter` prints
+`nitter --version` prints `nitter version <version>`; a bare `nitter` prints
 help. An unknown subcommand exits 1 (not 2).
 
 ## Exit codes
@@ -39,10 +39,10 @@ text rendering (the two are identical tab-separated lines; no ANSI colors).
   characters switch the whole text cell to a quoted rendering).
 - **`--json`**: one JSON object when exactly one record, a JSON array otherwise,
   a literal `[]` when empty.
-- **`--ndjson`**: one `twitter.pipeline/v1` envelope per record:
+- **`--ndjson`**: one `nitter.pipeline/v1` envelope per record:
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta` carries provenance: `source` (the command input as a `kind:ref` key),
@@ -53,7 +53,7 @@ additive-only in v1; the currently emitted kinds are `tweet` (data commands),
 `error` (per-source fetch failures of `watch`, per-ref failures of `media`):
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
 ```
 
 Error envelope `data` is `{command, stage, code, message}`; `code` is the SDK
@@ -81,10 +81,10 @@ successful output; stderr is never JSON.
   `retry_delay` (default 1s); a 429 with a valid `Retry-After` waits once and
   retries once.
 
-## twitter user
+## nitter user
 
 ```bash
-twitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -105,10 +105,10 @@ freely; an invalid `--media-type` value exits 2):
 - `--media-type image|video|gif` keeps only tweets carrying at least one media
   entry of that type.
 
-## twitter search
+## nitter search
 
 ```bash
-twitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -121,10 +121,10 @@ NDJSON `meta.source` is `search:<query as typed>`.
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
 
-## twitter list
+## nitter list
 
 ```bash
-twitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -138,10 +138,10 @@ two are indistinguishable from the outside; neither is an error. NDJSON
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
 
-## twitter get
+## nitter get
 
 ```bash
-twitter get <REF> [--json|--ndjson]
+nitter get <REF> [--json|--ndjson]
 ```
 
 Fetches one single status. `REF` is a bare numeric status ID, or a status URL —
@@ -161,15 +161,15 @@ illustrative):
 {"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
 
-## twitter media
+## nitter media
 
 ```bash
-twitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
 Resolves each status REF into directly downloadable media links — video mp4
-variants, original images, GIFs. `REF` takes the same shapes as `twitter get`
+variants, original images, GIFs. `REF` takes the same shapes as `nitter get`
 (bare numeric ID, or a status URL of x.com, twitter.com or any Nitter
 instance; `/photo/N` and `/video/1` suffixes accepted). Multiple REFs run as
 a batch; with no argument and a non-TTY stdin the references are read from
@@ -223,7 +223,7 @@ prints one envelope per media entry (`kind` `media`, the download URL as
 `kind:"error"` envelope per failed ref, in ref order:
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
 ```
 
 Exit codes: success 0 (probing failures do not count); a per-ref resolution
@@ -234,10 +234,10 @@ when at least one ref failed; usage problems (`--json` with `--ndjson`,
 invalid `--strategy` or `--quality`, bad/missing refs, refs given both as
 arguments and on stdin) exit 2.
 
-## twitter instances test
+## nitter instances test
 
 ```bash
-twitter instances test [URL] [--full] [--list-id ID] [--user HANDLE] [--json|--ndjson]
+nitter instances test [URL] [--full] [--list-id ID] [--user HANDLE] [--json|--ndjson]
 ```
 
 Probes instance capabilities and prints one line per instance:
@@ -266,16 +266,16 @@ round trip of the RSS probe, rendered at human precision.
   `--ndjson` prints one envelope per instance (`kind` `instance_report`, the
   instance URL as `id`, the report as `data`, no `meta`).
 
-## twitter config
+## nitter config
 
 ```bash
-twitter config path
-twitter config get [KEY]
-twitter config set KEY [VALUE]
-twitter config unset KEY
+nitter config path
+nitter config get [KEY]
+nitter config set KEY [VALUE]
+nitter config unset KEY
 ```
 
-Manages the nine scalar keys of `~/.twitter-cli/config.toml` (defaults, env
+Manages the nine scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
 [README](../README.md#configuration)):
 
@@ -307,16 +307,16 @@ Exit codes: success 0; bad key/value/arity 2. A config file that cannot be read
 or parsed (invalid TOML) fails with exit 1; a value failing schema validation
 (such as a malformed duration) is a usage error, exit 2.
 
-## twitter watch
+## nitter watch
 
 ```bash
-twitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
+nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
   [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
   [--no-reposts] [--media-only] [--media-type image|video|gif]
 ```
 
 Polls sources in cycles and prints only tweets that are new against the
-persistent dedup state (`~/.twitter-cli/state/seen.json`, or
+persistent dedup state (`~/.nitter-cli/state/seen.json`, or
 `<--state-dir>/seen.json`).
 
 **Sources** are any list of `user:<handle>`, `tag:<query>` and `list:<id>`,
@@ -336,7 +336,7 @@ are empty: exit 2.
 | `--max-new N` | `10` | Emit at most N new tweets per source per cycle (newest first). `0` emits nothing and seals the current first page as the new baseline; negative is a usage error. |
 | `--max-pages N` | config `max_pages` (5) | Fetch-page budget per cycle; `0` = use the default. |
 | `--include-existing` | off | Emit the whole first fetch on an uninitialized source (default: first run only records state). |
-| `--state-dir DIR` | `~/.twitter-cli/state` | Directory holding `seen.json` (created if missing). |
+| `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). |
 | `--ndjson` | off | One envelope per record: `kind` `tweet` and `kind` `error`. |
 | `--json` | — | **Not supported**: watch is a stream of mixed tweets and errors, not a single JSON document; always a usage error. |
 | `--no-reposts` | off | Drop pure retweets **before dedup** (the retweet header only exists on the HTML parse path). |
@@ -384,29 +384,29 @@ Global `--proxy`/`--instance` apply as everywhere.
 
 **State** is per source: up to 300 seen IDs (newest-first) plus the 20 most
 recent numeric first-page IDs as the scan watermark. Inspect it with
-`twitter seen list`; note that `seen` has no `--state-dir` — if you run
+`nitter seen list`; note that `seen` has no `--state-dir` — if you run
 `watch --state-dir <dir>`, read that directory's `seen.json` directly.
 
 Example — a scheduler entry consuming the NDJSON stream (illustrative):
 
 ```bash
-twitter watch user:NASA tag:#AI --once --ndjson --max-new 50
+nitter watch user:NASA tag:#AI --once --ndjson --max-new 50
 ```
 
 ```json
-{"schema":"twitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
-{"schema":"twitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
-## twitter seen
+## nitter seen
 
 ```bash
-twitter seen list [--source SOURCE] [--json]
-twitter seen clear [--source SOURCE] --confirm
+nitter seen list [--source SOURCE] [--json]
+nitter seen clear [--source SOURCE] --confirm
 ```
 
 Inspects and clears the watch dedup state at the **default** location
-`~/.twitter-cli/state/seen.json` — `seen` has no `--state-dir`.
+`~/.nitter-cli/state/seen.json` — `seen` has no `--state-dir`.
 
 - `seen list` prints one tab-separated line per source, sorted by key:
 
@@ -431,11 +431,11 @@ Inspects and clears the watch dedup state at the **default** location
 - A corrupt state file is a hard error (exit 1) — the store never silently resets
   state, because a silent reset would re-push a whole watch history.
 
-## twitter update
+## nitter update
 
 ```bash
-twitter update
-twitter update --check [--prerelease] [--json]
+nitter update
+nitter update --check [--prerelease] [--json]
 ```
 
 Reports how to update the binary. **The MVP performs no self-install** — the
@@ -443,7 +443,7 @@ guidance form (without `--check`) prints the package-manager / manual-download
 instructions and exits 0.
 
 - `--check` compares the installed version against the latest release of
-  `github.com/shitianyaa/twitter-cli` via the GitHub Releases API. Drafts are
+  `github.com/shitianyaa/nitter-cli` via the GitHub Releases API. Drafts are
   always excluded; `--prerelease` admits prereleases into the "latest"
   selection. Selection is by strict semver precedence (optional `v` prefix,
   build metadata ignored, spec prerelease ordering) over the first API page,

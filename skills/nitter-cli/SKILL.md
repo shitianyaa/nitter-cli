@@ -1,30 +1,30 @@
 ---
-slug: twitter-cli
+slug: nitter-cli
 version: 0.3.0
-displayName: Twitter CLI
-summary: Safely operate public-tweet retrieval through the twitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
+displayName: Nitter CLI
+summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
-homepage: https://github.com/shitianyaa/twitter-cli
-tags: [twitter, nitter, cli, agent]
-name: twitter-cli
-description: 通过 twitter-cli 的 `twitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`twitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 twitter-cli、`twitter` 命令、Nitter 监控/推文抓取、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `twitter <command> --help` 核对当前可用参数。
+homepage: https://github.com/shitianyaa/nitter-cli
+tags: [nitter, nitter, cli, agent]
+name: nitter-cli
+description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
 ---
 
-# twitter-cli Operator
+# nitter-cli Operator
 
-This skill lets an agent operate the `twitter` binary safely and accurately.
+This skill lets an agent operate the `nitter` binary safely and accurately.
 命令语义以当前安装二进制的 `--help` 为准（command semantics are always governed
 by the `--help` of the installed binary）; this file only provides workflows,
 safety boundaries, and semantics traps.
 
 ## Precheck
 
-- Probe the environment only with `twitter --version`; the output looks like
-  `twitter version <v>` (for example `twitter version 0.1.0`). If the binary is
+- Probe the environment only with `nitter --version`; the output looks like
+  `nitter version <v>` (for example `nitter version 0.1.0`). If the binary is
   missing or not executable, state the blocker; do not guess installation steps
   unless the user explicitly asks for install help.
-- Instances come from the user's config (`twitter config path` prints the
-  location, typically `~/.twitter-cli/config.toml`). When no instance is
+- Instances come from the user's config (`nitter config path` prints the
+  location, typically `~/.nitter-cli/config.toml`). When no instance is
   configured, ask the user for their own Nitter instance address and have them
   add an `[[instances]]` table (or run with `--instance URL`); **never fill in a
   public instance** (nitter.net and friends) on your own.
@@ -39,7 +39,7 @@ safety boundaries, and semantics traps.
 2. State changes (`seen clear`, `config set`, `config unset`) need consent for
    each individual command; authorization never carries across commands.
 3. Do not invent flags; when semantics are unclear, run
-   `twitter <command> --help` first.
+   `nitter <command> --help` first.
 4. `--json`/`--ndjson` only describe successful output. Check the exit code
    before parsing; stderr is never JSON. Never present a failure as an "empty
    result".
@@ -72,7 +72,7 @@ the user is fine sharing (see trap 16).
 ## Output and piping
 
 - For humans: the default tab-separated text (same on a TTY and in a pipe).
-- For programs: `--ndjson` — one `twitter.pipeline/v1` envelope per line, kind
+- For programs: `--ndjson` — one `nitter.pipeline/v1` envelope per line, kind
   `tweet` or `error` (plus `instance_report` for `instances test --ndjson`,
   `media` for `media --ndjson`).
   For single-object extraction: `--json` (one object for one record, an array
@@ -105,65 +105,65 @@ Verify flags with `--help` before each use; these examples are navigation, not
 a stable API contract.
 
 ```text
-twitter --version
-twitter config path                                      # prints config location; creates baseline if missing
-twitter config get default_limit                         # read one effective setting (env > file > default)
-twitter config set max_pages 5                           # state change: consent each time
-twitter config unset proxy                               # state change: consent each time
+nitter --version
+nitter config path                                      # prints config location; creates baseline if missing
+nitter config get default_limit                         # read one effective setting (env > file > default)
+nitter config set max_pages 5                           # state change: consent each time
+nitter config unset proxy                               # state change: consent each time
 
-twitter instances test                                   # probe every [[instances]] entry
-twitter instances test http://nitter.internal:8080 --full # +search probe; --list-id ID adds list probe; --user NAME overrides probe account
-twitter instances test URL --ndjson                      # one instance_report envelope per instance
+nitter instances test                                   # probe every [[instances]] entry
+nitter instances test http://nitter.internal:8080 --full # +search probe; --list-id ID adds list probe; --user NAME overrides probe account
+nitter instances test URL --ndjson                      # one instance_report envelope per instance
 
-twitter user NASA --limit 5                              # timeline, RSS first, HTML fallback
-twitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
-twitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
-twitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
-twitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
-twitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
-twitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
+nitter user NASA --limit 5                              # timeline, RSS first, HTML fallback
+nitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
+nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
+nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
+nitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
+nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
+nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
-twitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
-twitter search "from:nasa" --limit 10 --ndjson           # user search form
-twitter search "moon landing" --limit 10                 # plain phrase
+nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
+nitter search "from:nasa" --limit 10 --ndjson           # user search form
+nitter search "moon landing" --limit 10                 # plain phrase
 
-twitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
-twitter get https://x.com/NASA/status/2081668333762687236 --json
-twitter get 2081668333762687236 --json                   # bare numeric ID also works
-echo https://x.com/NASA/status/2081668333762687236 | twitter get   # one ref from non-TTY stdin
+nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
+nitter get https://x.com/NASA/status/2081668333762687236 --json
+nitter get 2081668333762687236 --json                   # bare numeric ID also works
+echo https://x.com/NASA/status/2081668333762687236 | nitter get   # one ref from non-TTY stdin
 
-twitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
-twitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
-twitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
-twitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
+nitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
+nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
+nitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
+nitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
-twitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
-twitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
-twitter watch --once --ndjson                            # sources from [[watch.sources]]
-twitter watch user:NASA --once --include-existing --ndjson   # first run emits history (explicit opt-in)
-twitter watch user:NASA --once --max-new 50 --ndjson     # raise the per-source emission cap (default 10)
-twitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
-twitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
-twitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state (seen list cannot see it)
+nitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
+nitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
+nitter watch --once --ndjson                            # sources from [[watch.sources]]
+nitter watch user:NASA --once --include-existing --ndjson   # first run emits history (explicit opt-in)
+nitter watch user:NASA --once --max-new 50 --ndjson     # raise the per-source emission cap (default 10)
+nitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
+nitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
+nitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state (seen list cannot see it)
 
-twitter seen list                                        # inspect dedup state (default location)
-twitter seen list --json
-twitter seen clear --source user:NASA --confirm          # state change: consent each time
-twitter seen clear --confirm                             # clear ALL sources: consent each time
+nitter seen list                                        # inspect dedup state (default location)
+nitter seen list --json
+nitter seen clear --source user:NASA --confirm          # state change: consent each time
+nitter seen clear --confirm                             # clear ALL sources: consent each time
 
-twitter update --check                                   # read-only release comparison
-twitter update --check --json                            # {current, latest, outdated, url}
+nitter update --check                                   # read-only release comparison
+nitter update --check --json                            # {current, latest, outdated, url}
 ```
 
 ## Config keys
 
-Nine scalar keys in `~/.twitter-cli/config.toml`, managed with
+Nine scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
 `instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
-(text). Env overrides exist for three keys only: `TWITTER_DEFAULT_LIMIT`,
-`TWITTER_LOG_LEVEL`, `TWITTER_LOG_FORMAT`. Two array tables are hand-edited
+(text). Env overrides exist for three keys only: `NITTER_DEFAULT_LIMIT`,
+`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and
 `[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md).
@@ -183,7 +183,7 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    success weighting.
 4. **Dedup state size**: per source up to 300 seen tweet IDs plus a scan
    watermark of the 20 most recent first-page status IDs
-   (`~/.twitter-cli/state/seen.json`, schema v1).
+   (`~/.nitter-cli/state/seen.json`, schema v1).
 5. **First run records only (只记不推)**: an uninitialized source's first cycle
    seeds the state and emits nothing; `--include-existing` lifts that for the
    run. An empty first cycle on a `user:` source still initializes (next cycle
@@ -255,7 +255,7 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
 
 ## Media delivery for agents
 
-`twitter media` resolves links; the download is the agent's job (full
+`nitter media` resolves links; the download is the agent's job (full
 details: references/media.md).
 
 - Resolved URLs are direct https links — fetch them with a plain GET (curl,

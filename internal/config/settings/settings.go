@@ -14,12 +14,12 @@ import (
 
 // Env keys that override file values (env > file > default precedence).
 const (
-	EnvDefaultLimit = "TWITTER_DEFAULT_LIMIT"
-	EnvLogLevel     = "TWITTER_LOG_LEVEL"
-	EnvLogFormat    = "TWITTER_LOG_FORMAT"
+	EnvDefaultLimit = "NITTER_DEFAULT_LIMIT"
+	EnvLogLevel     = "NITTER_LOG_LEVEL"
+	EnvLogFormat    = "NITTER_LOG_FORMAT"
 )
 
-// Settings is the on-disk schema of ~/.twitter-cli/config.toml.
+// Settings is the on-disk schema of ~/.nitter-cli/config.toml.
 type Settings struct {
 	// Instances is the [[instances]] array of tables (user-run Nitter
 	// instances); like watch sources it is managed by hand-editing TOML.

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 func TestListTimelineReturnsTweets(t *testing.T) {
@@ -113,12 +113,12 @@ func TestListTimelineInvalidIDIsInvalidArgBeforeNetwork(t *testing.T) {
 		if err == nil {
 			t.Fatalf("ListTimeline(%q) = (%v, %q), want an error", listID, tweets, instance)
 		}
-		var terr *twitter.Error
+		var terr *nitter.Error
 		if !errors.As(err, &terr) {
-			t.Fatalf("ListTimeline(%q) error = %T (%v), want *twitter.Error", listID, err, err)
+			t.Fatalf("ListTimeline(%q) error = %T (%v), want *nitter.Error", listID, err, err)
 		}
-		if terr.Kind != twitter.KindInvalidArg {
-			t.Errorf("ListTimeline(%q) Kind = %v, want %v (before any network)", listID, terr.Kind, twitter.KindInvalidArg)
+		if terr.Kind != nitter.KindInvalidArg {
+			t.Errorf("ListTimeline(%q) Kind = %v, want %v (before any network)", listID, terr.Kind, nitter.KindInvalidArg)
 		}
 	}
 }
@@ -143,8 +143,8 @@ func TestListTimelineChallengePropagates(t *testing.T) {
 		timelineRoute{"/i/lists/12345", 200, login},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindChallenge {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindChallenge {
 		t.Fatalf("err = %v (%T), want KindChallenge from ClassifyPage", err, err)
 	}
 }
@@ -156,8 +156,8 @@ func TestListTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
 	if err == nil {
 		t.Fatal("ListTimeline = nil error, want the last instance failure")
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindNotFound {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
 		t.Fatalf("err = %v (%T), want the last instance's classification (404 / KindNotFound)", err, err)
 	}
 }
@@ -181,8 +181,8 @@ func TestListTimelineNoInstancesConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ListTimeline = (%v, %q), want an error", tweets, instance)
 	}
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
 		t.Fatalf("err = %v (%T), want KindUnavailable", err, err)
 	}
 	if !strings.Contains(err.Error(), "no instances configured") {

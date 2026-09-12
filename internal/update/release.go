@@ -115,7 +115,7 @@ func Check(ctx context.Context, repo, current string, opts Options) (Release, er
 		return Release{}, fmt.Errorf("update: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "twitter-cli-update-check")
+	req.Header.Set("User-Agent", "nitter-cli-update-check")
 
 	resp, err := client.Do(req)
 	if err != nil {

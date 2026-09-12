@@ -1,6 +1,6 @@
-# twitter-cli 文档导航
+# nitter-cli 文档导航
 
-`twitter-cli` 是一个非官方的命令行客户端与公开 Go SDK，经自建 Nitter 实例获取
+`nitter-cli` 是一个非官方的命令行客户端与公开 Go SDK，经自建 Nitter 实例获取
 公开推文。公开接口文档提供双语；维护者文档只有一个权威版本，便于贡献者共享
 同一套架构与交付规则。
 
@@ -17,7 +17,7 @@
 
 ## Agent 文档
 
-- [Agent Skill](../skills/twitter-cli/SKILL.md)：AI agent 驱动 `twitter`
+- [Agent Skill](../skills/nitter-cli/SKILL.md)：AI agent 驱动 `nitter`
   二进制的操作规则、命令分级与语义陷阱。
 
 ## 维护者文档

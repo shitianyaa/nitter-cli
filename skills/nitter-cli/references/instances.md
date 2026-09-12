@@ -1,12 +1,12 @@
 # Instances: configuration and health
 
-How to point `twitter` at Nitter instances the user controls and how to judge
+How to point `nitter` at Nitter instances the user controls and how to judge
 their health. Command semantics are governed by the installed binary's
-`twitter <command> --help`.
+`nitter <command> --help`.
 
 ## Where instances live
 
-- Config file: `twitter config path` (typically `~/.twitter-cli/config.toml`;
+- Config file: `nitter config path` (typically `~/.nitter-cli/config.toml`;
   on Windows, under the user profile). The file is created automatically on the
   first real command, pre-filled with commented examples.
 - Instances are `[[instances]]` array tables, hand-edited — `config set` refuses
@@ -25,7 +25,7 @@ their health. Command semantics are governed by the installed binary's
 - Credentials are carried in the config but the MVP transport does not wire
   them in — probes and fetches run unauthenticated. Prefer network-layer access
   control around the instance.
-- One-off override: `twitter --instance URL <command>` replaces the whole
+- One-off override: `nitter --instance URL <command>` replaces the whole
   configured set with that single URL for this invocation. `--proxy URL`
   analogously overrides the proxy (flag > config `proxy` > environment
   `HTTPS_PROXY`/`ALL_PROXY`; schemes `http`, `https`, `socks5`, `socks5h`).
@@ -33,11 +33,11 @@ their health. Command semantics are governed by the installed binary's
 ## Probing health
 
 ```bash
-twitter instances test                              # every [[instances]] entry, in order
-twitter instances test http://nitter.internal:8080  # one instance
-twitter instances test --full                       # + search probe
-twitter instances test --full --list-id 12345       # + list probe
-twitter instances test --user SOMEONE               # change the probe account (default NASA)
+nitter instances test                              # every [[instances]] entry, in order
+nitter instances test http://nitter.internal:8080  # one instance
+nitter instances test --full                       # + search probe
+nitter instances test --full --list-id 12345       # + list probe
+nitter instances test --user SOMEONE               # change the probe account (default NASA)
 ```
 
 Human report — one line per instance:

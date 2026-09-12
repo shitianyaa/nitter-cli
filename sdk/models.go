@@ -11,7 +11,7 @@
 // Producers filling these structs must not fabricate data a source does not
 // carry: leave fields at their zero value instead (the RSS and HTML parse
 // paths project into the same Tweet shape).
-package twitter
+package nitter
 
 import "time"
 

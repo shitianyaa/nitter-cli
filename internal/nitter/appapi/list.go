@@ -1,6 +1,6 @@
 package appapi
 
-// List-timeline acquisition: the implementation behind `twitter list`. A
+// List-timeline acquisition: the implementation behind `nitter list`. A
 // Nitter list page shares the timeline markup (div.timeline-item plus a
 // load-more cursor), so the fetch pipeline is the search page pipeline with
 // a different URL shape — no RSS layer is involved:
@@ -29,7 +29,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opListTimeline is the Op stamped on ListTimeline's own errors.
@@ -50,16 +50,16 @@ func validListID(listID string) bool {
 // and URL-path-safe (KindInvalidArg otherwise) — the check happens BEFORE
 // any rotation or network. The returned string is the base URL of the
 // instance that produced the result ("" only on error).
-func (c *Client) ListTimeline(ctx context.Context, listID string, opts PageOptions) ([]twitter.Tweet, string, error) {
+func (c *Client) ListTimeline(ctx context.Context, listID string, opts PageOptions) ([]nitter.Tweet, string, error) {
 	if !validListID(listID) {
-		return nil, "", twitter.Errorf(twitter.KindInvalidArg, opListTimeline,
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opListTimeline,
 			"list ID must be non-empty and free of whitespace, ?, # and /")
 	}
 	if c.HTTP == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opListTimeline, "no transport wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opListTimeline, "no transport wired into the appapi client")
 	}
 	if c.Chooser == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opListTimeline, "no instance chooser wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opListTimeline, "no instance chooser wired into the appapi client")
 	}
 	maxPages := opts.MaxPages
 	if maxPages <= 0 {
@@ -90,7 +90,7 @@ func (c *Client) ListTimeline(ctx context.Context, listID string, opts PageOptio
 			if lastErr != nil {
 				return nil, "", lastErr
 			}
-			return nil, "", twitter.Errorf(twitter.KindUnavailable, opListTimeline, "all instances failed")
+			return nil, "", nitter.Errorf(nitter.KindUnavailable, opListTimeline, "all instances failed")
 		}
 		tried[base] = true
 		tweets, err := c.listFromInstance(ctx, base, listID, opts.Limit, maxPages)
@@ -113,7 +113,7 @@ func (c *Client) ListTimeline(ctx context.Context, listID string, opts PageOptio
 // exists, the limit is not met and the page budget lasts — the same bounds
 // math as the HTML timeline path. listID is path-escaped defensively even
 // though validation already rejected the unsafe characters.
-func (c *Client) listFromInstance(ctx context.Context, base, listID string, limit, maxPages int) ([]twitter.Tweet, error) {
+func (c *Client) listFromInstance(ctx context.Context, base, listID string, limit, maxPages int) ([]nitter.Tweet, error) {
 	first := base + "/i/lists/" + url.PathEscape(listID)
 	body, _, err := c.HTTP.Get(ctx, first, nil)
 	if err != nil {

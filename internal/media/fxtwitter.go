@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const opFx = "media.fx"
@@ -33,12 +33,12 @@ type fxVariant struct {
 	Type        string `json:"type"`
 }
 
-func (v fxVariant) mediaVariant() twitter.MediaVariant {
+func (v fxVariant) mediaVariant() nitter.MediaVariant {
 	contentType := v.ContentType
 	if contentType == "" {
 		contentType = v.Type
 	}
-	return twitter.MediaVariant{URL: v.URL, Bitrate: v.Bitrate, ContentType: contentType}
+	return nitter.MediaVariant{URL: v.URL, Bitrate: v.Bitrate, ContentType: contentType}
 }
 
 // fxVideoInfo mirrors the Twitter-API video_info block.
@@ -135,9 +135,9 @@ func fxCandidates(items []json.RawMessage) []mediaCandidate {
 
 // fxVariants decodes one variants list, skipping entries without a URL
 // (plugin: empty vurl entries are passed over, not fatal).
-func fxVariants(items []json.RawMessage) []twitter.MediaVariant {
+func fxVariants(items []json.RawMessage) []nitter.MediaVariant {
 	decoded := unmarshalItems[fxVariant](items)
-	out := make([]twitter.MediaVariant, 0, len(decoded))
+	out := make([]nitter.MediaVariant, 0, len(decoded))
 	for _, v := range decoded {
 		m := v.mediaVariant()
 		if m.URL == "" {

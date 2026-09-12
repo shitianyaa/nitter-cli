@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
 )
 
 func main() {

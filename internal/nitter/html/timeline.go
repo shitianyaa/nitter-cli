@@ -1,6 +1,6 @@
 // Package html parses Nitter HTML timelines (user pages, search pages and
 // lists share the same markup) and projects their items into the sdk
-// (package twitter) Tweet shape.
+// (package nitter) Tweet shape.
 //
 // Boundary: this is a protocol-internal detail of the Nitter fetch path —
 // only sdk models appear in results. ParseTimeline consumes raw page bytes
@@ -27,9 +27,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/text"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/mediaurl"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/text"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const (
@@ -40,7 +40,7 @@ const (
 // Page is one parsed timeline: the projected tweets plus the load-more
 // cursor for the next page.
 type Page struct {
-	Tweets     []twitter.Tweet
+	Tweets     []nitter.Tweet
 	NextCursor string
 }
 
@@ -90,7 +90,7 @@ func ParseTimeline(body []byte, instance string) (Page, error) {
 	if err != nil {
 		// Unreachable for in-memory bytes (the HTML parser is error-tolerant
 		// and a bytes.Reader cannot fail); kept explicit over silent swallowing.
-		return Page{}, twitter.Errorf(twitter.KindMalformed, opParseTimeline, "decode page: %w", err)
+		return Page{}, nitter.Errorf(nitter.KindMalformed, opParseTimeline, "decode page: %w", err)
 	}
 	var page Page
 	seen := make(map[string]bool)
@@ -131,21 +131,21 @@ func ParseTimeline(body []byte, instance string) (Page, error) {
 func ClassifyPage(body []byte) error {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
-		return twitter.Errorf(twitter.KindMalformed, opClassifyPage, "decode page: %w", err)
+		return nitter.Errorf(nitter.KindMalformed, opClassifyPage, "decode page: %w", err)
 	}
 	if doc.Find(".error-panel").Length() > 0 {
-		return twitter.Errorf(twitter.KindUnavailable, opClassifyPage, "error panel")
+		return nitter.Errorf(nitter.KindUnavailable, opClassifyPage, "error panel")
 	}
 	if doc.Find(`form[action*="/login"], .login-container, .maintenance`).Length() > 0 {
-		return twitter.Errorf(twitter.KindChallenge, opClassifyPage, "login or maintenance page")
+		return nitter.Errorf(nitter.KindChallenge, opClassifyPage, "login or maintenance page")
 	}
 	return nil
 }
 
 // buildTweet projects one identified timeline item onto the sdk Tweet shape.
 // Everything runs on the quote-masked clone.
-func buildTweet(clone *goquery.Selection, user, id, instance string) twitter.Tweet {
-	tw := twitter.Tweet{
+func buildTweet(clone *goquery.Selection, user, id, instance string) nitter.Tweet {
+	tw := nitter.Tweet{
 		ID:   id,
 		URL:  "https://x.com/" + user + "/status/" + id,
 		Text: itemText(clone),
@@ -353,7 +353,7 @@ func docIndex(root, target *html.Node) (int, bool) {
 // thumbnails/emoji (images only), and pbs.twimg.com/media links are rewritten
 // to name=orig. Dedup runs on the final URL string, the plugin's seen-set.
 // Nothing found leaves the slice nil (the models' null contract).
-func itemMedia(clone *goquery.Selection, instance string) []twitter.Media {
+func itemMedia(clone *goquery.Selection, instance string) []nitter.Media {
 	acc := &mediaAccum{seen: map[string]bool{}}
 	clone.Find("a.still-image[href]").Each(func(_ int, s *goquery.Selection) {
 		if href, ok := s.Attr("href"); ok {
@@ -409,7 +409,7 @@ func firstAttachments(clone *goquery.Selection) *goquery.Selection {
 // mediaAccum accumulates accepted media with the plugin's seen-set semantics:
 // membership is keyed by the final (absolutized, rewritten) URL string.
 type mediaAccum struct {
-	media []twitter.Media
+	media []nitter.Media
 	seen  map[string]bool
 }
 
@@ -447,7 +447,7 @@ func (a *mediaAccum) add(kind, raw, instance string) {
 		return
 	}
 	a.seen[u] = true
-	a.media = append(a.media, twitter.Media{Type: kind, URL: u})
+	a.media = append(a.media, nitter.Media{Type: kind, URL: u})
 }
 
 // safeMediaURL ports the plugin's is_safe_http_url gate: only absolute

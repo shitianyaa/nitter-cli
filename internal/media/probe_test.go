@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ func (p *probeTransport) getMeta(ctx context.Context, url string, headers map[st
 	}
 	r, ok := p.routes[url]
 	if !ok {
-		return nil, 0, nil, twitter.Errorf(twitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")
+		return nil, 0, nil, nitter.Errorf(nitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")
 	}
 	if r.err != nil {
 		return nil, 0, nil, r.err
@@ -380,7 +380,7 @@ func TestProbeOutcomes(t *testing.T) {
 		route    probeResp
 		wantD    float64
 		wantSize int64
-		wantKind twitter.Kind // "" wants a nil error
+		wantKind nitter.Kind // "" wants a nil error
 	}{
 		{
 			name:     "206 with content-range",
@@ -411,13 +411,13 @@ func TestProbeOutcomes(t *testing.T) {
 		},
 		{
 			name:     "404 is classified",
-			route:    probeResp{status: http.StatusNotFound, err: twitter.Errorf(twitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")},
-			wantKind: twitter.KindNotFound,
+			route:    probeResp{status: http.StatusNotFound, err: nitter.Errorf(nitter.KindNotFound, "httpx.Get", "instance returned HTTP 404")},
+			wantKind: nitter.KindNotFound,
 		},
 		{
 			name:     "transport failure is classified",
-			route:    probeResp{err: twitter.Errorf(twitter.KindUnavailable, "httpx.Get", "request failed after 3 attempt(s): connection refused")},
-			wantKind: twitter.KindUnavailable,
+			route:    probeResp{err: nitter.Errorf(nitter.KindUnavailable, "httpx.Get", "request failed after 3 attempt(s): connection refused")},
+			wantKind: nitter.KindUnavailable,
 		},
 	}
 	for _, tc := range cases {
@@ -433,7 +433,7 @@ func TestProbeOutcomes(t *testing.T) {
 				}
 				return
 			}
-			var terr *twitter.Error
+			var terr *nitter.Error
 			if !errors.As(err, &terr) || terr.Kind != tc.wantKind {
 				t.Errorf("error = %v, want kind %q", err, tc.wantKind)
 			}
@@ -446,18 +446,18 @@ func TestProbeCancelledContextFailsFast(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, _, err := res.Probe(ctx, probeMediaURL)
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
-		t.Errorf("error = %v, want kind %q", err, twitter.KindUnavailable)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
+		t.Errorf("error = %v, want kind %q", err, nitter.KindUnavailable)
 	}
 }
 
 func TestProbeWithoutTransportIsLocalState(t *testing.T) {
 	res := &Resolver{Now: time.Now}
 	_, _, err := res.Probe(context.Background(), probeMediaURL)
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindLocalState {
-		t.Errorf("error = %v, want kind %q", err, twitter.KindLocalState)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
+		t.Errorf("error = %v, want kind %q", err, nitter.KindLocalState)
 	}
 }
 
@@ -544,11 +544,11 @@ func TestProbeOverRealTransportStarTotal(t *testing.T) {
 func TestProbeOverRealTransportClassifiesStatuses(t *testing.T) {
 	cases := []struct {
 		status   int
-		wantKind twitter.Kind
+		wantKind nitter.Kind
 	}{
-		{http.StatusNotFound, twitter.KindNotFound},
-		{http.StatusRequestedRangeNotSatisfiable, twitter.KindUnavailable},
-		{http.StatusForbidden, twitter.KindChallenge},
+		{http.StatusNotFound, nitter.KindNotFound},
+		{http.StatusRequestedRangeNotSatisfiable, nitter.KindUnavailable},
+		{http.StatusForbidden, nitter.KindChallenge},
 	}
 	for _, tc := range cases {
 		t.Run(strconv.Itoa(tc.status), func(t *testing.T) {
@@ -558,7 +558,7 @@ func TestProbeOverRealTransportClassifiesStatuses(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			_, _, err := newProbeHTTPResolver(t).Probe(context.Background(), srv.URL)
-			var terr *twitter.Error
+			var terr *nitter.Error
 			if !errors.As(err, &terr) || terr.Kind != tc.wantKind {
 				t.Errorf("Probe error = %v, want kind %q", err, tc.wantKind)
 			}

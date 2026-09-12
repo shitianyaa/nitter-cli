@@ -1,6 +1,6 @@
 package media_test
 
-// End-to-end tests for `twitter media`: httptest fakes for the fx/vx
+// End-to-end tests for `nitter media`: httptest fakes for the fx/vx
 // backends and the Nitter instance, temp-HOME config fixtures and cli.Run-
 // level exit code assertions, mirroring the get command test style.
 //
@@ -22,9 +22,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli"
-	"github.com/shitianyaa/twitter-cli/internal/media"
-	twitter "github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/media"
+	nitter "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
@@ -39,7 +39,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -49,7 +49,7 @@ func tempHome(t *testing.T) string {
 
 func writeConfig(t *testing.T, home, body string) {
 	t.Helper()
-	dir := filepath.Join(home, ".twitter-cli")
+	dir := filepath.Join(home, ".nitter-cli")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestMediaAutoChainFallsThroughToVx(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var obj twitter.MediaResolution
+	var obj nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
@@ -224,7 +224,7 @@ func TestMediaSingleStrategyRunsOnlyThatOne(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var list []twitter.MediaResolution
+	var list []nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &list); err != nil {
 		t.Fatalf("output is not a JSON array: %v\n%s", err, out)
 	}
@@ -287,7 +287,7 @@ func TestMediaProbeFillsVideoMetadata(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var obj twitter.MediaResolution
+	var obj nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
@@ -444,7 +444,7 @@ func TestMediaNitterStrategyUsesConfiguredInstance(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var list []twitter.MediaResolution
+	var list []nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &list); err != nil {
 		t.Fatalf("output is not a JSON array: %v\n%s", err, out)
 	}
@@ -515,7 +515,7 @@ func TestMediaStdinRef(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var obj twitter.MediaResolution
+	var obj nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
@@ -573,7 +573,7 @@ func TestMediaJSONCardinality(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var list []twitter.MediaResolution
+	var list []nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &list); err != nil {
 		t.Fatalf("two-media --json is not an array: %v\n%s", err, out)
 	}
@@ -587,7 +587,7 @@ func TestMediaJSONCardinality(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	var obj twitter.MediaResolution
+	var obj nitter.MediaResolution
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("single-media --json is not one object: %v\n%s", err, out)
 	}

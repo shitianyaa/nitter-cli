@@ -2,7 +2,7 @@
 // links (video mp4 variants, original images, GIFs) using the third-party
 // public services the user's reference plugin proved in daily use:
 // fxtwitter, vxtwitter, Twitter's syndication endpoint and xdown.app. It is
-// the implementation layer behind the `twitter media` command; the command
+// the implementation layer behind the `nitter media` command; the command
 // layer owns strategy orchestration over the sdk projection produced here.
 //
 // Trust boundary: fx/vx/syndication/xdown are THIRD-PARTY public services
@@ -48,10 +48,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/mediaurl"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/mediaurl"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 const opResolve = "media.ResolveStatus"
@@ -68,7 +68,7 @@ const (
 	StrategyXdown       Strategy = "xdown"  // parsed from xdown.app's ajaxSearch page (xdown.go)
 )
 
-// Media kinds, matching twitter.Media's wire values.
+// Media kinds, matching nitter.Media's wire values.
 const (
 	kindImage = "image"
 	kindVideo = "video"
@@ -177,7 +177,7 @@ func (r *Resolver) get(ctx context.Context, url string, headers map[string]strin
 		return r.fetch(ctx, url, headers)
 	}
 	if r.HTTP == nil {
-		return nil, 0, twitter.Errorf(twitter.KindLocalState, opResolve, "no transport wired into the media resolver")
+		return nil, 0, nitter.Errorf(nitter.KindLocalState, opResolve, "no transport wired into the media resolver")
 	}
 	return r.HTTP.Get(ctx, url, headers)
 }
@@ -191,7 +191,7 @@ func (r *Resolver) post(ctx context.Context, url string, body []byte, headers ma
 		return r.fetchPost(ctx, url, body, headers)
 	}
 	if r.HTTP == nil {
-		return nil, 0, twitter.Errorf(twitter.KindLocalState, opResolve, "no transport wired into the media resolver")
+		return nil, 0, nitter.Errorf(nitter.KindLocalState, opResolve, "no transport wired into the media resolver")
 	}
 	return r.HTTP.Post(ctx, url, body, headers)
 }
@@ -203,7 +203,7 @@ func (r *Resolver) getMeta(ctx context.Context, url string, headers map[string]s
 		return r.fetchMeta(ctx, url, headers)
 	}
 	if r.HTTP == nil {
-		return nil, 0, nil, twitter.Errorf(twitter.KindLocalState, opProbe, "no transport wired into the media resolver")
+		return nil, 0, nil, nitter.Errorf(nitter.KindLocalState, opProbe, "no transport wired into the media resolver")
 	}
 	return r.HTTP.GetMeta(ctx, url, headers)
 }
@@ -244,7 +244,7 @@ type mediaCandidate struct {
 	DurationSeconds float64
 	// Variants lists every encoding the source offered (upstream order);
 	// empty when the entry is a plain direct link.
-	Variants []twitter.MediaVariant
+	Variants []nitter.MediaVariant
 	// Width and Height are the source's dimensions when present.
 	Width  int
 	Height int
@@ -259,12 +259,12 @@ type mediaCandidate struct {
 // status has no downloadable media), otherwise the last strategy failure's
 // kind with every reason in the message. Parsing never fabricates entries:
 // plain-http links are dropped, duplicates collapse onto the first entry.
-func (r *Resolver) ResolveStatus(ctx context.Context, ref StatusRef, opts Options) ([]twitter.MediaResolution, error) {
+func (r *Resolver) ResolveStatus(ctx context.Context, ref StatusRef, opts Options) ([]nitter.MediaResolution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if len(opts.Strategies) == 0 {
-		return nil, twitter.Errorf(twitter.KindInvalidArg, opResolve, "no media strategies requested")
+		return nil, nitter.Errorf(nitter.KindInvalidArg, opResolve, "no media strategies requested")
 	}
 	var parts []string
 	var lastErr error
@@ -291,24 +291,24 @@ func (r *Resolver) ResolveStatus(ctx context.Context, ref StatusRef, opts Option
 
 	joined := strings.Join(parts, "; ")
 	if lastErr != nil {
-		kind := twitter.KindUnavailable
-		var terr *twitter.Error
+		kind := nitter.KindUnavailable
+		var terr *nitter.Error
 		if errors.As(lastErr, &terr) && terr.Kind != "" {
 			kind = terr.Kind
 		}
-		return nil, &twitter.Error{
+		return nil, &nitter.Error{
 			Kind: kind,
 			Op:   opResolve,
 			Err:  fmt.Errorf("all media strategies failed (%s): %w", joined, lastErr),
 		}
 	}
-	return nil, twitter.Errorf(twitter.KindNotFound, opResolve, "no media found (%s)", joined)
+	return nil, nitter.Errorf(nitter.KindNotFound, opResolve, "no media found (%s)", joined)
 }
 
 // resolveOne runs one strategy: build URL, fetch, extract media, apply the
 // common quality/dedup rules. Zero resolutions mean "empty" (the caller
 // moves to the next strategy); an error is the strategy's classified failure.
-func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, opts Options) ([]twitter.MediaResolution, error) {
+func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, opts Options) ([]nitter.MediaResolution, error) {
 	quality := normalizeQuality(opts.Quality)
 	var (
 		cands []mediaCandidate
@@ -345,7 +345,7 @@ func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, op
 		// only re-apply).
 		return r.ResolveXdown(ctx, ref, opts)
 	default:
-		return nil, twitter.Errorf(twitter.KindLocalState, opResolve, "media strategy %q is not implemented by this package", string(s))
+		return nil, nitter.Errorf(nitter.KindLocalState, opResolve, "media strategy %q is not implemented by this package", string(s))
 	}
 	if err != nil {
 		return nil, err
@@ -377,8 +377,8 @@ func normalizeQuality(q string) string {
 // filtering, image pbs quality rewrite, video variant selection (main URL by
 // quality, highest variant as fallback), then dedup by final URL keeping the
 // first occurrence.
-func finalize(cands []mediaCandidate, quality string) []twitter.MediaResolution {
-	out := make([]twitter.MediaResolution, 0, len(cands))
+func finalize(cands []mediaCandidate, quality string) []nitter.MediaResolution {
+	out := make([]nitter.MediaResolution, 0, len(cands))
 	seen := make(map[string]bool, len(cands))
 	for _, c := range cands {
 		res, ok := project(c, quality)
@@ -393,8 +393,8 @@ func finalize(cands []mediaCandidate, quality string) []twitter.MediaResolution 
 
 // project turns one candidate into its final resolution; ok is false when
 // the candidate has no https link to offer (dropped, never projected).
-func project(c mediaCandidate, quality string) (twitter.MediaResolution, bool) {
-	res := twitter.MediaResolution{
+func project(c mediaCandidate, quality string) (nitter.MediaResolution, bool) {
+	res := nitter.MediaResolution{
 		Kind:            c.Kind,
 		Label:           c.Label,
 		FallbackURL:     c.FallbackURL,
@@ -405,7 +405,7 @@ func project(c mediaCandidate, quality string) (twitter.MediaResolution, bool) {
 	if c.Kind == kindImage {
 		u := mediaurl.RewritePBSTier(c.URL, quality)
 		if !isHTTPS(u) {
-			return twitter.MediaResolution{}, false
+			return nitter.MediaResolution{}, false
 		}
 		res.URL = u
 		return res, true
@@ -426,7 +426,7 @@ func project(c mediaCandidate, quality string) (twitter.MediaResolution, bool) {
 		return res, true
 	}
 	if !isHTTPS(c.URL) {
-		return twitter.MediaResolution{}, false
+		return nitter.MediaResolution{}, false
 	}
 	res.URL = c.URL
 	return res, true
@@ -435,8 +435,8 @@ func project(c mediaCandidate, quality string) (twitter.MediaResolution, bool) {
 // httpsVariants filters the variant list to plain-http-free, https-only
 // entries (upstream order preserved): a variant is itself a downloadable
 // link, so the no-plain-http rule applies to the whole list.
-func httpsVariants(variants []twitter.MediaVariant) []twitter.MediaVariant {
-	out := make([]twitter.MediaVariant, 0, len(variants))
+func httpsVariants(variants []nitter.MediaVariant) []nitter.MediaVariant {
+	out := make([]nitter.MediaVariant, 0, len(variants))
 	for _, v := range variants {
 		if isHTTPS(v.URL) {
 			out = append(out, v)
@@ -465,11 +465,11 @@ func isHTTPS(u string) bool {
 //
 // medium/low degrade to the high rule over all-zero lists so a URL is always
 // selected; ok is false only for an empty variant list.
-func selectVariant(variants []twitter.MediaVariant, quality string) (twitter.MediaVariant, bool) {
+func selectVariant(variants []nitter.MediaVariant, quality string) (nitter.MediaVariant, bool) {
 	if len(variants) == 0 {
-		return twitter.MediaVariant{}, false
+		return nitter.MediaVariant{}, false
 	}
-	highest := func() twitter.MediaVariant {
+	highest := func() nitter.MediaVariant {
 		best := variants[0]
 		for _, v := range variants[1:] {
 			if v.Bitrate >= best.Bitrate {
@@ -480,7 +480,7 @@ func selectVariant(variants []twitter.MediaVariant, quality string) (twitter.Med
 	}
 	switch normalizeQuality(quality) {
 	case qualityMedium:
-		var nonzero []twitter.MediaVariant
+		var nonzero []nitter.MediaVariant
 		for _, v := range variants {
 			if v.Bitrate > 0 {
 				nonzero = append(nonzero, v)
@@ -489,7 +489,7 @@ func selectVariant(variants []twitter.MediaVariant, quality string) (twitter.Med
 		if len(nonzero) == 0 {
 			return highest(), true
 		}
-		sorted := make([]twitter.MediaVariant, len(nonzero))
+		sorted := make([]nitter.MediaVariant, len(nonzero))
 		copy(sorted, nonzero)
 		sortByBitrate(sorted)
 		median := sorted[len(sorted)/2].Bitrate
@@ -500,7 +500,7 @@ func selectVariant(variants []twitter.MediaVariant, quality string) (twitter.Med
 		}
 		return nonzero[0], true
 	case qualityLow:
-		var best twitter.MediaVariant
+		var best nitter.MediaVariant
 		found := false
 		for _, v := range variants {
 			if v.Bitrate <= 0 {
@@ -522,7 +522,7 @@ func selectVariant(variants []twitter.MediaVariant, quality string) (twitter.Med
 
 // sortByBitrate orders variants by ascending bitrate (stable on equal
 // rates); insertion sort keeps the tiny variant lists allocation-free.
-func sortByBitrate(v []twitter.MediaVariant) {
+func sortByBitrate(v []nitter.MediaVariant) {
 	for i := 1; i < len(v); i++ {
 		for j := i; j > 0 && v[j].Bitrate < v[j-1].Bitrate; j-- {
 			v[j], v[j-1] = v[j-1], v[j]
@@ -534,7 +534,7 @@ func sortByBitrate(v []twitter.MediaVariant) {
 // stable kind plus the already-redacted cause chain, without the op prefix
 // (the strategy name in front of it plays that role in the aggregate).
 func shortReason(err error) string {
-	var terr *twitter.Error
+	var terr *nitter.Error
 	if errors.As(err, &terr) {
 		if terr.Err != nil {
 			return string(terr.Kind) + ": " + terr.Err.Error()
@@ -564,10 +564,10 @@ func kindFromType(raw string) string {
 func decodeJSONObject(op string, body []byte, out any) error {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(body, &probe); err != nil || probe == nil {
-		return twitter.Errorf(twitter.KindMalformed, op, "response is not a JSON object")
+		return nitter.Errorf(nitter.KindMalformed, op, "response is not a JSON object")
 	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return twitter.Errorf(twitter.KindMalformed, op, "decode response fields: %v", err)
+		return nitter.Errorf(nitter.KindMalformed, op, "decode response fields: %v", err)
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-// Package instances implements the `twitter instances` command family:
+// Package instances implements the `nitter instances` command family:
 // diagnostics over the Nitter instances configured in config.toml. Data
 // acquisition goes through the wiring layer (internal/cli/client) and sdk
 // models only — per ruling R11 this package never imports
@@ -13,12 +13,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shitianyaa/twitter-cli/internal/cli/client"
-	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
-	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
-	"github.com/shitianyaa/twitter-cli/internal/cli/result"
-	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/cli/client"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // defaultProbeUser is the account the RSS/user-HTML probes fetch when the
@@ -27,7 +27,7 @@ import (
 // follow graph.
 const defaultProbeUser = "NASA"
 
-// New builds the `twitter instances` command family over the shared streams.
+// New builds the `nitter instances` command family over the shared streams.
 func New(s *invocation.Streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instances",
@@ -45,7 +45,7 @@ func New(s *invocation.Streams) *cobra.Command {
 	return cmd
 }
 
-// newTestCommand builds `twitter instances test [URL]`.
+// newTestCommand builds `nitter instances test [URL]`.
 //
 // Exit codes (repo-wide semantics, task contract): completed probes exit 0
 // even when every probe fails — the report is the product, diagnostics are
@@ -76,13 +76,13 @@ transport and settings (retry, pacing, proxy) as real fetches.
 
 The RSS and user probes fetch <user>/rss and <user>; --user overrides the
 account (default ` + defaultProbeUser + `, a stable public account). --full adds the
-search probe (/search?f=tweets&q=twitter); --list-id adds a list probe
+search probe (/search?f=tweets&q=nitter); --list-id adds a list probe
 (/i/lists/<id>). Both default off: each extra probe costs the instance a
 request.
 
 --json prints the machine-readable report: one JSON object when exactly one
 instance is probed, an array of objects otherwise. --ndjson instead prints
-one twitter.pipeline/v1 envelope per instance (kind instance_report, the
+one nitter.pipeline/v1 envelope per instance (kind instance_report, the
 instance URL as id); --json and --ndjson are mutually exclusive. Exit status
 is 0 whenever the probes completed, even if they all failed; 2 marks invalid
 input, 1 wiring failures.`,
@@ -134,7 +134,7 @@ input, 1 wiring failures.`,
 
 			tester := w.Tester()
 			opts := client.TestOptions{User: user, IncludeSearch: full, ListID: listID}
-			reports := make([]twitter.InstanceReport, 0, len(targets))
+			reports := make([]nitter.InstanceReport, 0, len(targets))
 			for _, target := range targets {
 				if err := ctx.Err(); err != nil {
 					return err
@@ -164,18 +164,18 @@ input, 1 wiring failures.`,
 			}
 		},
 	}
-	cmd.Flags().BoolVar(&full, "full", false, "Also probe search (GET /search?f=tweets&q=twitter)")
+	cmd.Flags().BoolVar(&full, "full", false, "Also probe search (GET /search?f=tweets&q=nitter)")
 	cmd.Flags().StringVar(&listID, "list-id", "", "Also probe the list with this ID (GET /i/lists/<id>)")
 	cmd.Flags().StringVar(&user, "user", defaultProbeUser, "Account for the RSS and user-timeline probes")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the JSON report: one object for a single instance, an array for several")
-	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one twitter.pipeline/v1 envelope per instance (kind instance_report)")
+	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per instance (kind instance_report)")
 	return cmd
 }
 
-// writeNDJSON prints one twitter.pipeline/v1 envelope per instance: kind
+// writeNDJSON prints one nitter.pipeline/v1 envelope per instance: kind
 // instance_report, the instance URL as id, the InstanceReport as data, and
 // no meta (the report is self-contained diagnostics).
-func writeNDJSON(out io.Writer, reports []twitter.InstanceReport) error {
+func writeNDJSON(out io.Writer, reports []nitter.InstanceReport) error {
 	for _, report := range reports {
 		env := pipeline.Envelope{
 			Schema: pipeline.Schema,
@@ -194,7 +194,7 @@ func writeNDJSON(out io.Writer, reports []twitter.InstanceReport) error {
 // exactly one instance was probed, an array otherwise. The byte contract is
 // pinned by existing tests and deliberately unchanged; per-record NDJSON
 // output goes through pipeline (writeNDJSON).
-func writeJSON(out io.Writer, reports []twitter.InstanceReport) error {
+func writeJSON(out io.Writer, reports []nitter.InstanceReport) error {
 	var v any = reports
 	if len(reports) == 1 {
 		v = reports[0]

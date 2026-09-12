@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // xdownSearchRoute is the endpoint the plugin POSTs the status URL to.
@@ -65,7 +65,7 @@ func TestResolveXdownFixturePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveXdown: %v", err)
 	}
-	want := []twitter.MediaResolution{
+	want := []nitter.MediaResolution{
 		{
 			Ref: statusURL100, Source: "xdown", Kind: "video",
 			URL:             "https://video.twimg.com/ext_tw_video/2070000000000000100/pu/vid/720x1280/a1.mp4",
@@ -201,8 +201,8 @@ func TestResolveXdownMalformedIsKindMalformed(t *testing.T) {
 			r, fake := newTestResolver(nil)
 			fake.postRoutes = map[string]fakeResp{xdownSearchRoute: {body: []byte(body), status: 200}}
 			_, err := r.ResolveXdown(context.Background(), mustRef(t, statusURL100), Options{})
-			var terr *twitter.Error
-			if !errors.As(err, &terr) || terr.Kind != twitter.KindMalformed {
+			var terr *nitter.Error
+			if !errors.As(err, &terr) || terr.Kind != nitter.KindMalformed {
 				t.Fatalf("err = %v, want KindMalformed", err)
 			}
 			if terr.Op != "media.xdown" {
@@ -220,8 +220,8 @@ func TestResolveStatusXdownFailureNamesStrategy(t *testing.T) {
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
 		Strategies: []Strategy{StrategyXdown},
 	})
-	var terr *twitter.Error
-	if !errors.As(err, &terr) || terr.Kind != twitter.KindNotFound {
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
 		t.Fatalf("err = %v, want KindNotFound", err)
 	}
 	if !strings.Contains(err.Error(), "xdown:") {

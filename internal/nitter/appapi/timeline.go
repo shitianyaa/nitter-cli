@@ -1,6 +1,6 @@
 package appapi
 
-// User timeline acquisition: the implementation behind `twitter user` (and
+// User timeline acquisition: the implementation behind `nitter user` (and
 // later watch sources). Timeline drives one Nitter instance through the
 // layered fetch the reference plugin established (ruling R15): the RSS feed
 // first, and — when the feed FAILS or yields NO tweets — the HTML user page
@@ -26,9 +26,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/shitianyaa/twitter-cli/internal/nitter/html"
-	"github.com/shitianyaa/twitter-cli/internal/nitter/rss"
-	"github.com/shitianyaa/twitter-cli/sdk"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
+	"github.com/shitianyaa/nitter-cli/internal/nitter/rss"
+	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
 // opTimeline is the Op stamped on Timeline's own errors.
@@ -56,16 +56,16 @@ var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
 // X handle contract BEFORE any rotation or network (KindInvalidArg
 // otherwise). The returned string is the base URL of the instance that
 // produced the result ("" only on error).
-func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) ([]twitter.Tweet, string, error) {
+func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) ([]nitter.Tweet, string, error) {
 	if !handleRe.MatchString(handle) {
-		return nil, "", twitter.Errorf(twitter.KindInvalidArg, opTimeline,
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opTimeline,
 			"handle must be 1-15 letters, digits or underscores (without the @)")
 	}
 	if c.HTTP == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opTimeline, "no transport wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opTimeline, "no transport wired into the appapi client")
 	}
 	if c.Chooser == nil {
-		return nil, "", twitter.Errorf(twitter.KindLocalState, opTimeline, "no instance chooser wired into the appapi client")
+		return nil, "", nitter.Errorf(nitter.KindLocalState, opTimeline, "no instance chooser wired into the appapi client")
 	}
 	maxPages := opts.MaxPages
 	if maxPages <= 0 {
@@ -96,7 +96,7 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) 
 			if lastErr != nil {
 				return nil, "", lastErr
 			}
-			return nil, "", twitter.Errorf(twitter.KindUnavailable, opTimeline, "all instances failed")
+			return nil, "", nitter.Errorf(nitter.KindUnavailable, opTimeline, "all instances failed")
 		}
 		tried[base] = true
 		tweets, err := c.timelineFromInstance(ctx, base, handle, opts.Limit, maxPages)
@@ -120,7 +120,7 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) 
 // when it too fails, is the attempt's error — the last stage is the most
 // informative. An empty RSS feed followed by an empty HTML page is a success
 // with zero tweets, never an error.
-func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, limit, maxPages int) ([]twitter.Tweet, error) {
+func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, limit, maxPages int) ([]nitter.Tweet, error) {
 	tweets, err := c.timelineRSS(ctx, base, handle, limit)
 	if err == nil && len(tweets) > 0 {
 		return tweets, nil
@@ -134,7 +134,7 @@ func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, 
 // mirroring the HTML path's rule that an unidentifiable entry never becomes
 // a Tweet. An item authored by a handle other than the requested one (case-
 // insensitive) is flagged IsRetweet — see the loop below.
-func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int) ([]twitter.Tweet, error) {
+func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int) ([]nitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+"/"+handle+"/rss", nil)
 	if err != nil {
 		return nil, err
@@ -143,7 +143,7 @@ func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int
 	if err != nil {
 		return nil, err
 	}
-	var tweets []twitter.Tweet
+	var tweets []nitter.Tweet
 	for _, item := range items {
 		tw, err := rss.ItemToTweet(item)
 		if err != nil {
@@ -174,7 +174,7 @@ func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int
 // panel) and parses the timeline, then follows the load-more cursor while a
 // cursor exists, the limit is not met and the page budget lasts. Page URLs
 // re-encode the cursor extracted by the parser (it arrives URL-decoded).
-func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, maxPages int) ([]twitter.Tweet, error) {
+func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, maxPages int) ([]nitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+"/"+handle, nil)
 	if err != nil {
 		return nil, err
