@@ -56,6 +56,13 @@ type TimelineSource interface {
 	Timeline(ctx context.Context, handle string, limit, maxPages int) ([]twitter.Tweet, string, error)
 }
 
+// SearchSource is the search acquisition capability a command consumes
+// (same provenance contract as TimelineSource). Backed by *appapi.Client
+// through searchAdapter.
+type SearchSource interface {
+	Search(ctx context.Context, query string, limit, maxPages int) ([]twitter.Tweet, string, error)
+}
+
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
@@ -82,6 +89,18 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 // Timeline returns the user-timeline acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w.AppAPI} }
+
+// searchAdapter bridges the primitive-parameter SearchSource to the appapi
+// method's PageOptions signature.
+type searchAdapter struct{ app *appapi.Client }
+
+func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+	return a.app.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+}
+
+// Search returns the search acquisition capability as the narrow interface
+// commands consume (R11: commands never import appapi).
+func (w *Wiring) Search() SearchSource { return searchAdapter{w.AppAPI} }
 
 // Build composes the wiring.
 //
