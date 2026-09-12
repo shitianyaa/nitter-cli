@@ -46,6 +46,7 @@ const (
 	KindList           = "list"
 	KindInstanceReport = "instance_report"
 	KindSeenEntry      = "seen_entry"
+	KindMedia          = "media"
 	KindError          = "error"
 )
 

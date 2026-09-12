@@ -18,9 +18,10 @@ import (
 const opSyndication = "media.syndication"
 
 // syndicationURL is the tweet-result endpoint. token=x is the plugin's
-// constant: the endpoint requires the parameter but accepts any value.
+// constant: the endpoint requires the parameter but accepts any value. The
+// base yields to the EndpointOverrides test seam when set.
 func syndicationURL(id string) string {
-	return "https://cdn.syndication.twimg.com/tweet-result?id=" + id + "&token=x"
+	return baseURL(EndpointOverrides.Syndication, "https://cdn.syndication.twimg.com") + "/tweet-result?id=" + id + "&token=x"
 }
 
 // syndPhoto is one photos[] entry; the URL prefers url over src.

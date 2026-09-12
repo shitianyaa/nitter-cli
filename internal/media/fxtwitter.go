@@ -16,9 +16,10 @@ import (
 const opFx = "media.fx"
 
 // fxStatusURL is the fx endpoint URL; user-less refs use the /i/ segment
-// (plugin: link.username or "i").
+// (plugin: link.username or "i"). The base yields to the EndpointOverrides
+// test seam when set.
 func fxStatusURL(ref StatusRef) string {
-	return "https://api.fxtwitter.com/" + userSegment(ref) + "/status/" + ref.ID
+	return baseURL(EndpointOverrides.Fx, "https://api.fxtwitter.com") + "/" + userSegment(ref) + "/status/" + ref.ID
 }
 
 // fxVariant is one entry of a variants list. fxtwitter's own variants name

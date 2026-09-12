@@ -13,9 +13,10 @@ import (
 const opVx = "media.vx"
 
 // vxStatusURL is the vx endpoint URL; user-less refs use the /i/ segment
-// (plugin: link.username or "i").
+// (plugin: link.username or "i"). The base yields to the EndpointOverrides
+// test seam when set.
 func vxStatusURL(ref StatusRef) string {
-	return "https://api.vxtwitter.com/" + userSegment(ref) + "/status/" + ref.ID
+	return baseURL(EndpointOverrides.Vx, "https://api.vxtwitter.com") + "/" + userSegment(ref) + "/status/" + ref.ID
 }
 
 // vxMediaEntry is one media_extended[] item: a typed direct link.

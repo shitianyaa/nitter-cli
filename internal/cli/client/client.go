@@ -3,10 +3,10 @@
 // instances, and hands capabilities to commands.
 //
 // Package boundary (ruling R11, frozen): this is the ONLY CLI-layer package
-// allowed to import internal/nitter/{appapi,protocol/httpx}. Command packages
-// consume data exclusively through sdk (package twitter) models plus the
-// capability types exported here (InstanceTester, TestOptions) — they never
-// import internal/nitter/* themselves.
+// allowed to import internal/nitter/{appapi,protocol/httpx} and internal/media.
+// Command packages consume data exclusively through sdk (package twitter)
+// models plus the capability types exported here (InstanceTester, TestOptions)
+// — they never import internal/nitter/* or internal/media themselves.
 package client
 
 import (
@@ -20,6 +20,7 @@ import (
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/twitter-cli/internal/config/paths"
 	"github.com/shitianyaa/twitter-cli/internal/config/settings"
+	"github.com/shitianyaa/twitter-cli/internal/media"
 	"github.com/shitianyaa/twitter-cli/internal/nitter/appapi"
 	"github.com/shitianyaa/twitter-cli/internal/nitter/protocol/httpx"
 	"github.com/shitianyaa/twitter-cli/sdk"
@@ -77,6 +78,24 @@ type StatusSource interface {
 	Status(ctx context.Context, ref string) (twitter.Tweet, string, error)
 }
 
+// MediaResolver is the media-resolution capability a command consumes. The
+// parameters are primitives — no internal/media type reaches a command
+// package (R11; same rule as TimelineSource, adapted internally). Backed by
+// *media.Resolver through mediaAdapter.
+//
+//   - id/user are the parsed status reference (client.ParseStatusRef's
+//     outputs); strategies are the wire strategy names ("fx", "vx",
+//     "syndication", "nitter", "xdown") in try order; quality is
+//     "high"|"medium"|"low". The first strategy that yields media wins; an
+//     aggregate error naming every attempted strategy otherwise.
+//   - ProbeMedia is the best-effort --probe enrichment for one direct media
+//     URL (duration from the mp4 head, size from the Content-Range total);
+//     every error is a "probe unavailable" signal, never a run failure.
+type MediaResolver interface {
+	ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]twitter.MediaResolution, error)
+	ProbeMedia(ctx context.Context, mediaURL string) (durationSeconds float64, sizeBytes int64, err error)
+}
+
 // ParseStatusRef re-exports the appapi status-reference parser so commands
 // can validate a ref locally (exit 2 before any wiring is built, as the
 // user command does for handles) without importing internal/nitter/appapi
@@ -88,12 +107,21 @@ func ParseStatusRef(s string) (id, user string, err error) {
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
-// chooser is the wiring chooser.
+// chooser is the wiring chooser. The media resolver shares the transport too,
+// so the third-party media requests ride the same pacing, retries and proxy.
 type Wiring struct {
 	AppAPI    *appapi.Client
 	Transport *httpx.Client
 	Chooser   *twitter.Chooser
 	Instances []twitter.Instance
+
+	// now and nitterBase feed the lazily built media resolver (Media()):
+	// the resolver clock, and the instance base the nitter strategy fetches
+	// status pages from (the first configured instance — --instance replaces
+	// the whole set, so instances[0] already reflects it). Empty when no
+	// instance is configured; the nitter strategy then reports local state.
+	now        func() time.Time
+	nitterBase string
 }
 
 // Tester returns the instance-probe capability as the narrow interface
@@ -148,6 +176,41 @@ func (a statusAdapter) Status(ctx context.Context, ref string) (twitter.Tweet, s
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) Status() StatusSource { return statusAdapter{w.AppAPI} }
 
+// mediaAdapter bridges the primitive-parameter MediaResolver to the
+// internal/media resolver's typed Options signature.
+type mediaAdapter struct {
+	res        *media.Resolver
+	nitterBase string
+}
+
+func (a mediaAdapter) ResolveMedia(ctx context.Context, id, user string, strategies []string, quality string) ([]twitter.MediaResolution, error) {
+	sts := make([]media.Strategy, len(strategies))
+	for i, s := range strategies {
+		sts[i] = media.Strategy(s)
+	}
+	return a.res.ResolveStatus(ctx, media.StatusRef{ID: id, User: user}, media.Options{
+		Strategies: sts,
+		Quality:    quality,
+		NitterBase: a.nitterBase,
+	})
+}
+
+func (a mediaAdapter) ProbeMedia(ctx context.Context, mediaURL string) (float64, int64, error) {
+	return a.res.Probe(ctx, mediaURL)
+}
+
+// Media returns the media-resolution capability as the narrow interface
+// commands consume (R11: commands never import internal/media). The resolver
+// shares the wiring's transport; nil now is defaulted (a wiring built by
+// Build always carries a clock).
+func (w *Wiring) Media() MediaResolver {
+	now := w.now
+	if now == nil {
+		now = time.Now
+	}
+	return mediaAdapter{res: &media.Resolver{HTTP: w.Transport, Now: now}, nitterBase: w.nitterBase}
+}
+
 // Build composes the wiring.
 //
 //   - Proxy: rootOpts.Proxy when set, else cfg.Proxy; "" disables it. The
@@ -163,7 +226,8 @@ func (w *Wiring) Status() StatusSource { return statusAdapter{w.AppAPI} }
 //   - Instances: the cfg projection, or the single rootOpts.Instance URL when
 //     the --instance override is set (its documented meaning: the instance
 //     set for this invocation). Credentials are carried but, in the MVP, not
-//     wired to the transport — probes and fetches run unauthenticated.
+//     wired to the transport — probes and fetches run unauthenticated. The
+//     first instance doubles as the media resolver's nitter strategy base.
 //   - A nil now defaults to time.Now; a nil rootOpts is treated as unset
 //     flags (tests and programmatic callers).
 func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() time.Time) (*Wiring, error) {
@@ -213,11 +277,17 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 		return nil, fmt.Errorf("build transport: %w", err)
 	}
 	chooser := twitter.NewChooser(instances, cooldown, now)
+	nitterBase := ""
+	if len(instances) > 0 {
+		nitterBase = instances[0].URL
+	}
 	return &Wiring{
-		AppAPI:    &appapi.Client{HTTP: transport, Chooser: chooser, Now: now},
-		Transport: transport,
-		Chooser:   chooser,
-		Instances: instances,
+		AppAPI:     &appapi.Client{HTTP: transport, Chooser: chooser, Now: now},
+		Transport:  transport,
+		Chooser:    chooser,
+		Instances:  instances,
+		now:        now,
+		nitterBase: nitterBase,
 	}, nil
 }
 

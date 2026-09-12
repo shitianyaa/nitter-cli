@@ -85,6 +85,14 @@ type Options struct {
 	// and which video variant becomes the main URL. "" or an unknown value
 	// behaves as high (the plugin default).
 	Quality string
+	// NitterBase is the base URL of the user's own Nitter instance that the
+	// nitter strategy fetches its status page from (<base>/<user>/status/<id>).
+	// The third-party strategies never consult it; an empty value makes the
+	// nitter strategy fail with a local-state error, which the auto chain
+	// reports honestly in its aggregate (never silently skipped). The CLI
+	// wiring fills it from the configured instances (config [[instances]] or
+	// the --instance override).
+	NitterBase string
 }
 
 // StatusRef is a parsed status reference: the numeric status ID and the
@@ -325,6 +333,12 @@ func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, op
 			return nil, err
 		}
 		cands, err = parseSyndication(body)
+	case StrategyNitter:
+		// ResolveNitter fetches and finalizes itself: the page's media keeps
+		// instance-served (possibly plain-http) links the shared https-only
+		// tail below would wrongly drop, and the parser already applied its
+		// own dedup and pbs rules.
+		return r.ResolveNitter(ctx, ref, opts)
 	case StrategyXdown:
 		// ResolveXdown fetches and finalizes itself (its candidates carry
 		// labels, fallback URLs and durations the shared tail below would
