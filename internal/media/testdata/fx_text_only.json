@@ -1,0 +1,13 @@
+{
+  "code": 200,
+  "message": "OK",
+  "tweet": {
+    "url": "https://x.com/nasa/status/2070000000000000101",
+    "text": "no media here",
+    "created_at": "Sat, 05 Jul 2026 09:09:40 GMT",
+    "author": {
+      "screen_name": "nasa",
+      "name": "NASA"
+    }
+  }
+}

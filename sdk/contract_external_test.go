@@ -139,6 +139,23 @@ var (
 		Latency:  0,
 	}
 
+	// Media resolution (additive M8 extension): field-name/type freeze via
+	// composite literals.
+	_ twitter.MediaVariant    = twitter.MediaVariant{URL: "", Bitrate: 0, ContentType: ""}
+	_ twitter.MediaResolution = twitter.MediaResolution{
+		Ref:             "",
+		Source:          "",
+		Kind:            "",
+		URL:             "",
+		FallbackURL:     "",
+		Label:           "",
+		Width:           0,
+		Height:          0,
+		DurationSeconds: 0,
+		SizeBytes:       0,
+		Variants:        []twitter.MediaVariant{{URL: "", Bitrate: 0, ContentType: ""}},
+	}
+
 	// The generic pagination envelope instantiated at the frozen type.
 	_ twitter.Page[twitter.Tweet]          = twitter.Page[twitter.Tweet]{Items: nil, NextCursor: ""}
 	_ twitter.Page[twitter.InstanceReport] = twitter.Page[twitter.InstanceReport]{Items: nil, NextCursor: ""}
@@ -191,5 +208,39 @@ func TestProbeJSONShapeIsTheDataContract(t *testing.T) {
 	want := `{"ok":false,"status":429,"err":"instance returned HTTP 429"}`
 	if string(b) != want {
 		t.Errorf("Probe JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+}
+
+// TestMediaResolutionJSONShapeIsTheDataContract pins the M8 media-resolution
+// encoding: the identity keys (ref/source/kind/url) marshal unconditionally,
+// every sparse field is omitempty, and a zero value carries only those four.
+func TestMediaResolutionJSONShapeIsTheDataContract(t *testing.T) {
+	b, err := json.Marshal(twitter.MediaResolution{
+		Ref:    "https://x.com/nasa/status/7",
+		Source: "fx",
+		Kind:   "video",
+		URL:    "https://video.twimg.com/x.mp4",
+		Width:  720,
+		Height: 1280,
+		Variants: []twitter.MediaVariant{
+			{URL: "https://video.twimg.com/x.mp4", Bitrate: 2176000, ContentType: "video/mp4"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(MediaResolution) = error %v", err)
+	}
+	want := `{"ref":"https://x.com/nasa/status/7","source":"fx","kind":"video","url":"https://video.twimg.com/x.mp4","width":720,"height":1280,` +
+		`"variants":[{"url":"https://video.twimg.com/x.mp4","bitrate":2176000,"content_type":"video/mp4"}]}`
+	if string(b) != want {
+		t.Errorf("MediaResolution JSON mismatch:\n got %s\nwant %s", b, want)
+	}
+
+	zero, err := json.Marshal(twitter.MediaResolution{})
+	if err != nil {
+		t.Fatalf("Marshal(zero MediaResolution) = error %v", err)
+	}
+	wantZero := `{"ref":"","source":"","kind":"","url":""}`
+	if string(zero) != wantZero {
+		t.Errorf("zero MediaResolution JSON mismatch:\n got %s\nwant %s", zero, wantZero)
 	}
 }

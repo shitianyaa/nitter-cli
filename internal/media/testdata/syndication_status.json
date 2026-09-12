@@ -1,0 +1,35 @@
+{
+  "text": "syndication payload",
+  "created_at": "Sat Jul 05 09:09:40 +0000 2026",
+  "user": {
+    "screen_name": "nasa"
+  },
+  "photos": [
+    {
+      "url": "https://pbs.twimg.com/media/Gy4jkl.jpg",
+      "width": 1024,
+      "height": 512,
+      "expandedUrl": "https://x.com/nasa/status/2070000000000000300/photo/1"
+    }
+  ],
+  "video": {
+    "poster": "https://pbs.twimg.com/ext_tw_video_thumb/300/pu/img/pl.jpg",
+    "variants": [
+      {
+        "bitrate": 0,
+        "content_type": "application/x-mpegURL",
+        "src": "https://video.twimg.com/ext_tw_video/300/pu/pl.m3u8"
+      },
+      {
+        "bitrate": 832000,
+        "content_type": "video/mp4",
+        "src": "https://video.twimg.com/ext_tw_video/300/pu/vid/480x848/832.mp4"
+      },
+      {
+        "bitrate": 2176000,
+        "content_type": "video/mp4",
+        "src": "https://video.twimg.com/ext_tw_video/300/pu/vid/720x1280/2176.mp4"
+      }
+    ]
+  }
+}

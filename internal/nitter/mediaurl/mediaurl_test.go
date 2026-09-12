@@ -28,6 +28,39 @@ func TestRewritePBSOrig(t *testing.T) {
 	}
 }
 
+// TestRewritePBSTier pins the quality-tier port of the plugin's
+// prefer_pbs_quality: high=orig, medium=large, low=small, unknown → orig.
+// The high tier must stay exactly RewritePBSOrig.
+func TestRewritePBSTier(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		tier string
+		want string
+	}{
+		{"high replaces existing name", "https://pbs.twimg.com/media/Abc.jpg?name=large", "high", "https://pbs.twimg.com/media/Abc.jpg?name=orig"},
+		{"medium tier", "https://pbs.twimg.com/media/Abc.jpg?name=orig", "medium", "https://pbs.twimg.com/media/Abc.jpg?name=large"},
+		{"low tier", "https://pbs.twimg.com/media/Abc.jpg?format=jpg", "low", "https://pbs.twimg.com/media/Abc.jpg?format=jpg&name=small"},
+		{"medium appends when absent", "https://pbs.twimg.com/media/Abc.jpg", "medium", "https://pbs.twimg.com/media/Abc.jpg?name=large"},
+		{"unknown tier falls back to orig", "https://pbs.twimg.com/media/Abc.jpg", "bogus", "https://pbs.twimg.com/media/Abc.jpg?name=orig"},
+		{"empty tier falls back to orig", "https://pbs.twimg.com/media/Abc.jpg?format=jpg&name=small", "", "https://pbs.twimg.com/media/Abc.jpg?format=jpg&name=orig"},
+		{"tier is case-insensitive", "https://pbs.twimg.com/media/Abc.jpg", "Medium", "https://pbs.twimg.com/media/Abc.jpg?name=large"},
+		{"non-pbs untouched", "https://video.twimg.com/x.mp4", "low", "https://video.twimg.com/x.mp4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mediaurl.RewritePBSTier(tc.in, tc.tier); got != tc.want {
+				t.Errorf("RewritePBSTier(%q, %q) = %q, want %q", tc.in, tc.tier, got, tc.want)
+			}
+		})
+	}
+	// The high tier is RewritePBSOrig by another name: any divergence would
+	// change the frozen Nitter projection.
+	if got, want := mediaurl.RewritePBSTier("https://pbs.twimg.com/media/Abc.jpg?format=jpg&name=small", "HIGH"), mediaurl.RewritePBSOrig("https://pbs.twimg.com/media/Abc.jpg?format=jpg&name=small"); got != want {
+		t.Errorf("RewritePBSTier(high) = %q, RewritePBSOrig = %q", got, want)
+	}
+}
+
 func TestAbsolutize(t *testing.T) {
 	cases := []struct {
 		name string

@@ -30,22 +30,44 @@ var pbsNameRe = regexp.MustCompile(`([?&])name=[^&]*`)
 // instance base.
 var schemeRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.\-]*:`)
 
+// pbsTierName maps the plugin's quality tiers onto pbs name= values
+// (_PBS_QUALITY_NAME in the plugin's html_backend.parser); an unknown tier
+// falls back to orig.
+var pbsTierName = map[string]string{
+	"high":   "orig",
+	"medium": "large",
+	"low":    "small",
+}
+
 // RewritePBSOrig ports the plugin's prefer_pbs_quality at the "high" tier:
 // pbs.twimg.com/media URLs get their name= parameter replaced with orig, or
 // appended when absent; non-pbs URLs pass through unchanged. Only
 // pbs.twimg.com/media thumbnails are affected; other pbs hosts are left as-is.
 func RewritePBSOrig(u string) string {
+	return RewritePBSTier(u, "high")
+}
+
+// RewritePBSTier generalizes RewritePBSOrig to the plugin's full quality
+// ladder (prefer_pbs_quality): high rewrites name= to orig, medium to large,
+// low to small. The tier is matched case-insensitively after trimming; an
+// unknown or empty tier falls back to orig, exactly like the plugin's
+// default. Non-pbs media URLs pass through unchanged.
+func RewritePBSTier(u string, tier string) string {
 	if !strings.Contains(u, "pbs.twimg.com/media/") {
 		return u
 	}
+	name := pbsTierName[strings.ToLower(strings.TrimSpace(tier))]
+	if name == "" {
+		name = "orig"
+	}
 	if strings.Contains(u, "name=") {
-		return pbsNameRe.ReplaceAllString(u, "${1}name=orig")
+		return pbsNameRe.ReplaceAllString(u, "${1}name="+name)
 	}
 	sep := "?"
 	if strings.Contains(u, "?") {
 		sep = "&"
 	}
-	return u + sep + "name=orig"
+	return u + sep + "name=" + name
 }
 
 // Absolutize resolves a URL extracted from Nitter HTML against the instance

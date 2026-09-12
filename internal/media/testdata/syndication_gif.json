@@ -1,0 +1,22 @@
+{
+  "text": "gif via tweet_video_thumb marker",
+  "created_at": "Sat Jul 05 09:09:40 +0000 2026",
+  "user": {
+    "screen_name": "nasa"
+  },
+  "video": {
+    "poster": "https://pbs.twimg.com/tweet_video_thumb/Gz2-d.jpg",
+    "variants": [
+      {
+        "bitrate": 0,
+        "content_type": "application/x-mpegURL",
+        "src": "https://video.twimg.com/tweet_video/Gz2.pl.m3u8"
+      },
+      {
+        "bitrate": 0,
+        "content_type": "tweet_video_thumb",
+        "src": "https://video.twimg.com/tweet_video/Gz2-d.mp4"
+      }
+    ]
+  }
+}

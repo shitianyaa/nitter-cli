@@ -5,7 +5,9 @@
 // into the shared sdk (package twitter) error kinds.
 //
 // Package boundary: this is a protocol detail of the Nitter fetch path.
-// Only packages under internal/nitter/* and the sdk may import it.
+// Only packages under internal/nitter/*, the media resolution package
+// internal/media (M8: it fetches third-party status JSON over the same
+// paced, retried transport), and the sdk may import it.
 //
 // Redaction: errors produced here obey the sdk contract — neither the
 // *twitter.Error nor its wrapped chain contains credentials, URL query
