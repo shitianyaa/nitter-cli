@@ -20,6 +20,7 @@ import (
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
 	"github.com/shitianyaa/twitter-cli/internal/cli/result"
+	"github.com/shitianyaa/twitter-cli/internal/cli/tweetfilter"
 	"github.com/shitianyaa/twitter-cli/internal/common/jsonx"
 	"github.com/shitianyaa/twitter-cli/sdk"
 )
@@ -36,6 +37,7 @@ func New(s *invocation.Streams) *cobra.Command {
 		maxPagesFlag int
 		asJSON       bool
 		asNDJSON     bool
+		filters      tweetfilter.Filters
 	)
 	cmd := &cobra.Command{
 		Use:   "search <QUERY>",
@@ -71,7 +73,7 @@ stderr in the default modes.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd, s, args[0], limitFlag, maxPagesFlag, asJSON, asNDJSON)
+			return run(cmd, s, args[0], limitFlag, maxPagesFlag, asJSON, asNDJSON, filters)
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
@@ -82,6 +84,12 @@ stderr in the default modes.`,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
 		"Print one twitter.pipeline/v1 envelope per tweet (kind tweet)")
+	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
+		"Drop pure retweets (retweet-header detection) from the output")
+	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
+		"Drop tweets that carry no media attachments")
+	cmd.Flags().StringVar(&filters.MediaType, "media-type", "",
+		"Keep only tweets with at least one media entry of this type: image, video or gif")
 	return cmd
 }
 
@@ -89,7 +97,7 @@ stderr in the default modes.`,
 // wins over the config value; a negative flag is a usage error while a
 // negative config value keeps its documented "0 semantics = all" pixiv
 // heritage (appapi treats limit <= 0 as unbounded).
-func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool) error {
+func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
 		return err
@@ -102,6 +110,9 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 	}
 	if maxPagesFlag < 0 {
 		return invocation.Usagef("search: --max-pages must be >= 0")
+	}
+	if err := filters.Validate(); err != nil {
+		return invocation.Usagef("search: %v", err)
 	}
 
 	// The root PersistentPreRunE has published the baseline config by now;
@@ -133,6 +144,9 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 		// validation) map to usage errors; acquisition failures exit 1.
 		return client.AsUsageError(err)
 	}
+	// Field filters run post-fetch, pre-output: what the consumer sees is
+	// the filtered slice (the fetch itself stays unbounded by them).
+	tweets = tweetfilter.Apply(tweets, filters)
 	fetchedAt := time.Now().UTC().Format(time.RFC3339)
 
 	switch mode {

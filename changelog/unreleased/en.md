@@ -15,6 +15,7 @@
 - Bilingual documentation (English + 简体中文): README, CLI reference, Go SDK guide and maintainers' architecture/development guides under `docs/`.
 - Agent skill shipped with the repository (`skills/twitter-cli/`): operating rules, command tiers, quick reference and troubleshooting for driving the binary from an AI agent.
 - `twitter update` with `--check [--prerelease] [--json]`: compares the installed version against the latest GitHub release by strict semver (prerelease-aware with `--prerelease`, drafts always excluded); without `--check` it prints package-manager / manual-download guidance. No self-install in the MVP; development builds skip the check.
+- Field-level output filters for the data commands: `--no-reposts`, `--media-only` and `--media-type image|video|gif` on `user`/`search`/`list`/`watch` (freely combinable; an invalid `--media-type` value is a usage error). Filters apply after the fetch — in `watch` before dedup, so filtered tweets are never marked seen, are re-fetched each cycle without being re-emitted, and `--max-new` counts only filtered-through tweets.
 
 ## Changed
 

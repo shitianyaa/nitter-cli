@@ -658,3 +658,117 @@ func TestWatchEmptyFetchDoesNotRewriteSeenFile(t *testing.T) {
 		t.Errorf("empty-fetch round rewrote seen.json:\nbefore %s\nafter  %s", before, after)
 	}
 }
+
+// htmlPageWithRetweet builds a Nitter-shaped user timeline with one pure
+// retweet (stock anchor-less retweet-header markup, status 555) followed by
+// one normal tweet (201) — the --no-reposts fixture. Retweet headers only
+// exist on the HTML path, so the fetch must be driven there (the RSS answer
+// 500s; the fetch falls back to the HTML user page).
+func htmlPageWithRetweet() string {
+	return `<div class="timeline">` +
+		`<div class="timeline-item">` +
+		`<a class="tweet-link" href="/repolygon/status/555"></a>` +
+		`<div class="tweet-body">` +
+		`<div class="retweet-header"><span><div class="icon-container"><span class="icon-retweet" title=""></span> NASA retweeted</div></span></div>` +
+		`<div class="tweet-content">reposted body 555</div>` +
+		`<span class="tweet-date"><a title="Jul 5, 2026 · 9:09 AM UTC">Jul 5, 2026</a></span>` +
+		`</div></div>` +
+		`<div class="timeline-item">` +
+		`<a class="tweet-link" href="/NASA/status/201"></a>` +
+		`<div class="tweet-content">html body 201</div>` +
+		`<span class="tweet-date"><a title="Jul 5, 2026 · 9:09 AM UTC">Jul 5, 2026</a></span>` +
+		`</div></div>`
+}
+
+// TestWatchNoRepostsFiltersBeforeDedup pins the filter placement ruling:
+// field filters run after the fetch but BEFORE selection/dedup, so filtered
+// tweets are never recorded as seen — each cycle re-fetches (and re-filters)
+// them without ever emitting them, and the seen state never grows.
+func TestWatchNoRepostsFiltersBeforeDedup(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {500, "boom"},
+		"/NASA":     {200, htmlPageWithRetweet()},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+
+	// Control (own state dir): without the filter the fixture emits the
+	// retweet 555 first — proving the fixture really carries one.
+	controlDir := t.TempDir()
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "--once", "--ndjson",
+		"--include-existing", "--state-dir", controlDir)
+	if code != 0 {
+		t.Fatalf("control: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	if len(envs) != 2 || envs[0].ID != "555" || envs[1].ID != "201" {
+		t.Fatalf("control: envelopes = %+v, want the retweet 555 then 201", envs)
+	}
+	controlSeen := readSeenFile(t, filepath.Join(controlDir, "seen.json")).Sources["user:NASA"]
+	if !slices.Contains(controlSeen.SeenIDs, "555") {
+		t.Errorf("control: seen_ids = %v, want the unfiltered 555 recorded", controlSeen.SeenIDs)
+	}
+
+	// Filtered first cycle: the record-only run seeds ONLY the
+	// filtered-through tweet; the repost id never enters seen_ids and the
+	// watermark anchors the filtered first page.
+	stateDir := t.TempDir()
+	seenPath := filepath.Join(stateDir, "seen.json")
+	args := []string{"watch", "user:NASA", "--once", "--ndjson", "--no-reposts", "--state-dir", stateDir}
+
+	code, out, errOut = runCLI(t, args...)
+	if code != 0 {
+		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("run 1: stdout = %q, want nothing (record-only first run)", out)
+	}
+	st := readSeenFile(t, seenPath).Sources["user:NASA"]
+	if slices.Contains(st.SeenIDs, "555") {
+		t.Errorf("run 1: seen_ids = %v, want the filtered-out repost NOT recorded", st.SeenIDs)
+	}
+	if !slices.Equal(st.SeenIDs, []string{"201"}) {
+		t.Errorf("run 1: seen_ids = %v, want [201] (only the filtered-through tweet)", st.SeenIDs)
+	}
+	if !slices.Equal(st.WatermarkIDs, []string{"201"}) {
+		t.Errorf("run 1: watermark_ids = %v, want [201] (filtered first page)", st.WatermarkIDs)
+	}
+	before, err := os.ReadFile(seenPath)
+	if err != nil {
+		t.Fatalf("read seen.json after run 1: %v", err)
+	}
+
+	// Next cycle against the same fixture: the repost is re-fetched and
+	// re-filtered — nothing emitted, no dupes, no state growth.
+	code, out, errOut = runCLI(t, args...)
+	if code != 0 {
+		t.Fatalf("run 2: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("run 2: stdout = %q, want nothing (the repost is filtered, 201 is seen)", out)
+	}
+	after, err := os.ReadFile(seenPath)
+	if err != nil {
+		t.Fatalf("read seen.json after run 2: %v", err)
+	}
+	if !slices.Equal(before, after) {
+		t.Errorf("run 2 rewrote seen.json (state grew):\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// TestWatchInvalidMediaTypeIsUsageError: a --media-type value outside
+// image|video|gif exits 2 before any fetch.
+func TestWatchInvalidMediaTypeIsUsageError(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{})
+	writeConfig(t, home, instanceConfig(fake))
+
+	code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", "--media-type", "bogus",
+		"--state-dir", t.TempDir())
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "--media-type") {
+		t.Errorf("stderr = %q, want it to name --media-type", errOut)
+	}
+}

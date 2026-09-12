@@ -78,7 +78,8 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
 ## twitter user
 
 ```bash
-twitter user <HANDLE> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
@@ -86,10 +87,18 @@ twitter user <HANDLE> [--limit N] [--max-pages N] [--json|--ndjson]
 HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 为
 `user:<HANDLE>`。
 
+字段过滤在**抓取之后、输出之前**应用（三者可自由组合；`--media-type` 值不合法
+退出 2）：
+
+- `--no-reposts` 丢弃纯转推（转推标记只存在于 HTML 解析路径）。
+- `--media-only` 丢弃不带任何媒体附件的推文。
+- `--media-type image|video|gif` 只保留携带至少一个该类型媒体条目的推文。
+
 ## twitter search
 
 ```bash
-twitter search <QUERY> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 对配置的实例运行 `QUERY`。查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
@@ -97,16 +106,23 @@ twitter search <QUERY> [--limit N] [--max-pages N] [--json|--ndjson]
 其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
 `search:<按原样输入的查询>`。
 
+字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
+`--media-type image|video|gif`（抓取之后、输出之前应用）。
+
 ## twitter list
 
 ```bash
-twitter list <LIST_ID> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 抓取 List `LIST_ID` 的时间线——List 的数字 ID（或实例接受的 ref），非空且不含
 空白、`?`、`#`、`/`（否则退出 2）。它按 `/i/lists/<LIST_ID>` 路径原样传递。空
 结果可能意味着 List 本身为空，也可能是新建 List 尚未被该实例收录——二者从外部
 无法区分；都不算错误。NDJSON 的 `meta.source` 为 `list:<LIST_ID>`。
+
+字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
+`--media-type image|video|gif`（抓取之后、输出之前应用）。
 
 ## twitter get
 
@@ -200,7 +216,8 @@ instance_cooldown, proxy, log_level, log_format
 
 ```bash
 twitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
-  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson]
+  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif]
 ```
 
 按轮询周期抓取各来源，对照持久化去重状态（`~/.twitter-cli/state/seen.json`，或
@@ -224,6 +241,9 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 | `--state-dir DIR` | `~/.twitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
 | `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |
 | `--json` | — | **不支持**：watch 是推文与错误混合的流，不是单个 JSON 文档；恒为用法错误。 |
+| `--no-reposts` | 关 | 在**去重之前**丢弃纯转推（转推标记只存在于 HTML 解析路径）。 |
+| `--media-only` | 关 | 在**去重之前**丢弃不带媒体附件的推文。 |
+| `--media-type image\|video\|gif` | — | 在**去重之前**只保留携带至少一个该类型媒体条目的推文；其他值是用法错误。 |
 
 全局 `--proxy`/`--instance` 与其他命令一致。
 
@@ -235,6 +255,10 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
   会被立即标记为已见、之后绝不补推**：停机恢复后，单源单轮突发超过上限的部分
   会被静默跳过——调度器部署应显式设置 `--max-new`。
 - 已初始化源的抓取成功但结果为空时，整组保留旧状态（不封存任何东西）。
+- **字段过滤在去重之前运行**：被 `--no-reposts`、`--media-only` 或
+  `--media-type` 过滤掉的推文不会被记为已见——每轮都会重新抓取、重新过滤但不
+  输出，因此过滤不会让状态增长，也不会重复推送旧推文。`--max-new` 只统计通过
+  过滤的推文（上限作用于消费端实际收到的内容），水位锚定过滤后的首页。
 - 推文先产出、状态后落盘（先产出后落盘）：交付或落盘失败时保留旧状态，下一轮
   重推（宁重勿丢）。
 

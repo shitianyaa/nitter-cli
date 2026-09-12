@@ -35,6 +35,11 @@
   当前版本与 GitHub 最新发布版比较（`--prerelease` 感知预发布，恒排除草稿）；
   不带 `--check` 时打印包管理器 / 手动下载指引。MVP 不做自替换安装，开发构建
   直接跳过检查。
+- 数据命令的字段级输出过滤：`user`/`search`/`list`/`watch` 新增
+  `--no-reposts`、`--media-only` 与 `--media-type image|video|gif`（可自由组合；
+  `--media-type` 值不合法为用法错误）。过滤在抓取之后应用——`watch` 中位于去重
+  之前，被过滤的推文不会被记为已见，每轮重新抓取但不重复输出，`--max-new` 只
+  统计通过过滤的推文。
 
 ## 变更
 

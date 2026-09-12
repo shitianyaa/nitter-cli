@@ -29,6 +29,7 @@ import (
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/twitter-cli/internal/cli/pipeline"
 	"github.com/shitianyaa/twitter-cli/internal/cli/result"
+	"github.com/shitianyaa/twitter-cli/internal/cli/tweetfilter"
 	"github.com/shitianyaa/twitter-cli/internal/config/paths"
 	"github.com/shitianyaa/twitter-cli/internal/config/settings"
 	"github.com/shitianyaa/twitter-cli/internal/storage/seen"
@@ -73,6 +74,7 @@ func New(s *invocation.Streams) *cobra.Command {
 		stateDirFlag    string
 		asJSON          bool
 		asNDJSON        bool
+		filters         tweetfilter.Filters
 	)
 	cmd := &cobra.Command{
 		Use:   "watch [SOURCE...]",
@@ -110,7 +112,15 @@ losses).
 --ndjson prints one twitter.pipeline/v1 envelope per record: kind tweet
 (the tweet as data, provenance meta.source/meta.instance/meta.fetched_at)
 and kind error for per-source fetch failures. --json is rejected: watch is
-a stream of mixed tweets and errors, which is not a single JSON document.`,
+a stream of mixed tweets and errors, which is not a single JSON document.
+
+Field filters (--no-reposts, --media-only, --media-type image|video|gif)
+run after the fetch but BEFORE selection/dedup: filtered tweets are not
+recorded as seen — they are re-fetched (and re-filtered) every cycle but
+never emitted, so filtering cannot grow the state or re-push old tweets.
+--max-new counts only tweets that pass the filters. The watermark anchors
+the filtered first page. Note the repost marker is only carried by the
+HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, s, args, options{
@@ -122,6 +132,7 @@ a stream of mixed tweets and errors, which is not a single JSON document.`,
 				stateDir:        stateDirFlag,
 				asJSON:          asJSON,
 				asNDJSON:        asNDJSON,
+				filters:         filters,
 			})
 		},
 	}
@@ -141,6 +152,12 @@ a stream of mixed tweets and errors, which is not a single JSON document.`,
 		"Not supported: watch streams NDJSON (usage error; use --ndjson)")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
 		"Print one twitter.pipeline/v1 envelope per record (tweets and errors)")
+	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
+		"Drop pure retweets (retweet-header detection) before dedup")
+	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
+		"Drop tweets that carry no media attachments, before dedup")
+	cmd.Flags().StringVar(&filters.MediaType, "media-type", "",
+		"Keep only tweets with at least one media entry of this type: image, video or gif")
 	return cmd
 }
 
@@ -154,6 +171,7 @@ type options struct {
 	stateDir        string
 	asJSON          bool
 	asNDJSON        bool
+	filters         tweetfilter.Filters
 }
 
 // run executes the watch command: validate flags, resolve sources (argv,
@@ -178,6 +196,9 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	}
 	if opts.maxPages < 0 {
 		return invocation.Usagef("watch: --max-pages must be >= 0")
+	}
+	if err := opts.filters.Validate(); err != nil {
+		return invocation.Usagef("watch: %v", err)
 	}
 
 	// The root PersistentPreRunE has published the baseline config by now;
@@ -228,6 +249,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		maxNew:          opts.maxNew,
 		maxPages:        maxPages,
 		mode:            mode,
+		filters:         opts.filters,
 	}
 
 	if opts.once {
@@ -315,6 +337,7 @@ type cycleOptions struct {
 	maxNew          int
 	maxPages        int
 	mode            pipeline.Mode
+	filters         tweetfilter.Filters
 }
 
 // runCycle processes every source once, in the given order. It returns the
@@ -349,6 +372,14 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 			continue
 		}
 		fetchedAt := time.Now().UTC().Format(time.RFC3339)
+		// Field filters run after the fetch but BEFORE Select/dedup (the
+		// plugin's placement: filters at the fetch stage, before the seen
+		// diff). Filtered tweets are never marked seen — each cycle
+		// re-fetches and re-filters them without emitting, so filtering
+		// cannot grow the state or re-push old tweets. The watermark
+		// anchors the FILTERED first page (page-1 of what the pipeline
+		// considers), and MaxNew counts only filtered-through tweets.
+		tweets = tweetfilter.Apply(tweets, opts.filters)
 		res := watchengine.Select(tweets, firstPageIDs(tweets), prev, watchengine.Options{
 			Kind:            src.Kind,
 			IncludeExisting: opts.includeExisting,

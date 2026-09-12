@@ -562,3 +562,138 @@ func TestUserConfiguredInstanceIsUsedWithoutFlag(t *testing.T) {
 		t.Fatalf("output = %q, want meta.instance to carry the configured instance", out)
 	}
 }
+
+// htmlPageWithRetweet builds a Nitter-shaped user timeline with one pure
+// retweet (stock anchor-less retweet-header markup, status 555 by another
+// account) followed by one normal tweet (201) — the --no-reposts fixture.
+func htmlPageWithRetweet() string {
+	return `<div class="timeline">` +
+		`<div class="timeline-item">` +
+		`<a class="tweet-link" href="/repolygon/status/555"></a>` +
+		`<div class="tweet-body">` +
+		`<div class="retweet-header"><span><div class="icon-container"><span class="icon-retweet" title=""></span> NASA retweeted</div></span></div>` +
+		`<div class="tweet-content">reposted body 555</div>` +
+		`<span class="tweet-date"><a title="Jul 5, 2026 · 9:09 AM UTC">Jul 5, 2026</a></span>` +
+		`</div></div>` +
+		`<div class="timeline-item">` +
+		`<a class="tweet-link" href="/NASA/status/201"></a>` +
+		`<div class="tweet-content">html body 201</div>` +
+		`<span class="tweet-date"><a title="Jul 5, 2026 · 9:09 AM UTC">Jul 5, 2026</a></span>` +
+		`</div></div>`
+}
+
+// TestUserNoRepostsDropsRetweets: --no-reposts removes pure retweets after
+// the fetch; without the flag the fixture's retweet is part of the output.
+// The retweet header only exists on the HTML path, so the RSS feed serves
+// empty and the HTML user page carries both tweets.
+func TestUserNoRepostsDropsRetweets(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody()},
+		"/NASA":     {200, htmlPageWithRetweet()},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	// Control: unfiltered --json prints a 2-element array led by the
+	// retweet (proving the fixture has one).
+	code, out, errOut := runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("control: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var all []map[string]any
+	if err := json.Unmarshal([]byte(out), &all); err != nil || len(all) != 2 {
+		t.Fatalf("control: output = %q (%v), want a 2-element array", out, err)
+	}
+	if all[0]["id"] != "555" || all[0]["is_retweet"] != true {
+		t.Errorf("control: tweet 0 = %v, want the pure retweet 555", all[0])
+	}
+
+	// Filtered: only the normal tweet survives; --json prints one object.
+	code, out, errOut = runCLI(t, "user", "NASA", "--no-reposts", "--json")
+	if code != 0 {
+		t.Fatalf("filtered: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var one map[string]any
+	if err := json.Unmarshal([]byte(out), &one); err != nil {
+		t.Fatalf("filtered: output is not one JSON object: %v\n%s", err, out)
+	}
+	if one["id"] != "201" || one["is_retweet"] != false {
+		t.Errorf("filtered: object = %v, want the normal tweet 201", one)
+	}
+}
+
+// photoItem102 is one RSS item carrying a media:content photo (status 102).
+const photoItem102 = `<item>` +
+	`<guid>https://nitter.example/NASA/status/102#m</guid>` +
+	`<link>https://nitter.example/NASA/status/102</link>` +
+	`<dc:creator>@NASA</dc:creator>` +
+	`<title>photo tweet</title>` +
+	`<description><![CDATA[<div class="tweet-content">rss body 102</div>]]></description>` +
+	`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate>` +
+	`<media:content url="https://pbs.twimg.com/media/Fxxx2.jpg?name=small" medium="image"/>` +
+	`</item>`
+
+// rssBodyWithPhoto builds an RSS feed with one media-less tweet (101) and
+// one photo tweet (102) — the media-filter fixture.
+func rssBodyWithPhoto() string {
+	return strings.Replace(rssBody("101"), "</channel></rss>", photoItem102+"</channel></rss>", 1)
+}
+
+// TestUserMediaFilters: --media-only keeps only media-carrying tweets,
+// --media-type narrows further to one media kind, and an invalid --media-type
+// value is a usage error (exit 2) before any network.
+func TestUserMediaFilters(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBodyWithPhoto()},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	// --media-only: only the photo tweet (102) survives; --json prints one
+	// object.
+	code, out, errOut := runCLI(t, "user", "NASA", "--media-only", "--json")
+	if code != 0 {
+		t.Fatalf("--media-only: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var one map[string]any
+	if err := json.Unmarshal([]byte(out), &one); err != nil {
+		t.Fatalf("--media-only: output is not one JSON object: %v\n%s", err, out)
+	}
+	if one["id"] != "102" {
+		t.Errorf("--media-only: object = %v, want the photo tweet 102", one)
+	}
+
+	// --media-type image: same survivor.
+	code, out, _ = runCLI(t, "user", "NASA", "--media-type", "image", "--json")
+	if code != 0 {
+		t.Fatalf("--media-type image: exit = %d, want 0", code)
+	}
+	one = nil
+	if err := json.Unmarshal([]byte(out), &one); err != nil || one["id"] != "102" {
+		t.Errorf("--media-type image: output = %q (%v), want tweet 102", out, err)
+	}
+
+	// --media-type video: no tweet has video — a filtered-empty result is a
+	// literal [] and still a success.
+	code, out, _ = runCLI(t, "user", "NASA", "--media-type", "video", "--json")
+	if code != 0 {
+		t.Fatalf("--media-type video: exit = %d, want 0", code)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("--media-type video: output = %q, want []", out)
+	}
+
+	// --media-type bogus: usage error naming the flag, before any network.
+	bad := newFake(t, map[string]answer{})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+bad.addr+"\"\n")
+	code, _, errOut = runCLI(t, "user", "NASA", "--media-type", "bogus")
+	if code != 2 {
+		t.Fatalf("--media-type bogus: exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "--media-type") {
+		t.Errorf("stderr = %q, want it to name --media-type", errOut)
+	}
+	if got := bad.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+}

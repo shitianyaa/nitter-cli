@@ -84,7 +84,8 @@ successful output; stderr is never JSON.
 ## twitter user
 
 ```bash
-twitter user <HANDLE> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Fetches the timeline of `HANDLE` — 1–15 letters, digits or underscores, without
@@ -92,10 +93,20 @@ the `@` (bad shape exits 2 before any network). The RSS feed (`<HANDLE>/rss`) is
 tried first; when it fails or yields no tweets the HTML user page is fetched,
 following its load-more cursor. NDJSON `meta.source` is `user:<HANDLE>`.
 
+Field filters apply **after the fetch, before output** (the three combine
+freely; an invalid `--media-type` value exits 2):
+
+- `--no-reposts` drops pure retweets (the retweet header only exists on the
+  HTML parse path).
+- `--media-only` drops tweets that carry no media attachments.
+- `--media-type image|video|gif` keeps only tweets carrying at least one media
+  entry of that type.
+
 ## twitter search
 
 ```bash
-twitter search <QUERY> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Runs `QUERY` against the configured instances. The query is passed through to
@@ -104,10 +115,14 @@ syntax applies: a leading `#` searches a hashtag, `from:user` a user's posts,
 anything else is a plain phrase search. An empty (whitespace-only) query exits 2.
 NDJSON `meta.source` is `search:<query as typed>`.
 
+The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
+`--media-type image|video|gif` (applied after the fetch, before output).
+
 ## twitter list
 
 ```bash
-twitter list <LIST_ID> [--limit N] [--max-pages N] [--json|--ndjson]
+twitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Fetches the timeline of list `LIST_ID` — the list's numeric ID (or a ref the
@@ -116,6 +131,9 @@ exit 2). It is passed through as the `/i/lists/<LIST_ID>` path. An empty result
 may mean the list is empty or new and not yet ingested by this instance — the
 two are indistinguishable from the outside; neither is an error. NDJSON
 `meta.source` is `list:<LIST_ID>`.
+
+The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
+`--media-type image|video|gif` (applied after the fetch, before output).
 
 ## twitter get
 
@@ -217,7 +235,8 @@ or parsed (invalid TOML) fails with exit 1; a value failing schema validation
 
 ```bash
 twitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
-  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson]
+  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif]
 ```
 
 Polls sources in cycles and prints only tweets that are new against the
@@ -244,6 +263,9 @@ are empty: exit 2.
 | `--state-dir DIR` | `~/.twitter-cli/state` | Directory holding `seen.json` (created if missing). |
 | `--ndjson` | off | One envelope per record: `kind` `tweet` and `kind` `error`. |
 | `--json` | — | **Not supported**: watch is a stream of mixed tweets and errors, not a single JSON document; always a usage error. |
+| `--no-reposts` | off | Drop pure retweets **before dedup** (the retweet header only exists on the HTML parse path). |
+| `--media-only` | off | Drop tweets without media attachments, **before dedup**. |
+| `--media-type image\|video\|gif` | — | Keep only tweets carrying at least one media entry of that type, **before dedup**; another value is a usage error. |
 
 Global `--proxy`/`--instance` apply as everywhere.
 
@@ -259,6 +281,12 @@ Global `--proxy`/`--instance` apply as everywhere.
   `--max-new` explicitly.
 - An initialized source whose fetch succeeds but comes back empty keeps its
   previous state wholesale (nothing is sealed).
+- **Field filters run before dedup**: tweets dropped by `--no-reposts`,
+  `--media-only` or `--media-type` are not recorded as seen — each cycle
+  re-fetches and re-filters them without emitting them, so filtering never
+  grows the state or re-pushes old tweets. `--max-new` counts only tweets
+  that pass the filters (the cap applies to what the consumer receives), and
+  the watermark anchors the filtered first page.
 - Tweets are produced first and the state persisted after (produce-then-persist):
   a delivery or state-write failure leaves the old state, so the next round
   re-pushes (宁重勿丢).

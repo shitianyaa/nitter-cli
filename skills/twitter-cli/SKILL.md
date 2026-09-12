@@ -1,6 +1,6 @@
 ---
 slug: twitter-cli
-version: 0.1.1
+version: 0.1.2
 displayName: Twitter CLI
 summary: Safely operate public-tweet retrieval through the twitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
@@ -105,6 +105,8 @@ twitter instances test URL --ndjson                      # one instance_report e
 
 twitter user NASA --limit 5                              # timeline, RSS first, HTML fallback
 twitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
+twitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
+twitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
 twitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
 twitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 twitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
@@ -123,6 +125,7 @@ twitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; fa
 twitter watch --once --ndjson                            # sources from [[watch.sources]]
 twitter watch user:NASA --once --include-existing --ndjson   # first run emits history (explicit opt-in)
 twitter watch user:NASA --once --max-new 50 --ndjson     # raise the per-source emission cap (default 10)
+twitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
 twitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
 twitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state (seen list cannot see it)
 
@@ -192,6 +195,13 @@ twitter update --check --json                            # {current, latest, out
 14. **Instances are trust boundaries**: only the user's own instances belong in
     config; the CLI follows media/redirect URLs an instance returns, so the
     network around the instance must isolate internal services.
+15. **Field filters run before dedup in watch**: `--no-reposts`, `--media-only`
+    and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`)
+    apply right after the fetch, before selection/dedup — filtered tweets are
+    not marked seen and are re-fetched (never re-emitted) each cycle, and
+    `--max-new` counts only filtered-through tweets. An invalid
+    `--media-type` value exits 2. Note `--no-reposts` acts on the HTML
+    retweet header only: RSS-sourced data carries no repost marker.
 
 ## Routing
 
