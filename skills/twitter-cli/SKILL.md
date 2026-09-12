@@ -1,6 +1,6 @@
 ---
 slug: twitter-cli
-version: 0.2.0
+version: 0.3.0
 displayName: Twitter CLI
 summary: Safely operate public-tweet retrieval through the twitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
@@ -82,7 +82,14 @@ the user is fine sharing (see trap 16).
   `instances test` and `watch`; `watch` has no `--json`; `config`/
   `seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
-  pages, timeouts, or retries the user did not ask for.
+  pages, timeouts, or retries the user did not ask for. If `jq` is present,
+  prefer `--json` + `jq` for field extraction; if absent, fall back to the
+  plain output silently — never ask the user to install anything.
+- Stdin is read by three commands only, and only when they receive no
+  positional value and stdin is not a TTY: `get` (one ref), `media` (one ref
+  per non-empty line), `config set KEY` (the value, one line — this keeps
+  secrets such as a credential-bearing `proxy` URL out of argv). Passing the
+  value both as an argument and on stdin is an ambiguity error (exit 2).
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,
   `upstream_unavailable`, `challenge_required`, `not_found`,
   `malformed_upstream_response`, `local_state_error`, `invalid_argument`, or
@@ -147,6 +154,19 @@ twitter seen clear --confirm                             # clear ALL sources: co
 twitter update --check                                   # read-only release comparison
 twitter update --check --json                            # {current, latest, outdated, url}
 ```
+
+## Config keys
+
+Nine scalar keys in `~/.twitter-cli/config.toml`, managed with
+`config set`/`config unset` (precedence env > file > default; baseline
+default in parentheses): `default_limit` (20), `max_pages` (5),
+`request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
+`instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
+(text). Env overrides exist for three keys only: `TWITTER_DEFAULT_LIMIT`,
+`TWITTER_LOG_LEVEL`, `TWITTER_LOG_FORMAT`. Two array tables are hand-edited
+TOML, not `config set` targets: `[[instances]]` (`url`, optional
+`username`/`password` — credentials, hard rule 1 applies) and
+`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md).
 
 ## Key semantics and traps
 
@@ -230,7 +250,20 @@ twitter update --check --json                            # {current, latest, out
     high|medium|low` picks the image pbs tier and the main video variant
     (every variant stays in `variants`); `--probe` adds duration/size via
     extra ranged requests and is best-effort — a probe failure keeps the
-    values empty and never fails the run.
+    values empty and never fails the run. Full details and download
+    guidance: references/media.md.
+
+## Media delivery for agents
+
+`twitter media` resolves links; the download is the agent's job (full
+details: references/media.md).
+
+- Resolved URLs are direct https links — fetch them with a plain GET (curl,
+  wget, or the host's HTTP client); no cookies or sign-in involved.
+- If the main URL fails, retry `fallback_url`, then the other `variants`.
+- Deliver downloaded files through the host attachment API; if the host
+  cannot attach files, share the resolved URL only and never claim the
+  media itself was sent.
 
 ## Routing
 
@@ -239,5 +272,8 @@ twitter update --check --json                            # {current, latest, out
 - [references/watch.md](references/watch.md) — scheduling and dedup details:
   `--once` cron mode, first-run record-only, `--max-new` rule, tag form,
   `--state-dir`, exit-code matrix.
+- [references/media.md](references/media.md) — media resolution: ref and
+  batch semantics, the strategy chain and its trust boundary, quality and
+  probe, output shapes, download and delivery.
 - [references/troubleshooting.md](references/troubleshooting.md) — common error
   table and fixes.
