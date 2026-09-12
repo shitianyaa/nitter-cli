@@ -1,0 +1,61 @@
+# Quality gate: fmt / vet / tests (with race detector) / build / offline e2e.
+#
+# Action pins: major-version tags. Full commit-SHA pinning is release
+# hardening and lands with the release-prep PR (same policy as release.yml).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt (no unformatted files)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1
+      - name: go test -race
+        run: go test -race ./...
+      - name: build
+        run: sh scripts/build.sh
+      - name: e2e (offline contracts; exit 2 = only skips, soft pass)
+        run: |
+          bash e2e/run.sh
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::e2e completed with skips only (exit 2, soft pass)"
+            exit 0
+          fi
+          exit "$code"
+
+  # Windows parity: the test suite and the build must hold off-Linux too.
+  # The race detector stays off here (single race run per push, on Linux).
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test
+        run: go test ./... -count=1
+      - name: build
+        shell: bash
+        run: sh scripts/build.sh

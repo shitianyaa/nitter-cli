@@ -1,0 +1,126 @@
+# Release skeleton: tag-triggered build matrix + draft GitHub Release.
+#
+# Scope (MVP): checksums.txt only. An Ed25519-signed manifest is a listed
+# post-MVP enhancement. The bilingual changelog check below is a soft
+# warning — the full audit belongs to the release-prep PR.
+#
+# Runner matrix choices (2026-09): javdb's ubuntu-22.04 / ubuntu-22.04-arm
+# enter deprecation on 2026-09-17, so the Linux pair is ubuntu-24.04 /
+# ubuntu-24.04-arm. macos-15-intel (Intel bridge, available until ~2027-08)
+# + macos-15 (ARM) cover macOS; windows-2025 + windows-11-arm cover Windows
+# (windows-11-arm is free for public repos).
+#
+# Action pins: major-version tags; full commit-SHA pinning is release
+# hardening (release-prep PR).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: validate SemVer tag (vMAJOR.MINOR.PATCH[-prerelease][+build])
+        run: |
+          if ! echo "${GITHUB_REF_NAME}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag ${GITHUB_REF_NAME} is not strict SemVer with a v prefix"
+            exit 1
+          fi
+      - name: bilingual changelog present (soft check)
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ ! -f "changelog/v${version}/en.md" ] || [ ! -f "changelog/v${version}/zh-CN.md" ]; then
+            echo "::warning::changelog/v${version}/{en.md,zh-CN.md} missing — move the bilingual notes out of changelog/unreleased before publishing"
+          fi
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15-intel, target: darwin-amd64, archive: tar.gz }
+          - { os: macos-15, target: darwin-arm64, archive: tar.gz }
+          - { os: ubuntu-24.04, target: linux-amd64, archive: tar.gz }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, archive: tar.gz }
+          - { os: windows-2025, target: windows-amd64, archive: zip }
+          - { os: windows-11-arm, target: windows-arm64, archive: zip }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test
+        run: go test ./... -count=1
+      - name: build
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          commit="$(git rev-parse --short HEAD)"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          case "${{ matrix.os }}" in
+            windows-*) ext=".exe" ;;
+            *) ext="" ;;
+          esac
+          mkdir -p "dist/${{ matrix.target }}"
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Version=${version} \
+            -X github.com/shitianyaa/twitter-cli/internal/buildinfo.Commit=${commit} \
+            -X github.com/shitianyaa/twitter-cli/internal/buildinfo.BuildDate=${build_date}" \
+            -o "dist/${{ matrix.target }}/twitter${ext}" ./cmd/twitter
+      - name: package (tar.gz on unix, zip on windows) + sha256
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          target="${{ matrix.target }}"
+          cd "dist/${target}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            powershell.exe -NoProfile -Command "Compress-Archive -Path 'twitter.exe' -DestinationPath '../twitter-${version}-${target}.zip'"
+          else
+            tar -czf "../twitter-${version}-${target}.tar.gz" twitter
+          fi
+          cd ..
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            sha256sum "twitter-${version}-${target}.zip" > "checksums-${target}.txt"
+          else
+            sha256sum "twitter-${version}-${target}.tar.gz" > "checksums-${target}.txt"
+          fi
+      - name: upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/twitter-*
+            dist/checksums-*.txt
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: merge per-platform checksums into checksums.txt
+        run: |
+          cat dist/checksums-*.txt >> dist/checksums.txt
+          rm dist/checksums-*.txt
+          cat dist/checksums.txt
+      - name: create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            --title "twitter-cli ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/twitter-* dist/checksums.txt

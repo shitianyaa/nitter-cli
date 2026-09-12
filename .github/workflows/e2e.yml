@@ -1,0 +1,46 @@
+# End-to-end gate. The offline contract segment always runs; the live
+# read-only probes run only when both secrets are configured. Exit 2
+# ("nothing ran except skips") is a soft pass, exactly like the offline-only
+# run on a repo without the live-probe secrets.
+#
+# Docs/markdown/skill changes cannot change binary behavior: skipped via
+# paths-ignore to keep the gate signal-to-noise high.
+name: e2e
+
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "skills/**"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "skills/**"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: sh scripts/build.sh
+      - name: run e2e (offline always; live probes when secrets configured)
+        env:
+          TWITTER_CLI_E2E_INSTANCE: ${{ secrets.TWITTER_CLI_E2E_INSTANCE }}
+          TWITTER_CLI_E2E_USER: ${{ secrets.TWITTER_CLI_E2E_USER }}
+        run: |
+          bash e2e/run.sh
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::e2e completed with skips only (exit 2, soft pass)"
+            exit 0
+          fi
+          exit "$code"
