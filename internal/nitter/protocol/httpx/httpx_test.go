@@ -708,3 +708,86 @@ func equalDurations(got, want []time.Duration) bool {
 // env0Clock is a fresh fake clock used only to compute an HTTP-date header
 // value 2s ahead of the reference time the matching env's clock starts at.
 func env0Clock() time.Time { return newFakeClock().Now() }
+
+// ---------------------------------------------------------------------------
+// Response body size cap (Options.MaxBodyBytes)
+// ---------------------------------------------------------------------------
+
+func TestNewDefaultMaxBodyBytes(t *testing.T) {
+	c, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New(Options{}): %v", err)
+	}
+	if c.maxBodyBytes != 10<<20 {
+		t.Errorf("maxBodyBytes = %d, want the documented 10 MiB default", c.maxBodyBytes)
+	}
+}
+
+func TestGetBodyOverCapIsKindMalformedWithoutRetry(t *testing.T) {
+	env := newTestClient(t, Options{MaxBodyBytes: 16, RetryAttempts: 3, RetryDelay: -1},
+		step{status: 200, body: "0123456789abcdefG"}) // 17 bytes: one over the cap
+
+	body, status, err := env.c.Get(context.Background(), "https://instance.test/user/rss", nil)
+	if err == nil {
+		t.Fatalf("Get = (%q, %d, nil), want an error (no partial body may be returned)", body, status)
+	}
+	if body != nil || status != 0 {
+		t.Errorf("got (%q, %d), want (nil, 0) — no partial body on the error path", body, status)
+	}
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v", te.Kind, twitter.KindMalformed)
+	}
+	if te.Op != opGet {
+		t.Errorf("Op = %q, want %q", te.Op, opGet)
+	}
+	if !strings.Contains(err.Error(), "16 bytes") {
+		t.Errorf("err = %v, want it to name the cap", err)
+	}
+	// An oversized body is a terminal response shape: retrying cannot help,
+	// so the budget must stay untouched.
+	if env.doer.calls != 1 {
+		t.Errorf("calls = %d, want 1 (no retry for a classified size failure)", env.doer.calls)
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+func TestGetBodyExactlyAtCapSucceeds(t *testing.T) {
+	exact := "0123456789abcdef" // 16 bytes
+	env := newTestClient(t, Options{MaxBodyBytes: 16}, step{status: 200, body: exact})
+
+	body, _, err := env.c.Get(context.Background(), "https://instance.test/user/rss", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(body) != exact {
+		t.Errorf("body = %q, want the full %d-byte body", body, len(exact))
+	}
+}
+
+func TestGetNegativeMaxBodyBytesDisablesCap(t *testing.T) {
+	// Larger than the 10 MiB default, so only the explicit opt-out passes.
+	huge := strings.Repeat("x", 10<<20+1)
+	env := newTestClient(t, Options{MaxBodyBytes: -1}, step{status: 200, body: huge})
+
+	body, _, err := env.c.Get(context.Background(), "https://instance.test/user/rss", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(body) != len(huge) {
+		t.Errorf("body = %d bytes, want %d", len(body), len(huge))
+	}
+}
+
+func TestGetDefaultCapRejectsOversizeWithoutOption(t *testing.T) {
+	huge := strings.Repeat("x", 10<<20+1)
+	env := newTestClient(t, Options{RetryAttempts: -1}, step{status: 200, body: huge})
+
+	_, _, err := env.c.Get(context.Background(), "https://instance.test/user/rss", nil)
+	te := kindOf(t, err)
+	if te.Kind != twitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v (10 MiB default applies when the option is zero)", te.Kind, twitter.KindMalformed)
+	}
+}

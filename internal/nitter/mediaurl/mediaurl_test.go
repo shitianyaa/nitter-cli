@@ -52,3 +52,127 @@ func TestAbsolutize(t *testing.T) {
 		})
 	}
 }
+
+// TestNormalizePicProxy pins the R13 ruling: an instance /pic/ proxy whose
+// decoded target is a pbs.twimg.com media path canonicalizes to the direct
+// pbs URL (name=orig), so the same photo arriving as a media:content pbs URL
+// and as a percent-encoded description img proxy dedups to one entry. Other
+// /pic/ targets keep their absolutized proxy form.
+func TestNormalizePicProxy(t *testing.T) {
+	cases := []struct {
+		name          string
+		base, raw     string
+		want          string
+		wantPBSDirect bool
+	}{
+		{
+			name:          "percent-encoded proxy maps to pbs orig",
+			base:          "https://nitter.example",
+			raw:           "/pic/media%2FFxxx1.jpg%3Fname%3Dsmall",
+			want:          "https://pbs.twimg.com/media/Fxxx1.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "plain proxy with query maps to pbs orig",
+			base:          "https://nitter.example",
+			raw:           "/pic/media/Fxxx.jpg?name=small",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "plain proxy without query gets name=orig",
+			base:          "https://nitter.example",
+			raw:           "/pic/media/Fxxx.jpg",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "absolute proxy URL ignores the base",
+			base:          "https://other.example",
+			raw:           "https://nitter.example/pic/media%2FFxxx.jpg%3Fname%3Dsmall",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "proxy without a base still maps to pbs",
+			base:          "",
+			raw:           "/pic/media%2FFxxx.jpg",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "existing orig name is preserved",
+			base:          "https://nitter.example",
+			raw:           "/pic/media%2FFxxx.jpg%3Fname%3Dorig",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "direct pbs URL rewrites in place",
+			base:          "https://nitter.example",
+			raw:           "https://pbs.twimg.com/media/Fxxx.jpg?name=small",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "direct pbs URL without name appends orig",
+			base:          "https://nitter.example",
+			raw:           "https://pbs.twimg.com/media/Fxxx.jpg",
+			want:          "https://pbs.twimg.com/media/Fxxx.jpg?name=orig",
+			wantPBSDirect: true,
+		},
+		{
+			name:          "video thumb proxy keeps the absolutized form",
+			base:          "https://nitter.example",
+			raw:           "/pic/ext_tw_video_thumb%2F2081%2Fpu%2Fimg%2Fabc.jpg",
+			want:          "https://nitter.example/pic/ext_tw_video_thumb%2F2081%2Fpu%2Fimg%2Fabc.jpg",
+			wantPBSDirect: false,
+		},
+		{
+			name:          "plain video thumb proxy keeps the absolutized form",
+			base:          "https://nitter.example",
+			raw:           "/pic/ext_tw_video_thumb/2081/pu/img/abc.jpg",
+			want:          "https://nitter.example/pic/ext_tw_video_thumb/2081/pu/img/abc.jpg",
+			wantPBSDirect: false,
+		},
+		{
+			name:          "card image proxy is not a media path",
+			base:          "https://nitter.example",
+			raw:           "/pic/card_img%2Fabc.jpg",
+			want:          "https://nitter.example/pic/card_img%2Fabc.jpg",
+			wantPBSDirect: false,
+		},
+		{
+			name:          "non-pic relative path just absolutizes",
+			base:          "https://nitter.example",
+			raw:           "/media/Fxxx.jpg",
+			want:          "https://nitter.example/media/Fxxx.jpg",
+			wantPBSDirect: false,
+		},
+		{
+			name:          "broken percent escape keeps the absolutized form",
+			base:          "https://nitter.example",
+			raw:           "/pic/media%ZZ.jpg",
+			want:          "https://nitter.example/pic/media%ZZ.jpg",
+			wantPBSDirect: false,
+		},
+		{
+			name:          "empty input stays empty",
+			base:          "https://nitter.example",
+			raw:           "   ",
+			want:          "",
+			wantPBSDirect: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, pbsDirect := mediaurl.NormalizePicProxy(tc.base, tc.raw)
+			if got != tc.want {
+				t.Errorf("NormalizePicProxy(%q, %q) = %q, want %q", tc.base, tc.raw, got, tc.want)
+			}
+			if pbsDirect != tc.wantPBSDirect {
+				t.Errorf("NormalizePicProxy(%q, %q) pbsDirect = %v, want %v", tc.base, tc.raw, pbsDirect, tc.wantPBSDirect)
+			}
+		})
+	}
+}

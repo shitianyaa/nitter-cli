@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -172,6 +173,30 @@ func TestAsUsageErrorMapsOnlyInvalidArg(t *testing.T) {
 	plain := errors.New("boom")
 	if mapped := client.AsUsageError(plain); mapped != plain {
 		t.Fatalf("AsUsageError(plain) rewrote the error: %v", mapped)
+	}
+}
+
+// TestTimelineCapability passes through the wiring: the narrow
+// TimelineSource is exposed, primitive options flow into the appapi method,
+// and errors surface unchanged (an invalid handle is KindInvalidArg; a valid
+// one with nothing configured is the chooser's KindUnavailable).
+func TestTimelineCapability(t *testing.T) {
+	w, err := client.Build(&invocation.RootOptions{}, validCfg(), time.Now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var src client.TimelineSource = w.Timeline()
+	if src == nil {
+		t.Fatal("Timeline() returned nil")
+	}
+	_, _, err = src.Timeline(context.Background(), "NASA!", 1, 1)
+	var terr *twitter.Error
+	if !errors.As(err, &terr) || terr.Kind != twitter.KindInvalidArg {
+		t.Fatalf("Timeline(NASA!) = %v (%T), want KindInvalidArg", err, err)
+	}
+	_, _, err = src.Timeline(context.Background(), "NASA", 1, 1)
+	if !errors.As(err, &terr) || terr.Kind != twitter.KindUnavailable {
+		t.Fatalf("Timeline(NASA) with no instances = %v (%T), want KindUnavailable", err, err)
 	}
 }
 

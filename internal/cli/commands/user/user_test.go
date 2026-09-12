@@ -1,0 +1,564 @@
+package user_test
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/shitianyaa/twitter-cli/internal/cli"
+)
+
+// fastTOML disables retries, backoff and pacing so fetches against httptest
+// stay fast. Negative values are documented opt-outs in httpx; hand-edited
+// config.toml is the user's power tool.
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
+
+// tempHome redirects the home directory to a fresh temp dir and neutralizes
+// the settings and proxy env overrides.
+func tempHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{
+		"TWITTER_DEFAULT_LIMIT", "TWITTER_LOG_LEVEL", "TWITTER_LOG_FORMAT",
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
+	} {
+		t.Setenv(key, "")
+	}
+	return home
+}
+
+func writeConfig(t *testing.T, home, body string) {
+	t.Helper()
+	dir := filepath.Join(home, ".twitter-cli")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write config fixture: %v", err)
+	}
+}
+
+func runCLI(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errOut strings.Builder
+	code := cli.Run(args, strings.NewReader(""), &out, &errOut)
+	return code, out.String(), errOut.String()
+}
+
+// fakeNitter serves canned answers keyed by the exact request URI
+// (path?query) and records every request target.
+type fakeNitter struct {
+	rec  *recorder
+	mux  *http.ServeMux
+	srv  *httptest.Server
+	addr string
+}
+
+type recorder struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (r *recorder) add(target string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, target)
+}
+
+func (r *recorder) requests() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.seen...)
+}
+
+func newFake(t *testing.T, answers map[string]answer) *fakeNitter {
+	t.Helper()
+	rec := &recorder{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		rec.add(req.URL.RequestURI())
+		a, ok := answers[req.URL.RequestURI()]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(a.status)
+		_, _ = io.WriteString(w, a.body)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return &fakeNitter{rec: rec, mux: mux, srv: srv, addr: srv.URL}
+}
+
+type answer struct {
+	status int
+	body   string
+}
+
+// rssBody builds a Nitter-shaped RSS feed listing the given status ids.
+func rssBody(ids ...string) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>`)
+	for _, id := range ids {
+		b.WriteString(`<item>` +
+			`<guid>https://nitter.example/NASA/status/` + id + `#m</guid>` +
+			`<link>https://nitter.example/NASA/status/` + id + `</link>` +
+			`<dc:creator>@NASA</dc:creator>` +
+			`<title>rss ` + id + `</title>` +
+			`<description><![CDATA[<div class="tweet-content">rss body ` + id + `</div>]]></description>` +
+			`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item>`)
+	}
+	b.WriteString(`</channel></rss>`)
+	return b.String()
+}
+
+// htmlPage builds a Nitter-shaped user timeline listing the given status ids
+// and carrying a load-more cursor when non-empty.
+func htmlPage(ids []string, cursor string) string {
+	var b strings.Builder
+	b.WriteString(`<div class="timeline">`)
+	for _, id := range ids {
+		b.WriteString(`<div class="timeline-item">` +
+			`<a class="tweet-link" href="/NASA/status/` + id + `"></a>` +
+			`<div class="tweet-content">html body ` + id + `</div>` +
+			`<span class="tweet-date"><a title="Jul 5, 2026 · 9:09 AM UTC">Jul 5, 2026</a></span>` +
+			`</div>`)
+	}
+	b.WriteString(`</div>`)
+	if cursor != "" {
+		b.WriteString(`<div class="show-more"><a href="/NASA?cursor=` + cursor + `">Load more</a></div>`)
+	}
+	return b.String()
+}
+
+// photoRSS is the R13 money shot: one item carrying the same photo twice —
+// a direct pbs.twimg.com media:content URL and the percent-encoded /pic/
+// proxy of the description img.
+const photoRSS = `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/"><channel>` +
+	`<item>` +
+	`<guid>https://nitter.example/NASA/status/101#m</guid>` +
+	`<link>https://nitter.example/NASA/status/101</link>` +
+	`<dc:creator>@NASA</dc:creator>` +
+	`<title>photo tweet</title>` +
+	`<description><![CDATA[<div class="tweet-content">body text</div><img src="/pic/media%2FFxxx1.jpg%3Fname%3Dsmall"/>]]></description>` +
+	`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate>` +
+	`<media:content url="https://pbs.twimg.com/media/Fxxx1.jpg?name=small" medium="image"/>` +
+	`</item></channel></rss>`
+
+func TestUserRSSPathOutputsRows(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+		"/NASA":     {200, htmlPage([]string{"201"}, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want one row per tweet:\n%s", len(lines), out)
+	}
+	if !strings.HasPrefix(lines[0], "101\t2026-07-05 09:09\t@NASA\trss body 101") {
+		t.Errorf("row 0 = %q, want the ID/date/handle/text projection", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "102\t2026-07-05 09:09\t@NASA\trss body 102") {
+		t.Errorf("row 1 = %q", lines[1])
+	}
+	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss"}) {
+		t.Errorf("requests = %v, want only the RSS fetch", got)
+	}
+}
+
+func TestUserLimitFlagTruncates(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102", "103")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "2")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 2 {
+		t.Fatalf("got %d rows, want 2:\n%s", n, out)
+	}
+}
+
+func TestUserLimitDefaultsFromConfig(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102", "103")},
+	})
+	writeConfig(t, home, fastTOML+"default_limit = 1\n[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, _ := runCLI(t, "user", "NASA")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Fatalf("got %d rows, want 1 (config default_limit):\n%s", n, out)
+	}
+
+	// An explicit --limit 0 overrides the config default: all tweets.
+	code, out, _ = runCLI(t, "user", "NASA", "--limit", "0")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if n := strings.Count(out, "\n"); n != 3 {
+		t.Fatalf("got %d rows, want 3 (--limit 0 = all):\n%s", n, out)
+	}
+}
+
+func TestUserRSSFailureFallsBackToHTML(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {500, "boom"},
+		"/NASA":     {200, htmlPage([]string{"201"}, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "201\t2026-07-05 09:09\t@NASA\thtml body 201") {
+		t.Fatalf("output = %q, want the HTML-fallback tweet", out)
+	}
+	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss", "/NASA"}) {
+		t.Errorf("requests = %v, want the RSS attempt then the HTML fallback", got)
+	}
+}
+
+func TestUserEmptyRSSTriggersHTMLFallback(t *testing.T) {
+	// R15: a feed that answers but yields nothing ALSO falls back to the
+	// HTML user page.
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody()},
+		"/NASA":     {200, htmlPage([]string{"201"}, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "201\t") {
+		t.Fatalf("output = %q, want the HTML-fallback tweet", out)
+	}
+	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss", "/NASA"}) {
+		t.Errorf("requests = %v, want the RSS attempt then the HTML fallback", got)
+	}
+}
+
+func TestUserBothFailExitsOneWithClassifiedError(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {500, "boom"},
+		"/NASA":     {503, "down"},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "upstream_unavailable") {
+		t.Fatalf("stderr = %q, want the classified kind", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing on the failure path", out)
+	}
+}
+
+func TestUserLimitZeroBoundedByMaxPages(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss":       {500, "boom"},
+		"/NASA":           {200, htmlPage([]string{"201"}, "c1")},
+		"/NASA?cursor=c1": {200, htmlPage([]string{"202"}, "c2")},
+		"/NASA?cursor=c2": {200, htmlPage([]string{"203"}, "c3")},
+		"/NASA?cursor=c3": {200, htmlPage([]string{"204"}, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	// --limit 0 = all; the cursor chain never ends, so MaxPages is the only
+	// stop signal: exactly 2 HTML pages may be fetched.
+	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "0", "--max-pages", "2")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 2 {
+		t.Fatalf("got %d rows, want 2 (two pages worth):\n%s", n, out)
+	}
+	htmlFetches := 0
+	for _, r := range fake.rec.requests() {
+		if r == "/NASA" || strings.HasPrefix(r, "/NASA?cursor=") {
+			htmlFetches++
+		}
+	}
+	if htmlFetches != 2 {
+		t.Errorf("html fetches = %d, want exactly 2 (bounded by --max-pages)", htmlFetches)
+	}
+}
+
+func TestUserInvalidHandleIsUsageErrorBeforeNetwork(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA!")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "handle") {
+		t.Fatalf("stderr = %q, want it to name the handle problem", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing", out)
+	}
+	if got := fake.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+}
+
+func TestUserJSONSingleObjectArrayAndEmpty(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
+	}
+	if obj["id"] != "101" || obj["url"] != "https://x.com/NASA/status/101" {
+		t.Errorf("json = %v, want the projected tweet", obj)
+	}
+
+	// Two tweets → an array.
+	fake2 := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake2.addr+"\"\n")
+	code, out, _ = runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(out), &arr); err != nil || len(arr) != 2 {
+		t.Fatalf("output = %q (%v), want a 2-element array", out, err)
+	}
+
+	// Zero tweets → a literal empty array.
+	fake3 := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody()},
+		"/NASA":     {200, htmlPage(nil, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake3.addr+"\"\n")
+	code, out, _ = runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Fatalf("output = %q, want []", out)
+	}
+}
+
+func TestUserNDJSONEnvelopes(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--ndjson")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want one envelope per tweet:\n%s", len(lines), out)
+	}
+	for i, line := range lines {
+		var env struct {
+			Schema string `json:"schema"`
+			Kind   string `json:"kind"`
+			ID     string `json:"id"`
+			Data   struct {
+				ID     string           `json:"id"`
+				Text   string           `json:"text"`
+				Author map[string]any   `json:"author"`
+				Media  []map[string]any `json:"media"`
+			} `json:"data"`
+			Meta *struct {
+				Source    string `json:"source"`
+				Instance  string `json:"instance"`
+				FetchedAt string `json:"fetched_at"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON object: %v\n%s", i+1, err, line)
+		}
+		wantID := "101"
+		if i == 1 {
+			wantID = "102"
+		}
+		if env.Schema != "twitter.pipeline/v1" || env.Kind != "tweet" || env.ID != wantID {
+			t.Errorf("line %d envelope = %s, want kind tweet / id %s", i+1, line, wantID)
+		}
+		if env.Data.ID != wantID || env.Data.Author["handle"] != "NASA" {
+			t.Errorf("line %d data = %s", i+1, line)
+		}
+		if env.Meta == nil {
+			t.Fatalf("line %d carries no meta: %s", i+1, line)
+		}
+		if env.Meta.Source != "user:NASA" {
+			t.Errorf("line %d meta.source = %q, want %q", i+1, env.Meta.Source, "user:NASA")
+		}
+		if env.Meta.Instance != fake.addr {
+			t.Errorf("line %d meta.instance = %q, want the serving instance", i+1, env.Meta.Instance)
+		}
+		if !strings.HasSuffix(env.Meta.FetchedAt, "Z") {
+			t.Errorf("line %d meta.fetched_at = %q, want RFC3339 UTC", i+1, env.Meta.FetchedAt)
+		}
+	}
+}
+
+func TestUserEmptyHumanModePrintsHintToStderr(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody()},
+		"/NASA":     {200, htmlPage(nil, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing", out)
+	}
+	if strings.TrimSpace(errOut) != "(empty)" {
+		t.Errorf("stderr = %q, want the (empty) hint", errOut)
+	}
+}
+
+func TestUserInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
+	tempHome(t) // baseline config with zero instances
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+	})
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--instance", fake.addr)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.HasPrefix(out, "101\t") {
+		t.Fatalf("output = %q, want the fetched tweet", out)
+	}
+}
+
+func TestUserNoInstancesExitsOne(t *testing.T) {
+	tempHome(t) // zero instances, no --instance
+	code, _, errOut := runCLI(t, "user", "NASA")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "no instances configured") {
+		t.Fatalf("stderr = %q, want the chooser's message", errOut)
+	}
+}
+
+func TestUserR13SamePhotoInTwoFormsIsOneMediaEntry(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, photoRSS},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var obj struct {
+		Media []map[string]any `json:"media"`
+	}
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
+	}
+	if len(obj.Media) != 1 {
+		t.Fatalf("media = %v, want exactly ONE entry for the same photo", obj.Media)
+	}
+	if obj.Media[0]["url"] != "https://pbs.twimg.com/media/Fxxx1.jpg?name=orig" {
+		t.Errorf("media url = %v, want the canonical pbs name=orig URL", obj.Media[0]["url"])
+	}
+	if obj.Media[0]["type"] != "image" {
+		t.Errorf("media type = %v, want image", obj.Media[0]["type"])
+	}
+}
+
+func TestUserJSONAndNDJSONAreMutuallyExclusive(t *testing.T) {
+	tempHome(t)
+	code, _, errOut := runCLI(t, "user", "NASA", "--json", "--ndjson")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "--json") || !strings.Contains(errOut, "--ndjson") {
+		t.Fatalf("stderr = %q, want it to name both flags", errOut)
+	}
+}
+
+func TestUserExtraArgsAreUsageError(t *testing.T) {
+	tempHome(t)
+	code, _, _ := runCLI(t, "user", "NASA", "extra")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+}
+
+func TestUserNegativeLimitIsUsageError(t *testing.T) {
+	tempHome(t)
+	code, _, errOut := runCLI(t, "user", "NASA", "--limit=-5")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "--limit") {
+		t.Fatalf("stderr = %q, want it to name the flag", errOut)
+	}
+}
+
+func TestUserConfiguredInstanceIsUsedWithoutFlag(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--ndjson")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "\"instance\":\""+fake.addr+"\"") {
+		t.Fatalf("output = %q, want meta.instance to carry the configured instance", out)
+	}
+}

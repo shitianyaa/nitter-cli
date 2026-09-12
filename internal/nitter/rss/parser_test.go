@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,11 +150,12 @@ func TestItemToTweetProjectsPhotoItem(t *testing.T) {
 		t.Errorf("PublishedAt location = %v, want UTC (producers store UTC)", tw.PublishedAt.Location())
 	}
 
+	// R13 money shot: the item carries the same photo twice — a direct
+	// pbs.twimg.com media:content URL and the percent-encoded /pic/ proxy
+	// of the description img. Both canonicalize to the pbs name=orig URL,
+	// so the projection yields exactly ONE media entry.
 	wantMedia := []twitter.Media{
 		{Type: "image", URL: "https://pbs.twimg.com/media/Fxxx1.jpg?name=orig"},
-		// The instance-proxied description img is absolute after joining and
-		// is not a pbs.twimg.com/media URL, so it passes through unchanged.
-		{Type: "image", URL: "https://nitter.example/pic/media%2FFxxx1.jpg%3Fname%3Dsmall"},
 	}
 	if !reflect.DeepEqual(tw.Media, wantMedia) {
 		t.Errorf("Media = %#v, want %#v", tw.Media, wantMedia)
@@ -265,6 +267,149 @@ func TestItemToTweetTitleFallbackAndUnparseableDate(t *testing.T) {
 	}
 }
 
+// TestParseRejectsDoctypeEntity pins the fetch-layer hardening carried from
+// Task 10: an RSS body carrying a DTD (and with it, entity definitions) is
+// rejected before XML decoding — billion-laughs expansion must never reach
+// encoding/xml.
+func TestParseRejectsDoctypeEntity(t *testing.T) {
+	for _, body := range []string{
+		`<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY xxe "boom">]><rss version="2.0"><channel><item><title>&xxe;</title></item></channel></rss>`,
+		`<rss version="2.0"><!ENTITY gone "later"><channel></channel></rss>`,
+	} {
+		items, err := rss.Parse([]byte(body))
+		if err == nil {
+			t.Fatalf("Parse(DTD body) = %#v, want an error", items)
+		}
+		if items != nil {
+			t.Errorf("Parse(DTD body) items = %#v, want nil on error", items)
+		}
+		var terr *twitter.Error
+		if !errors.As(err, &terr) {
+			t.Fatalf("Parse(DTD body) error = %T (%v), want *twitter.Error", err, err)
+		}
+		if terr.Kind != twitter.KindMalformed {
+			t.Errorf("Kind = %q, want %q", terr.Kind, twitter.KindMalformed)
+		}
+		if terr.Op != "rss.Parse" {
+			t.Errorf("Op = %q, want %q", terr.Op, "rss.Parse")
+		}
+		if !strings.Contains(terr.Error(), "doctype/entity") {
+			t.Errorf("err = %v, want the entity-expansion rejection message", terr)
+		}
+	}
+}
+
+// TestParseAcceptsFeedWithoutDoctype guards the rejection against
+// false positives: the plain fixture (no DTD) must keep parsing.
+func TestParseAcceptsFeedWithoutDoctype(t *testing.T) {
+	if _, err := rss.Parse(loadFixture(t)); err != nil {
+		t.Fatalf("Parse(fixture) = error %v, want success", err)
+	}
+}
+
+// TestItemToTweetPubDateTolerance pins the pubDate normalization carried
+// from Task 10: Nitter sometimes emits single-digit days (RFC1123Z's "02"
+// wants two digits) and doubled spaces after the weekday comma. Both must
+// parse to the same UTC instant the padded form yields.
+func TestItemToTweetPubDateTolerance(t *testing.T) {
+	want := time.Date(2026, 7, 5, 9, 9, 40, 0, time.UTC)
+	for _, tc := range []struct {
+		name, pubDate string
+	}{
+		{"zero-padded baseline", "Sun, 05 Jul 2026 09:09:40 +0000"},
+		{"single-digit day, single space", "Sun, 5 Jul 2026 09:09:40 +0000"},
+		{"single-digit day, double space", "Sun,  5 Jul 2026 09:09:40 +0000"},
+		{"two-digit day, double space", "Sun, 05  Jul 2026 09:09:40 +0000"},
+		{"leading/trailing whitespace", "  Sun, 5 Jul 2026 09:09:40 +0000  "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tw, err := rss.ItemToTweet(rss.Item{
+				GUID:    "https://nitter.example/NASA/status/42#m",
+				Link:    "https://nitter.example/NASA/status/42#m",
+				PubDate: tc.pubDate,
+			})
+			if err != nil {
+				t.Fatalf("ItemToTweet = error %v", err)
+			}
+			if !tw.PublishedAt.Equal(want) {
+				t.Errorf("PublishedAt = %v, want %v", tw.PublishedAt, want)
+			}
+			if tw.PublishedAt.Location() != time.UTC {
+				t.Errorf("PublishedAt location = %v, want UTC", tw.PublishedAt.Location())
+			}
+		})
+	}
+}
+
+// TestItemToTweetUnparseablePubDateStaysZero keeps the no-fabrication rule
+// for input the normalization cannot rescue.
+func TestItemToTweetUnparseablePubDateStaysZero(t *testing.T) {
+	for _, pubDate := range []string{"not a date", "Sun, Jul 2026 09:09:40 +0000", "32 Jul 2026"} {
+		tw, err := rss.ItemToTweet(rss.Item{
+			GUID:    "https://nitter.example/NASA/status/42#m",
+			Link:    "https://nitter.example/NASA/status/42#m",
+			PubDate: pubDate,
+		})
+		if err != nil {
+			t.Fatalf("ItemToTweet(%q) = error %v", pubDate, err)
+		}
+		if !tw.PublishedAt.IsZero() {
+			t.Errorf("PubDate %q: PublishedAt = %v, want the zero time", pubDate, tw.PublishedAt)
+		}
+	}
+}
+
 func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// feedFor wraps a description-bearing item body into a minimal feed so tests
+// can exercise Parse's description-media extraction end to end (the scan
+// lives in Parse, not in ItemToTweet).
+func feedFor(description string) []byte {
+	return []byte(`<?xml version="1.0"?><rss version="2.0"><channel><item>` +
+		`<guid>https://nitter.example/NASA/status/100#m</guid>` +
+		`<link>https://nitter.example/NASA/status/100#m</link>` +
+		`<description><![CDATA[` + description + `]]></description>` +
+		`</item></channel></rss>`)
+}
+
+// TestParseQuoteAndArticleMediaMasked pins the Task 10 carry: images inside
+// quote containers or article-card links in the description belong to the
+// quoted tweet, never to the quoting item — the plugin's nested-media rule
+// the HTML parser already applies.
+func TestParseQuoteAndArticleMediaMasked(t *testing.T) {
+	items, err := rss.Parse(feedFor(
+		`<div class="tweet-content media-body" dir="auto">own text</div>` +
+			`<img src="/pic/media%2FOWN.jpg"/>` +
+			`<div class="quote"><div class="quoted-tweet"><img src="/pic/media%2FQUOTED.jpg"/></div></div>` +
+			`<a href="/i/article/12345"><img src="/pic/media%2FARTICLE.jpg"/></a>` +
+			`<div class="quote-header"><img src="/pic/media%2FHEADER.jpg"/></div>`))
+	if err != nil {
+		t.Fatalf("Parse = error %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("Parse = %d items, want 1", len(items))
+	}
+	wantMedia := []string{"/pic/media%2FOWN.jpg"}
+	if !reflect.DeepEqual(items[0].MediaURLs, wantMedia) {
+		t.Errorf("MediaURLs = %#v, want %#v (quote/article images masked)", items[0].MediaURLs, wantMedia)
+	}
+}
+
+// TestParseMediaOutsideMaskedSubtreesSurvives checks the mask does not
+// over-reach: content after a closed quote container is kept, and nesting
+// depth inside the masked subtree is tracked.
+func TestParseMediaOutsideMaskedSubtreesSurvives(t *testing.T) {
+	items, err := rss.Parse(feedFor(
+		`<div class="quote"><div><img src="/pic/media%2FQUOTED.jpg"/></div></div>` +
+			`<img src="/pic/media%2FAFTER.jpg"/>` +
+			`<div class="tweet-content"><img src="/pic/media%2FBR%20tag.jpg"/></div>`))
+	if err != nil {
+		t.Fatalf("Parse = error %v", err)
+	}
+	wantMedia := []string{"/pic/media%2FAFTER.jpg", "/pic/media%2FBR%20tag.jpg"}
+	if !reflect.DeepEqual(items[0].MediaURLs, wantMedia) {
+		t.Errorf("MediaURLs = %#v, want %#v", items[0].MediaURLs, wantMedia)
+	}
 }

@@ -43,6 +43,19 @@ type InstanceTester interface {
 	TestInstance(ctx context.Context, baseURL string, opts TestOptions) (twitter.InstanceReport, error)
 }
 
+// TimelineSource is the user-timeline acquisition capability a command
+// consumes. Parameters are primitives — no appapi type reaches a command
+// package (R11). Backed by *appapi.Client through timelineAdapter, because
+// the appapi method's options-struct signature cannot satisfy this
+// interface directly.
+//
+// The second return value is the base URL of the instance that produced the
+// result ("" on error): NDJSON meta.instance needs the provenance, and only
+// the acquisition layer knows which instance won the rotation.
+type TimelineSource interface {
+	Timeline(ctx context.Context, handle string, limit, maxPages int) ([]twitter.Tweet, string, error)
+}
+
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
@@ -57,6 +70,18 @@ type Wiring struct {
 // Tester returns the instance-probe capability as the narrow interface
 // commands consume (R11: commands never import appapi).
 func (w *Wiring) Tester() InstanceTester { return w.AppAPI }
+
+// timelineAdapter bridges the primitive-parameter TimelineSource to the
+// appapi method's PageOptions signature.
+type timelineAdapter struct{ app *appapi.Client }
+
+func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, maxPages int) ([]twitter.Tweet, string, error) {
+	return a.app.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+}
+
+// Timeline returns the user-timeline acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w.AppAPI} }
 
 // Build composes the wiring.
 //

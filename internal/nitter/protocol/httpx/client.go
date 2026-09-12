@@ -49,6 +49,10 @@ const (
 	defaultRetryDelay = 1 * time.Second
 	// defaultMinInterval spaces the starts of consecutive Get calls.
 	defaultMinInterval = 1 * time.Second
+	// defaultMaxBodyBytes caps one response body read (Options zero value →
+	// this default). A Nitter RSS feed or timeline page is orders of
+	// magnitude smaller; the cap bounds hostile or misbehaving instances.
+	defaultMaxBodyBytes = int64(10 << 20)
 )
 
 // maxRetryAfterSeconds caps Retry-After seconds so that converting to
@@ -87,6 +91,11 @@ type Options struct {
 	// consecutive Get calls on one client; 0 → defaultMinInterval,
 	// negative → no pacing.
 	MinInterval time.Duration
+	// MaxBodyBytes caps one response body read. 0 → defaultMaxBodyBytes
+	// (10 MiB); negative → explicitly unlimited. A body over the cap fails
+	// the request as KindMalformed with no partial body returned and no
+	// retry (the response shape cannot improve by repeating the request).
+	MaxBodyBytes int64
 	// Now is the injectable clock; nil → time.Now.
 	Now func() time.Time
 
@@ -118,6 +127,9 @@ type Client struct {
 	retryAttempts int
 	retryDelay    time.Duration
 	minInterval   time.Duration
+	// maxBodyBytes is the effective body cap; <= 0 means unlimited
+	// (only reachable via an explicit negative Options value).
+	maxBodyBytes int64
 
 	paceMu    sync.Mutex
 	lastStart time.Time
@@ -136,6 +148,7 @@ func New(opts Options) (*Client, error) {
 		retryAttempts: defaultRetryAttempts,
 		retryDelay:    defaultRetryDelay,
 		minInterval:   defaultMinInterval,
+		maxBodyBytes:  defaultMaxBodyBytes,
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -161,6 +174,12 @@ func New(opts Options) (*Client, error) {
 		c.minInterval = opts.MinInterval
 	} else if opts.MinInterval < 0 {
 		c.minInterval = 0
+	}
+	switch {
+	case opts.MaxBodyBytes > 0:
+		c.maxBodyBytes = opts.MaxBodyBytes
+	case opts.MaxBodyBytes < 0:
+		c.maxBodyBytes = 0 // explicit opt-out: unlimited body reads
 	}
 
 	if opts.doer != nil {
@@ -204,6 +223,8 @@ func New(opts Options) (*Client, error) {
 // Classification (see package comment for retry/pacing details):
 //   - network error / unreadable body / 5xx: retried retryAttempts times with
 //     linear backoff retryDelay*(attempt); exhausted → KindUnavailable.
+//   - body over the effective MaxBodyBytes cap: KindMalformed immediately —
+//     no partial body, no retry.
 //   - 429 with a valid Retry-After (seconds or HTTP-date): wait once, retry
 //     once; if that response is 429 again → KindRateLimited carrying the
 //     final response's Retry-After when present. Invalid or absent
@@ -237,6 +258,13 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 	for attempt := 0; ; attempt++ {
 		resp, body, err := c.doOnce(req)
 		if err != nil {
+			// A body over the size cap arrives already classified (its
+			// KindMalformed carries no *url.Error to sanitize): terminal —
+			// the response shape cannot improve by retrying.
+			var terr *twitter.Error
+			if errors.As(err, &terr) {
+				return nil, 0, err
+			}
 			// Transport-level failure (network or unreadable body). The
 			// cause is sanitized before wrapping: net/url's *url.Error
 			// embeds the full request URL in its message.
@@ -304,10 +332,11 @@ func (c *Client) Get(ctx context.Context, url string, headers map[string]string)
 	}
 }
 
-// doOnce sends the request once, reads the response body fully, and closes
-// it on every path. The returned response carries StatusCode and Header
-// only (Body has been consumed). An error here means the exchange itself
-// failed at transport level, not how it should be classified.
+// doOnce sends the request once, reads the response body fully (capped by the
+// effective body size), and closes it on every path. The returned response
+// carries StatusCode and Header only (Body has been consumed). Transport-level
+// failures come back as unclassified errors; a body over the cap comes back
+// already classified (KindMalformed) so Get can skip its retry budget.
 func (c *Client) doOnce(req *fhttp.Request) (*fhttp.Response, []byte, error) {
 	resp, err := c.doer.Do(req)
 	if err != nil {
@@ -316,13 +345,25 @@ func (c *Client) doOnce(req *fhttp.Request) (*fhttp.Response, []byte, error) {
 	if resp.Body == nil {
 		return resp, nil, nil
 	}
-	body, readErr := io.ReadAll(resp.Body)
+	var body []byte
+	var readErr error
+	if c.maxBodyBytes > 0 {
+		// One byte over the cap distinguishes "exactly at the cap" from
+		// "there was more" without reading the rest of the body.
+		body, readErr = io.ReadAll(io.LimitReader(resp.Body, c.maxBodyBytes+1))
+	} else {
+		body, readErr = io.ReadAll(resp.Body)
+	}
 	closeErr := resp.Body.Close()
 	if readErr != nil {
 		return nil, nil, &readBodyError{readErr}
 	}
 	if closeErr != nil {
 		return nil, nil, &readBodyError{closeErr}
+	}
+	if c.maxBodyBytes > 0 && int64(len(body)) > c.maxBodyBytes {
+		return nil, nil, twitter.Errorf(twitter.KindMalformed, opGet,
+			"response exceeds %d bytes", c.maxBodyBytes)
 	}
 	return resp, body, nil
 }

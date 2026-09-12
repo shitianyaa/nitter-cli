@@ -7,15 +7,14 @@ package config
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/shitianyaa/twitter-cli/internal/cli/client"
 	"github.com/shitianyaa/twitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/twitter-cli/internal/config/paths"
 	"github.com/shitianyaa/twitter-cli/internal/config/settings"
@@ -116,7 +115,10 @@ func newGetCommand(s *invocation.Streams) *cobra.Command {
 			if len(args) == 1 && !isKnownKey(args[0]) {
 				return invocation.Usagef("config get: unknown key %q (known keys: %s)", args[0], strings.Join(knownKeys, ", "))
 			}
-			cfg, err := loadEffective()
+			// The single effective-settings loader of the wiring layer (env >
+			// file > default; a *settings.ValidationError surfaces as a usage
+			// error, exit 2). One implementation for every command.
+			cfg, err := client.LoadEffectiveSettings()
 			if err != nil {
 				return err
 			}
@@ -275,23 +277,4 @@ func configPath() (string, error) {
 		return "", fmt.Errorf("resolve config location: %w", err)
 	}
 	return p.ConfigFile, nil
-}
-
-// loadEffective resolves the effective settings (env > file > default). A
-// *settings.ValidationError (bad values in the file or env) is re-wrapped as
-// a usage error so it exits 2; read/parse failures stay plain errors (exit 1).
-func loadEffective() (settings.Settings, error) {
-	cfgPath, err := configPath()
-	if err != nil {
-		return settings.Settings{}, err
-	}
-	cfg, err := settings.Load(cfgPath, os.Getenv)
-	if err != nil {
-		var verr *settings.ValidationError
-		if errors.As(err, &verr) {
-			return settings.Settings{}, &invocation.UsageError{Err: err}
-		}
-		return settings.Settings{}, err
-	}
-	return cfg, nil
 }

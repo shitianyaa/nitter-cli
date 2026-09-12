@@ -2,8 +2,10 @@
 // resolves instance-relative proxy paths against the instance base and
 // rewrites pbs.twimg.com media links to their original-quality variant. It is
 // the shared URL-normalization step of the Nitter protocol parsers — the RSS
-// projection today, the HTML timeline parser alongside it — so both producers
-// apply the same pbs quality rule.
+// projection and the HTML timeline parser — so both producers apply the same
+// pbs quality rule and (since the R13 ruling) canonicalize /pic/ media
+// proxies onto their direct pbs.twimg.com URLs, letting cross-form duplicates
+// of one photo dedup to a single media entry.
 //
 // RewritePBSOrig is a faithful port of the user's reference Python plugin
 // (astrbot_plugin_nitter_tweets, prefer_pbs_quality); Absolutize ports its
@@ -12,6 +14,7 @@
 package mediaurl
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -66,4 +69,57 @@ func Absolutize(base, raw string) string {
 		return value
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(value, "/")
+}
+
+// picPrefix is the proxy path prefix Nitter puts in front of media served
+// through the instance (/pic/media/…, /pic/media%2F…, /pic/<x>_video_thumb…).
+const picPrefix = "/pic/"
+
+// mediaPathPrefix is the decoded /pic/ target of a photo proxy: everything
+// after it is the pbs.twimg.com/media path (plus query) the proxy relays.
+const mediaPathPrefix = "media/"
+
+// NormalizePicProxy canonicalizes one media URL extracted from a Nitter feed
+// or page (ruling R13): an instance /pic/ proxy whose decoded target is a
+// pbs.twimg.com media path maps to that direct pbs URL with the name=orig
+// quality rewrite applied, so one photo arriving in two forms — a direct
+// media:content URL and the percent-encoded /pic/media%2F… proxy of a
+// description img — collapses onto a single dedup key. Direct pbs.twimg.com
+// media URLs pass through the same quality rewrite. Any other target (video
+// thumbnails, emoji, card images, foreign paths) keeps its absolutized form.
+//
+// The bool reports whether the returned canonical URL is a direct pbs media
+// URL. Callers dedup on the returned string.
+func NormalizePicProxy(instance, raw string) (string, bool) {
+	abs := Absolutize(instance, raw)
+	if abs == "" {
+		return "", false
+	}
+	if strings.Contains(abs, "pbs.twimg.com/media/") {
+		return RewritePBSOrig(abs), true
+	}
+	u, err := url.Parse(abs)
+	if err != nil {
+		return abs, false
+	}
+	escaped := u.EscapedPath()
+	i := strings.Index(escaped, picPrefix)
+	if i < 0 {
+		return abs, false
+	}
+	decoded, err := url.PathUnescape(escaped[i+len(picPrefix):])
+	if err != nil {
+		return abs, false
+	}
+	if !strings.HasPrefix(decoded, mediaPathPrefix) || len(decoded) == len(mediaPathPrefix) {
+		return abs, false
+	}
+	target := "https://pbs.twimg.com/media/" + decoded[len(mediaPathPrefix):]
+	// A query that rode outside the encoded segment (/pic/media/F.jpg?name=small
+	// form) belongs to the target; the fully encoded form already carries its
+	// query inside the decoded path.
+	if u.RawQuery != "" && !strings.Contains(target, "?") {
+		target += "?" + u.RawQuery
+	}
+	return RewritePBSOrig(target), true
 }

@@ -19,6 +19,7 @@
 package rss
 
 import (
+	"bytes"
 	"encoding/xml"
 	"html"
 	"net/url"
@@ -100,16 +101,22 @@ var statusRe = regexp.MustCompile(`([A-Za-z0-9_]+)/status(?:es)?/(\d+)`)
 // images (/pic/emoji) and other decoration out of the media list.
 var picMediaSrcRe = regexp.MustCompile(`(?i)/pic/(?:media|[a-z0-9_]+_video_thumb)(?:/|%2f)`)
 
-// imgSrcRe captures the src attribute of <img> tags in untrusted HTML:
-// double-quoted, single-quoted, or unquoted values. The [\s"'] guard keeps
-// other attributes (data-src, srcset) from matching as src.
-var imgSrcRe = regexp.MustCompile(`(?i)<img\b[^>]*?[\s"']src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
-
 // Parse decodes a Nitter RSS document into its items. Any XML syntax error
 // (truncated body, non-XML challenge page) classifies as KindMalformed; a
 // well-formed document with zero items is not an error (empty feeds are the
 // fetch layer's policy decision, matching the plugin's layered handling).
+//
+// A body carrying a DTD is rejected outright (before decoding — expansion
+// happens inside the parser, so "parse and see" is too late): <!DOCTYPE
+// enables entity definitions and with them billion-laughs expansion, which
+// no legitimate Nitter feed ships.
 func Parse(data []byte) ([]Item, error) {
+	if bytes.Contains(data, []byte("<!DOCTYPE")) || bytes.Contains(data, []byte("<!ENTITY")) {
+		// XML keywords are case-sensitive, so the exact uppercase tokens are
+		// the whole story; a lowercase <!doctype is not valid XML anyway.
+		return nil, twitter.Errorf(twitter.KindMalformed, opParse,
+			"rejected doctype/entity — potential entity expansion")
+	}
 	var doc feedXML
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, twitter.Errorf(twitter.KindMalformed, opParse, "parse RSS XML: %w", err)
@@ -169,7 +176,7 @@ func ItemToTweet(it Item) (twitter.Tweet, error) {
 	if h := strings.TrimPrefix(it.Creator, "@"); h != "" {
 		tw.Author.Handle = h
 	}
-	if t, err := time.Parse(time.RFC1123Z, it.PubDate); err == nil {
+	if t, ok := parsePubDate(it.PubDate); ok {
 		tw.PublishedAt = t.UTC()
 	}
 	tw.Media = projectMedia(it.MediaURLs, instanceBase(source))
@@ -187,6 +194,33 @@ func locateStatus(it Item) (user, id, source string, ok bool) {
 	return "", "", "", false
 }
 
+// pubDateDayRe matches a weekday-comma prefix followed by a single-digit day
+// of month ("Sun, 5 Jul …"), the shape RFC1123Z's zero-padded "02" rejects.
+var pubDateDayRe = regexp.MustCompile(`^([A-Za-z]{3},) (\d)(\s.+)$`)
+
+// parsePubDate parses one pubDate with the tolerance real Nitter feeds need
+// (Task 10 carry): whitespace runs are collapsed to single spaces (Nitter
+// sometimes emits "Sun,  5 Jul …" with a doubled space after the comma), the
+// result is tried against RFC1123Z, and a single-digit day of month is
+// zero-padded for a second attempt (RFC1123Z's "02" requires two digits;
+// Nitter emits "Sun, 5 Jul …" during the first nine days of a month). The
+// brief's "try RFC1123 (named zone) as a second layout" degenerates here:
+// Nitter always emits a numeric zone (+0000), so the only real-world gap is
+// the day padding, and the retry stays on RFC1123Z. Unparseable input
+// reports false — the caller leaves PublishedAt zero rather than fabricating.
+func parsePubDate(raw string) (time.Time, bool) {
+	s := strings.Join(strings.Fields(raw), " ")
+	if t, err := time.Parse(time.RFC1123Z, s); err == nil {
+		return t, true
+	}
+	if m := pubDateDayRe.FindStringSubmatch(s); m != nil {
+		if t, err := time.Parse(time.RFC1123Z, m[1]+" 0"+m[2]+m[3]); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // projectText cleans the description, falling back to the title when the
 // description is empty (plugin semantics: clean_text(description or title)).
 func projectText(it Item) string {
@@ -198,15 +232,19 @@ func projectText(it Item) string {
 }
 
 // projectMedia maps extracted URLs onto twitter.Media. Empty input leaves the
-// slice nil (Task 8's pinned null contract); exact duplicates are dropped,
-// porting the plugin's seen-set. An unmatched media source type stays the
-// "image" default; Nitter video thumbnails (_video_thumb paths) project as
-// "video" placeholder links.
+// slice nil (Task 8's pinned null contract). Dedup runs on the canonical URL
+// string (ruling R13): an instance /pic/ proxy pointing at a pbs.twimg.com
+// media path canonicalizes onto the direct pbs URL (quality rewritten to
+// name=orig), so an item carrying the same photo both as a media:content URL
+// and as a description img proxy yields ONE media entry. Proxy targets that
+// are not pbs media paths (video thumbnails) keep their absolutized proxy
+// form and dedup by string, as before. Nitter video thumbnails project as
+// "video" placeholder links; everything else is an image.
 func projectMedia(urls []string, base string) []twitter.Media {
 	var media []twitter.Media
 	seen := make(map[string]bool, len(urls))
 	for _, raw := range urls {
-		u := mediaurl.RewritePBSOrig(absolutize(raw, base))
+		u, _ := mediaurl.NormalizePicProxy(base, raw)
 		if u == "" || seen[u] {
 			continue
 		}
@@ -214,25 +252,6 @@ func projectMedia(urls []string, base string) []twitter.Media {
 		media = append(media, twitter.Media{Type: mediaType(u), URL: u})
 	}
 	return media
-}
-
-// absolutize turns Nitter's media path forms into absolute URLs: protocol-
-// relative values get https:, instance-relative values are joined against
-// the base derived from the item's own status URL. Anything else passes
-// through unchanged — relative input without a usable base is left as-is
-// rather than silently dropped (no silent degradation).
-func absolutize(raw, base string) string {
-	switch {
-	case strings.HasPrefix(raw, "//"):
-		return "https:" + raw
-	case strings.HasPrefix(raw, "/"):
-		if base != "" {
-			return base + raw
-		}
-		return raw
-	default:
-		return raw
-	}
 }
 
 // instanceBase derives scheme://host from the item's matched status URL; ""
@@ -255,27 +274,120 @@ func mediaType(u string) string {
 }
 
 // descriptionMedia extracts author-media <img src> values from the raw
-// description HTML: all img tags are scanned, HTML entities in the value are
+// description HTML in document order: HTML entities in the value are
 // unescaped, and only /pic/media and /pic/*_video_thumb sources are kept
-// (plugin's author-media rule).
+// (the plugin's author-media rule). Quote containers and article-card links
+// are masked (the plugin's nested-media rule, shared with the HTML parser):
+// images inside a subtree rooted at a tag whose class carries a "quote"/
+// "quote-…" token or whose href points at /i/article belong to the quoted
+// tweet, never to the quoting item.
 func descriptionMedia(desc string) []string {
 	if desc == "" {
 		return nil
 	}
 	var urls []string
-	for _, m := range imgSrcRe.FindAllStringSubmatch(desc, -1) {
-		v := m[1]
-		if v == "" {
-			v = m[2]
-		}
-		if v == "" {
-			v = m[3]
-		}
-		v = strings.TrimSpace(html.UnescapeString(v))
-		if v == "" || !picMediaSrcRe.MatchString(v) {
+	skipName := "" // tag name of the masked subtree root; "" when not masked
+	depth := 0
+	for _, loc := range tagRe.FindAllStringSubmatchIndex(desc, -1) {
+		tag := desc[loc[0]:loc[1]]
+		name := strings.ToLower(desc[loc[4]:loc[5]])
+		closing := desc[loc[2]:loc[3]] == "/"
+		selfClosed := strings.HasSuffix(tag, "/>")
+		if skipName != "" {
+			// Inside a masked subtree: track the root tag's nesting depth and
+			// drop everything until it closes. Void and self-closed tags
+			// never change the depth.
+			if name != skipName || isVoidTag(name) || selfClosed {
+				continue
+			}
+			if closing {
+				depth--
+				if depth == 0 {
+					skipName = ""
+				}
+			} else {
+				depth++
+			}
 			continue
 		}
-		urls = append(urls, v)
+		switch {
+		case name == "img" && !closing:
+			if v, ok := imgSrcValue(tag); ok {
+				v = strings.TrimSpace(html.UnescapeString(v))
+				if v != "" && picMediaSrcRe.MatchString(v) {
+					urls = append(urls, v)
+				}
+			}
+		case !closing && !selfClosed && !isVoidTag(name) && opensMaskedSubtree(tag):
+			skipName = name
+			depth = 1
+		}
 	}
 	return urls
+}
+
+// tagRe iterates the tags of a machine-generated Nitter HTML fragment: group
+// 1 is the optional closing slash, group 2 the tag name. The [^>]* attribute
+// soup relies on Nitter never emitting a raw ">" inside attribute values.
+var tagRe = regexp.MustCompile(`(?i)<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>`)
+
+// voidTags are the HTML void elements: they have no closing tag and never
+// open a subtree the mask could track.
+var voidTags = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true,
+	"hr": true, "img": true, "input": true, "link": true, "meta": true,
+	"source": true, "track": true, "wbr": true,
+}
+
+func isVoidTag(name string) bool { return voidTags[name] }
+
+// opensMaskedSubtree reports whether an opening tag starts a masked subtree:
+// its class attribute carries a "quote"/"quote-…" token (the HTML parser's
+// hasQuoteClass port) or its href points at an article card (/i/article).
+func opensMaskedSubtree(tag string) bool {
+	if m := tagAttrRe("class").FindStringSubmatch(tag); m != nil {
+		for _, name := range strings.Fields(m[1] + m[2] + m[3]) {
+			n := strings.ToLower(name)
+			if n == "quote" || strings.HasPrefix(n, "quote-") {
+				return true
+			}
+		}
+	}
+	if m := tagAttrRe("href").FindStringSubmatch(tag); m != nil {
+		if articleCardRe.MatchString(m[1] + m[2] + m[3]) {
+			return true
+		}
+	}
+	return false
+}
+
+// tagAttrRe builds a matcher for one attribute's value: double-quoted,
+// single-quoted or unquoted. The value lands in exactly one of the three
+// capture groups (1, 2, 3); the others stay empty.
+func tagAttrRe(attr string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b` + attr + `\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
+}
+
+// articleCardRe detects Nitter article-card links (/i/article/…), mirroring
+// the HTML parser's articleHrefRe.
+var articleCardRe = regexp.MustCompile(`(?i)(?:^|/)/?i/article(?:/|[?#]|$)`)
+
+// imgSrcValue extracts the src attribute of one <img> tag text: double-
+// quoted, single-quoted or unquoted. The [\s"'] guard keeps other attributes
+// (data-src, srcset) from matching as src.
+var imgSrcTagRe = regexp.MustCompile(`(?i)[\s"']src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
+
+func imgSrcValue(tag string) (string, bool) {
+	m := imgSrcTagRe.FindStringSubmatch(tag)
+	if m == nil {
+		return "", false
+	}
+	v := m[1]
+	if v == "" {
+		v = m[2]
+	}
+	if v == "" {
+		v = m[3]
+	}
+	return v, v != ""
 }
