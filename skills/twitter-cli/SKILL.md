@@ -125,10 +125,10 @@ twitter get https://x.com/NASA/status/2081668333762687236 --json
 twitter get 2081668333762687236 --json                   # bare numeric ID also works
 echo https://x.com/NASA/status/2081668333762687236 | twitter get   # one ref from non-TTY stdin
 
-twitter media https://x.com/user/status/ID --json        # resolve downloadable media (image originals + video mp4)
-twitter media URL --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
-twitter media URL --quality medium --ndjson              # video bitrate / image pbs tier
-twitter media URL --probe --json                         # + duration/size (extra ranged requests; best-effort)
+twitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
+twitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
+twitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
+twitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
 twitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
 twitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
