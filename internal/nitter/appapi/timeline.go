@@ -14,8 +14,11 @@ package appapi
 // of the instance that produced the result, so callers can stamp provenance
 // into NDJSON meta without reaching into the composition root.
 //
-// Unauthenticated: instance credentials are not wired to the transport in the
-// MVP (see probe.go). Context cancellation is honored between and during
+// Authentication: instance credentials are wired by the CLI layer as a
+// host-scoped transport policy (httpx.Options.BasicAuth, see probe.go and
+// httpx/auth.go), so fetches against a credentialed instance's host carry
+// the Authorization header without any per-call assembly here. Context
+// cancellation is honored between and during
 // requests: a canceled or deadline-exceeded fetch aborts rotation and
 // surfaces the context error instead of moving on to the next instance.
 

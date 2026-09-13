@@ -3,6 +3,7 @@ package client_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/client"
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/media"
 	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
 	"github.com/shitianyaa/nitter-cli/sdk"
 )
@@ -321,5 +323,156 @@ func TestDownloaderExistsErrorCarriesPath(t *testing.T) {
 	}
 	if p, ok := client.ExistsPath(err); !ok || p != final {
 		t.Errorf("ExistsPath = (%q, %v), want (%q, true)", p, ok, final)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Instance basic auth (host-scoped transport policy). The wiring maps the
+// [[instances]] username/password settings into the shared transport
+// (httpx.Options.BasicAuth, keyed by URL host): instance-host fetches carry
+// the Authorization header, third-party media endpoints fetched through the
+// SAME transport structurally cannot. See httpx/auth.go for the contract.
+// ---------------------------------------------------------------------------
+
+// basicAuthRSSFeed is a Nitter-shaped RSS feed whose single item projects
+// into one tweet for the handle "user" (keeps Timeline on the RSS path).
+const basicAuthRSSFeed = `<?xml version="1.0"?><rss version="2.0"><channel>` +
+	`<item><guid>https://nitter.example/user/status/100#m</guid>` +
+	`<link>https://nitter.example/user/status/100</link>` +
+	`<dc:creator>@user</dc:creator><title>one</title>` +
+	`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item></channel></rss>`
+
+// fxOnePhotoPayload is a minimal fxtwitter envelope with one photo entry.
+const fxOnePhotoPayload = `{"tweet":{"media":{"all":[` +
+	`{"type":"photo","url":"https://pbs.twimg.com/media/x.jpg","width":1,"height":1}]}}}`
+
+// newRecordingServer serves one handler and records the Authorization header
+// of every request it receives.
+func newRecordingServer(t *testing.T, handle func(w http.ResponseWriter, r *http.Request), auth *[]string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*auth = append(*auth, r.Header.Get("Authorization"))
+		handle(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// fastCfg returns settings like validCfg but with pacing disabled: the
+// basic-auth tests drive several requests through one transport and need no
+// 1s spacing between them.
+func fastCfg() settings.Settings {
+	cfg := validCfg()
+	cfg.RequestInterval = "-1s"
+	return cfg
+}
+
+// TestBuildWiresInstanceBasicAuth: with credentials configured for the
+// instance, the instance-host fetch (Timeline) and the instance probe
+// (TestInstance) carry the correctly encoded Authorization header, while the
+// fxtwitter strategy resolved through the SAME transport never does.
+func TestBuildWiresInstanceBasicAuth(t *testing.T) {
+	var instAuth, fxAuth []string
+	inst := newRecordingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/rss") {
+			_, _ = io.WriteString(w, basicAuthRSSFeed)
+			return
+		}
+		http.NotFound(w, r)
+	}, &instAuth)
+	fx := newRecordingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, fxOnePhotoPayload)
+	}, &fxAuth)
+
+	media.EndpointOverrides.Fx = fx.URL
+	t.Cleanup(func() { media.EndpointOverrides.Fx = "" })
+
+	cfg := fastCfg()
+	cfg.Instances = []settings.Instance{{URL: inst.URL, Username: "user", Password: "p"}}
+	w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("user:p"))
+	ctx := context.Background()
+
+	tweets, _, err := w.Timeline().Timeline(ctx, "user", 5, 5)
+	if err != nil {
+		t.Fatalf("Timeline: %v", err)
+	}
+	if len(tweets) != 1 {
+		t.Fatalf("tweets = %d, want 1 (RSS path)", len(tweets))
+	}
+
+	report, err := w.Tester().TestInstance(ctx, inst.URL, client.TestOptions{User: "user"})
+	if err != nil {
+		t.Fatalf("TestInstance: %v", err)
+	}
+	if !report.RSS.OK {
+		t.Fatalf("probe RSS = %+v, want OK", report.RSS)
+	}
+
+	res, err := w.Media().ResolveMedia(ctx, "100", "user", []string{"fx"}, "high")
+	if err != nil {
+		t.Fatalf("ResolveMedia: %v", err)
+	}
+	if len(res) != 1 || res[0].URL != "https://pbs.twimg.com/media/x.jpg?name=orig" {
+		t.Fatalf("resolutions = %+v, want the single fx photo", res)
+	}
+
+	if len(instAuth) != 3 {
+		t.Fatalf("instance fake saw %d request(s) with Authorization recorded %v, want 3 (timeline rss + probe rss + probe html)", len(instAuth), instAuth)
+	}
+	for i, got := range instAuth {
+		if got != want {
+			t.Errorf("instance request %d Authorization = %q, want %q", i, got, want)
+		}
+	}
+	if len(fxAuth) == 0 {
+		t.Fatal("fxtwitter fake saw no request")
+	}
+	for i, got := range fxAuth {
+		if got != "" {
+			t.Errorf("fxtwitter request %d carried Authorization %q, want none (third-party host)", i, got)
+		}
+	}
+}
+
+// TestBuildWithoutCredentialsSendsNoAuth: with no credentials at all, or an
+// incomplete pair (username only, password only — both halves are required,
+// an empty credential half is never sent), instance fetches run
+// unauthenticated exactly as before.
+func TestBuildWithoutCredentialsSendsNoAuth(t *testing.T) {
+	cases := []settings.Instance{
+		{},
+		{Username: "user"},
+		{Password: "p"},
+	}
+	for i, in := range cases {
+		var auth []string
+		inst := newRecordingServer(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, basicAuthRSSFeed)
+		}, &auth)
+
+		in.URL = inst.URL
+		cfg := fastCfg()
+		cfg.Instances = []settings.Instance{in}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("case %d Build: %v", i, err)
+		}
+		tweets, _, err := w.Timeline().Timeline(context.Background(), "user", 5, 5)
+		if err != nil {
+			t.Fatalf("case %d Timeline: %v", i, err)
+		}
+		if len(tweets) != 1 {
+			t.Fatalf("case %d tweets = %d, want 1", i, len(tweets))
+		}
+		if len(auth) != 1 || auth[0] != "" {
+			t.Errorf("case %d instance Authorization = %v, want one request with no header", i, auth)
+		}
+		inst.Close()
 	}
 }

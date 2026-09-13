@@ -106,6 +106,14 @@ type Options struct {
 	// the request as KindMalformed with no partial body returned and no
 	// retry (the response shape cannot improve by repeating the request).
 	MaxBodyBytes int64
+	// BasicAuth maps a URL host ("host" or "host:port"; comparison is
+	// case-insensitive) to the basic-auth credentials sent with requests
+	// addressed to that host. See auth.go for the contract: the header is
+	// attached inside the transport from the request's own URL host — only
+	// for complete user+password pairs — so credentials configured for the
+	// Nitter instance structurally cannot reach any other host sharing this
+	// transport (the third-party media endpoints).
+	BasicAuth map[string]BasicCredentials
 	// Now is the injectable clock; nil → time.Now.
 	Now func() time.Time
 
@@ -140,6 +148,10 @@ type Client struct {
 	// maxBodyBytes is the effective body cap; <= 0 means unlimited
 	// (only reachable via an explicit negative Options value).
 	maxBodyBytes int64
+	// basicAuth is the normalized host→credentials policy (Options.BasicAuth
+	// with lowercased hosts and incomplete pairs dropped); nil when nothing
+	// is configured. See auth.go.
+	basicAuth map[string]BasicCredentials
 
 	paceMu    sync.Mutex
 	lastStart time.Time
@@ -159,6 +171,7 @@ func New(opts Options) (*Client, error) {
 		retryDelay:    defaultRetryDelay,
 		minInterval:   defaultMinInterval,
 		maxBodyBytes:  defaultMaxBodyBytes,
+		basicAuth:     normalizeBasicAuth(opts.BasicAuth),
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -332,6 +345,9 @@ func (c *Client) DownloadMeta(ctx context.Context, url string, w io.Writer, head
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		// Host-scoped basic auth (auth.go): applied last so the host policy
+		// wins for credentialed hosts on every attempt of every path.
+		c.applyBasicAuth(req)
 
 		// Unlike doOnce, the body is NOT read here — it streams below.
 		resp, err := c.doer.Do(req)
@@ -506,6 +522,9 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+		// Host-scoped basic auth (auth.go): applied last so the host policy
+		// wins for credentialed hosts on every attempt of every path.
+		c.applyBasicAuth(req)
 
 		resp, respBody, err := c.doOnce(req)
 		if err != nil {

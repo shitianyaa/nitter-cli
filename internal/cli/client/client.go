@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
@@ -326,9 +327,11 @@ func (w *Wiring) Planner() DownloadPlanner {
 //     defaults (the CLI maps non-usage build failures to exit 1).
 //   - Instances: the cfg projection, or the single rootOpts.Instance URL when
 //     the --instance override is set (its documented meaning: the instance
-//     set for this invocation). Credentials are carried but, in the MVP, not
-//     wired to the transport — probes and fetches run unauthenticated. The
-//     first instance doubles as the media resolver's nitter strategy base.
+//     set for this invocation). Complete credentials become a host-scoped
+//     basic-auth policy on the shared transport (see the basicAuth block
+//     below): instance-host fetches authenticate, third-party endpoints
+//     never see the credential. The first instance doubles as the media
+//     resolver's nitter strategy base.
 //   - A nil now defaults to time.Now; a nil rootOpts is treated as unset
 //     flags (tests and programmatic callers).
 func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() time.Time) (*Wiring, error) {
@@ -363,6 +366,30 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 		instances = []nitter.Instance{{URL: rootOpts.Instance}}
 	}
 
+	// Instance basic auth: configured credentials become a HOST-SCOPED
+	// transport policy (httpx.Options.BasicAuth) — requests whose URL host
+	// matches the instance's own host carry the Authorization header; every
+	// other host sharing this transport (the third-party media endpoints)
+	// structurally cannot receive the credential (httpx/auth.go). A complete
+	// user+password pair is required: a username or password alone is
+	// treated as unconfigured (an empty credential half is never sent). The
+	// --instance flag override replaces the whole instance set and carries
+	// no credentials (no flag exists for them), so overridden runs stay
+	// unauthenticated. Duplicate hosts: the last configured entry wins.
+	basicAuth := make(map[string]httpx.BasicCredentials, len(instances))
+	for _, in := range instances {
+		if in.Username == "" || in.Password == "" {
+			continue
+		}
+		u, err := url.Parse(in.URL)
+		if err != nil || u.Host == "" {
+			// No host to key credentials on; the bad URL fails at
+			// request-build time with the usual classified error.
+			continue
+		}
+		basicAuth[strings.ToLower(u.Host)] = httpx.BasicCredentials{Username: in.Username, Password: in.Password}
+	}
+
 	if now == nil {
 		now = time.Now
 	}
@@ -372,6 +399,7 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 		RetryAttempts: cfg.RetryAttempts,
 		RetryDelay:    retryDelay,
 		MinInterval:   minInterval,
+		BasicAuth:     basicAuth,
 		Now:           now,
 	})
 	if err != nil {

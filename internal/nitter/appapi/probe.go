@@ -27,9 +27,15 @@ package appapi
 // from the classified transport error. No URL, query string, header or body
 // content ever reaches Probe.Err (sdk redaction contract).
 //
-// Unauthenticated: instance credentials (Instance.Username/Password) are NOT
-// wired to the transport in the MVP — probes run anonymously like every
-// other fetch; wiring basic auth is deferred until a real instance needs it.
+// Authentication: instance credentials (Instance.Username/Password) are
+// wired by the CLI layer as a HOST-SCOPED transport policy
+// (httpx.Options.BasicAuth, see httpx/auth.go): requests whose URL host
+// matches a credentialed instance's host carry the Authorization header,
+// every other host structurally cannot. Probes therefore run authenticated
+// when the probed base URL's host has credentials configured — and stay
+// anonymous otherwise. This is transport-level, so the probe needs no
+// Chooser involvement: explicit probe URLs are matched by host like any
+// other fetch.
 //
 // TestInstance does not touch the Client's Chooser: probes address explicit
 // URLs (they are diagnostics, possibly for instances that are not even
