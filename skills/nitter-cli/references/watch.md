@@ -31,17 +31,28 @@ history is emitted. This is by design: the stream starts at "now".
 - After the first run, each cycle emits the source's new tweets (IDs not in the
   seen list, newest first).
 
-## `--max-new` semantics (rule 4)
+## `--max-new` semantics (rule 4) and the overflow policy
 
 - Default 10: at most 10 new tweets per source per cycle are emitted, newest
   first.
-- Excess new tweets are **marked seen immediately and never re-emitted**: after
-  downtime, a burst larger than the cap per source per cycle silently loses the
-  tweets beyond the cap.
-- Scheduler deployments should set `--max-new` explicitly to cover their
-  sources' quiet-period bursts (for example `--max-new 50`).
+- Default overflow policy `--max-new-overflow drop`: excess new tweets are
+  **marked seen immediately and never re-emitted** — after downtime, a burst
+  larger than the cap per source per cycle silently loses the tweets beyond the
+  cap (宁丢勿重; the plugin's original semantics).
+- `--max-new-overflow keep` (宁重勿丢) leaves the excess unseen: the next
+  cycles re-fetch and re-emit it under the same cap, without repeating
+  already-delivered tweets, until the backlog drains. A burst larger than twice
+  the cap therefore takes several cycles to drain. Only the seen-marking of the
+  excess changes; the first-page watermark always keeps tracking what was
+  fetched.
 - `--max-new 0` emits nothing and seals the current first page as the new
-  baseline (a deliberate "skip and reset"); negative is a usage error (exit 2).
+  baseline under BOTH policies — the overflow policy only governs capped
+  emission rounds, so `keep` does not disable this escape hatch. Negative
+  `--max-new` and any `--max-new-overflow` value other than `drop`/`keep` are
+  usage errors (exit 2).
+- Scheduler deployments should set `--max-new` explicitly to cover their
+  sources' quiet-period bursts (for example `--max-new 50`), or pass
+  `--max-new-overflow keep` when a silent loss is unacceptable.
 - An initialized source whose fetch succeeds but comes back empty keeps its
   previous state wholesale — nothing is sealed by a transient empty response.
 
@@ -77,7 +88,7 @@ valid anywhere (watch sources, `[[watch.sources]]`, `seen --source`).
 | 0 | Consumer closed stdout early (EPIPE) | Possibly truncated stream; state may lag — next round re-pushes |
 | 0 | SIGINT/SIGTERM (also in loop mode) | Graceful shutdown; sources not yet run in the cycle are simply skipped |
 | 1 | At least one source failed | Failed sources produce `kind:"error"` envelopes on stdout (or `error: <key>: <message>` lines on stderr without `--ndjson`); healthy sources' tweets still stream; failed sources' state is untouched |
-| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`/`--max-pages`, `--json`, `--json --ndjson` together, invalid config values |
+| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`/`--max-pages`, invalid `--max-new-overflow`, `--json`, `--json --ndjson` together, invalid config values |
 
 Loop mode: exit 1 only for unrecoverable errors (state-store failure,
 non-EPIPE write failure); SIGINT/SIGTERM exit 0.

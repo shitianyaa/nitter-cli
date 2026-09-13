@@ -187,11 +187,15 @@ only describe successful output; **stderr is never JSON**.
   20 most recent first-page status IDs. Inspect with `nitter seen list`, delete
   with `nitter seen clear [--source user:NASA] --confirm`.
 - **`--max-new` (default 10)** caps emission per source per cycle (newest first).
-  Excess new tweets are **marked seen immediately and never re-emitted**: after a
-  downtime, a burst larger than the cap per source per cycle silently loses the
-  tweets beyond the cap. Scheduler deployments should set `--max-new` explicitly to
-  a value that covers your sources' quiet-period bursts.
-  `--max-new 0` emits nothing and rebuilds the baseline from the first page.
+  By default (`--max-new-overflow drop`) excess new tweets are **marked seen
+  immediately and never re-emitted**: after a downtime, a burst larger than the
+  cap per source per cycle silently loses the tweets beyond the cap. Scheduler
+  deployments should set `--max-new` explicitly to a value that covers your
+  sources' quiet-period bursts — or pass `--max-new-overflow keep` to leave the
+  excess unseen so the next cycles re-emit it under the same cap (宁重勿丢; a
+  burst larger than twice the cap drains over several cycles).
+  `--max-new 0` emits nothing and rebuilds the baseline from the first page
+  (under both policies).
 - **Tag sources use the raw query**: `tag:#AI`, `tag:from:nasa`. The ref after the
   first colon is passed through verbatim (the HTTP layer URL-escapes it exactly
   once). The pre-escaped form `tag:%23AI` would be double-escaped on the wire and
@@ -217,8 +221,10 @@ By design: the first cycle seeds the dedup state so that your stream starts at
 "now". Use `--include-existing` once if you actually want the history.
 
 **Why did a burst of new tweets only partially arrive?**
-`--max-new` (default 10) capped the emission; the rest was marked seen (see Watch
-semantics). Raise `--max-new` or shorten the polling interval.
+`--max-new` (default 10) capped the emission; with the default overflow policy
+(`drop`) the rest was marked seen and never re-emitted (see Watch semantics).
+Raise `--max-new`, shorten the polling interval, or pass `--max-new-overflow
+keep` so the next cycles re-emit the backlog.
 
 **RSS works but `search` returns nothing.**
 Search is a separate Nitter capability and may be disabled or slow on your

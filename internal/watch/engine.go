@@ -17,14 +17,20 @@
 //     its previous state wholesale, watermark anchors included (plugin
 //     runner.py:849-858 返回空结果，保留当前水位; spec §7 保留旧水位).
 //   - New tweets are fetched IDs not in the seen list, in timeline order.
-//   - MaxNew > 0 caps the emission to the newest N; following the plugin,
-//     seen still advances with ALL new ids — the plugin marks the excess
-//     older tweets as seen immediately ("the excess is marked seen ... so
-//     the advanced scan watermark cannot silently drop it next round"), so
-//     they are intentionally never re-emitted (旧积压可能被跳过).
+//   - MaxNew > 0 caps the emission to the newest N. Following the plugin,
+//     the default (drop) still advances seen with ALL new ids — the plugin
+//     marks the excess older tweets as seen immediately ("the excess is
+//     marked seen ... so the advanced scan watermark cannot silently drop
+//     it next round"), so they are intentionally never re-emitted (旧积压
+//     可能被跳过). KeepOverflow opts out of that: only the emitted prefix
+//     is marked seen, so the excess re-emits on the following cycles under
+//     the same cap (宁重勿丢; a burst larger than two caps drains over
+//     several cycles).
 //   - MaxNew == 0 emits nothing and rebuilds the page-1 baseline: the
 //     baseline IDs are merged into seen (plugin _commit_baseline_rebuild →
-//     _rebuild_scan_baseline), sealing the current first page.
+//     _rebuild_scan_baseline), sealing the current first page. This rule is
+//     independent of the overflow policy — the round never reaches emission,
+//     so KeepOverflow does not disable the baseline seal.
 //   - The watermark is always the capped numeric-only page-1 IDs, replaced
 //     — never merged — on every round that rebuilds state.
 //   - The engine never fabricates timestamps: Result.State carries
@@ -68,6 +74,17 @@ type Options struct {
 	// ==0 emits nothing and rebuilds the baseline from the first page;
 	// <0 is treated as ==0 (flag-level validation belongs to Task 19).
 	MaxNew int
+	// KeepOverflow selects the MaxNew overflow policy. false (drop, the
+	// default) marks the tweets beyond the cap seen immediately — they are
+	// never re-emitted (the plugin's 宁丢勿重). true (keep) marks only the
+	// emitted prefix seen, so the excess stays unseen and the next cycles
+	// re-fetch and re-emit it under the same cap until it drains (宁重勿丢);
+	// a burst larger than twice the cap therefore takes several cycles to
+	// drain. The policy only governs capped emission rounds (MaxNew > 0):
+	// the MaxNew == 0 baseline rebuild and the first-run seeding are
+	// unaffected, and the watermark always keeps tracking what was fetched
+	// (the first page), not what was emitted.
+	KeepOverflow bool
 }
 
 // Result is one round's outcome: the tweets the caller may deliver, the
@@ -177,11 +194,18 @@ func Select(fetched []nitter.Tweet, firstPageIDs []string, prev seen.SourceState
 		emitted = newTweets[:opts.MaxNew]
 	}
 
-	// Seen advances with ALL new ids: the plugin merges the emitted subset
-	// after delivery and marks the excess older tweets seen immediately at
-	// discovery time, so they are permanently skipped rather than re-found
-	// next round. Merging the timeline-ordered new ids (emitted are their
-	// newest prefix) reproduces the plugin's final order exactly.
+	// Seen advances with the ids the round commits to. The plugin's default
+	// marks ALL new ids seen immediately — the excess older tweets are
+	// sealed at discovery time and never re-found (宁丢勿重). KeepOverflow
+	// opts out: only the emitted prefix is marked seen, so the excess stays
+	// unseen and re-emits on the following cycles (宁重勿丢), draining
+	// newest-first under the same cap. The watermark is unaffected either
+	// way — it tracks what was fetched (the first page), not what was
+	// emitted. (emitted is a prefix of newTweets, so its ids are exactly
+	// newIDs[:len(emitted)]; without a cap the two are identical.)
+	if opts.KeepOverflow {
+		newIDs = newIDs[:len(emitted)]
+	}
 	return Result{
 		Tweets: emitted,
 		State: seen.SourceState{

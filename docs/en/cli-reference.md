@@ -416,8 +416,9 @@ or parsed (invalid TOML) fails with exit 1; a value failing schema validation
 
 ```bash
 nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
-  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
-  [--no-reposts] [--media-only] [--media-type image|video|gif]
+  [--max-new-overflow drop|keep] [--max-pages N] [--include-existing] \
+  [--state-dir DIR] [--ndjson] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif]
 ```
 
 Polls sources in cycles and prints only tweets that are new against the
@@ -439,6 +440,7 @@ are empty: exit 2.
 | `--once` | off | Run exactly one cycle and exit — the recommended scheduler form. |
 | `--interval D` | `10m` | Loop sleep between cycles without `--once`; must be a duration `>= 1s` (validated in both modes). |
 | `--max-new N` | `10` | Emit at most N new tweets per source per cycle (newest first). `0` emits nothing and seals the current first page as the new baseline; negative is a usage error. |
+| `--max-new-overflow drop\|keep` | `drop` | What happens to new tweets beyond the `--max-new` cap in one cycle. `drop` marks the excess seen immediately — never re-emitted (宁丢勿重). `keep` leaves it unseen so the next cycles re-emit it under the same cap (宁重勿丢; a burst larger than twice the cap drains over several cycles). Another value is a usage error; `--max-new 0` always rebuilds the baseline regardless. |
 | `--max-pages N` | config `max_pages` (5) | Fetch-page budget per cycle; `0` = use the default. |
 | `--include-existing` | off | Emit the whole first fetch on an uninitialized source (default: first run only records state). |
 | `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). |
@@ -456,10 +458,13 @@ Global `--proxy`/`--instance` apply as everywhere.
   emitted (只记不推). `--include-existing` lifts that for the run and bypasses
   `--max-new` for that first fetch.
 - Later cycles emit each source's new tweets, at most `--max-new` per source per
-  cycle. **Excess new tweets are marked seen immediately and never re-emitted**:
-  after a downtime, a burst larger than the cap per source per cycle silently
-  loses the tweets beyond the cap — scheduler deployments should set
-  `--max-new` explicitly.
+  cycle. By default (`--max-new-overflow drop`) **excess new tweets are marked
+  seen immediately and never re-emitted**: after a downtime, a burst larger than
+  the cap per source per cycle silently loses the tweets beyond the cap —
+  scheduler deployments should set `--max-new` explicitly.
+  `--max-new-overflow keep` instead leaves the excess unseen, so the next
+  cycles re-emit it under the same cap (宁重勿丢) until the backlog drains; a
+  burst larger than twice the cap therefore takes several cycles.
 - An initialized source whose fetch succeeds but comes back empty keeps its
   previous state wholesale (nothing is sealed).
 - **Field filters run before dedup**: tweets dropped by `--no-reposts`,
@@ -479,7 +484,7 @@ Global `--proxy`/`--instance` apply as everywhere.
   the other sources continue; its state is left untouched. `--once` exits 1 when
   at least one source failed, 0 when all succeeded. Exit 2 for usage problems
   (bad source string, empty source set, `--interval < 1s`, negative flags,
-  `--json`).
+  invalid `--max-new-overflow`, `--json`).
 - Without `--once` the command loops until SIGINT/SIGTERM (graceful exit 0) or
   an unrecoverable error (state-store failure, non-EPIPE stdout write failure →
   exit 1).
@@ -496,6 +501,12 @@ Example — a scheduler entry consuming the NDJSON stream (illustrative):
 
 ```bash
 nitter watch user:NASA tag:#AI --once --ndjson --max-new 50
+```
+
+To prefer re-delivery over loss on bursts, add `--max-new-overflow keep`:
+
+```bash
+nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow keep
 ```
 
 ```json

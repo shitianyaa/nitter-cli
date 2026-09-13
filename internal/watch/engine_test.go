@@ -265,6 +265,108 @@ func TestSelectRule4MaxNewCapsEmittedAndAdvancesSeenWithAllNew(t *testing.T) {
 	}
 }
 
+// Overflow policy `keep`: MaxNew still caps the emission, but the excess
+// older tweets are NOT marked seen — only the emitted prefix advances seen —
+// so the backlog re-emits on the following cycles (newest first, under the
+// same cap) until it drains. This is the 宁重勿丢 counterpart of rule 4
+// (TestSelectRule4MaxNewCapsEmittedAndAdvancesSeenWithAll). The watermark
+// keeps advancing with the fetched first page: it tracks what was fetched,
+// not what was emitted.
+func TestSelectKeepOverflowReEmitsExcessOnFollowingCycles(t *testing.T) {
+	fetched := tweets("1", "2", "3", "4", "5")
+	firstPageIDs := []string{"1", "2", "3", "4", "5"}
+	prev := seen.SourceState{Initialized: true, UpdatedAt: pastTime()}
+
+	first := watch.Select(fetched, firstPageIDs, prev, watch.Options{MaxNew: 2, KeepOverflow: true})
+
+	if !first.Emitted {
+		t.Fatalf("first round Emitted = false, want true")
+	}
+	if !equalStrings(onlyIDs(first.Tweets), []string{"1", "2"}) {
+		t.Fatalf("first round Tweets = %v, want newest 2 [1 2]", onlyIDs(first.Tweets))
+	}
+	if !equalStrings(first.State.SeenIDs, []string{"1", "2"}) {
+		t.Fatalf("first round SeenIDs = %v, want only the emitted [1 2] (excess kept unseen)", first.State.SeenIDs)
+	}
+	if !equalStrings(first.State.WatermarkIDs, []string{"1", "2", "3", "4", "5"}) {
+		t.Fatalf("first round WatermarkIDs = %v, want the fetched first page (the watermark tracks the fetch, not the emission)", first.State.WatermarkIDs)
+	}
+
+	// Second round against the same fetch: the kept backlog's newest two
+	// emit next — without re-emitting the already-delivered [1 2].
+	second := watch.Select(fetched, firstPageIDs, first.State, watch.Options{MaxNew: 2, KeepOverflow: true})
+	if !equalStrings(onlyIDs(second.Tweets), []string{"3", "4"}) {
+		t.Fatalf("second round Tweets = %v, want the kept backlog [3 4] with no duplicates", onlyIDs(second.Tweets))
+	}
+	if !equalStrings(second.State.SeenIDs, []string{"3", "4", "1", "2"}) {
+		t.Fatalf("second round SeenIDs = %v, want [3 4 1 2]", second.State.SeenIDs)
+	}
+
+	// Third round: the last backlog tweet drains.
+	third := watch.Select(fetched, firstPageIDs, second.State, watch.Options{MaxNew: 2, KeepOverflow: true})
+	if !equalStrings(onlyIDs(third.Tweets), []string{"5"}) {
+		t.Fatalf("third round Tweets = %v, want the last backlog tweet [5]", onlyIDs(third.Tweets))
+	}
+	if !equalStrings(third.State.SeenIDs, []string{"5", "3", "4", "1", "2"}) {
+		t.Fatalf("third round SeenIDs = %v, want [5 3 4 1 2] (backlog drained)", third.State.SeenIDs)
+	}
+
+	// Fourth round: fully seen — the cycle completes without emitting.
+	fourth := watch.Select(fetched, firstPageIDs, third.State, watch.Options{MaxNew: 2, KeepOverflow: true})
+	if len(fourth.Tweets) != 0 || !fourth.Emitted {
+		t.Fatalf("fourth round Tweets = %v Emitted = %v, want an empty drained cycle that completes",
+			onlyIDs(fourth.Tweets), fourth.Emitted)
+	}
+}
+
+// `keep` only changes capped rounds: when the new-tweet count fits under
+// MaxNew there is no overflow, and the round is identical to the default
+// drop policy — every new id is emitted and marked seen.
+func TestSelectKeepOverflowWithoutOverflowMatchesDrop(t *testing.T) {
+	prev := seen.SourceState{Initialized: true, SeenIDs: []string{"5"}, UpdatedAt: pastTime()}
+	fetched := tweets("1", "2", "3", "4", "5")
+	firstPageIDs := []string{"1", "2", "3", "4", "5"}
+
+	keep := watch.Select(fetched, firstPageIDs, prev, watch.Options{MaxNew: 10, KeepOverflow: true})
+	drop := watch.Select(fetched, firstPageIDs, prev, watch.Options{MaxNew: 10})
+
+	if !keep.Emitted || !equalStrings(onlyIDs(keep.Tweets), onlyIDs(drop.Tweets)) {
+		t.Fatalf("keep Tweets = %v (Emitted %v), want drop-identical %v",
+			onlyIDs(keep.Tweets), keep.Emitted, onlyIDs(drop.Tweets))
+	}
+	if !equalStrings(keep.State.SeenIDs, drop.State.SeenIDs) {
+		t.Fatalf("keep SeenIDs = %v, want drop-identical %v", keep.State.SeenIDs, drop.State.SeenIDs)
+	}
+	if !equalStrings(keep.State.WatermarkIDs, drop.State.WatermarkIDs) {
+		t.Fatalf("keep WatermarkIDs = %v, want drop-identical %v", keep.State.WatermarkIDs, drop.State.WatermarkIDs)
+	}
+}
+
+// The overflow policy never applies to the MaxNew == 0 baseline rebuild
+// (rule 5): that round never reaches emission, so `keep` must not silently
+// disable the documented "skip and seal the first page" escape hatch —
+// keep + MaxNew == 0 behaves exactly like drop + MaxNew == 0.
+func TestSelectKeepOverflowDoesNotChangeMaxNewZeroBaselineRebuild(t *testing.T) {
+	prev := seen.SourceState{Initialized: true, SeenIDs: []string{"9"}, UpdatedAt: pastTime()}
+	fetched := tweets("1", "2", "3", "4", "5")
+	firstPageIDs := []string{"1", "2", "3"}
+
+	keep := watch.Select(fetched, firstPageIDs, prev, watch.Options{MaxNew: 0, KeepOverflow: true})
+	drop := watch.Select(fetched, firstPageIDs, prev, watch.Options{MaxNew: 0})
+
+	if keep.Emitted || len(keep.Tweets) != 0 {
+		t.Fatalf("keep + MaxNew 0 emitted %v, want nothing", onlyIDs(keep.Tweets))
+	}
+	if !equalStrings(keep.State.SeenIDs, drop.State.SeenIDs) ||
+		!equalStrings(keep.State.WatermarkIDs, drop.State.WatermarkIDs) {
+		t.Fatalf("keep + MaxNew 0 state = (seen %v, watermark %v), want the drop-identical baseline seal (seen %v, watermark %v)",
+			keep.State.SeenIDs, keep.State.WatermarkIDs, drop.State.SeenIDs, drop.State.WatermarkIDs)
+	}
+	if !equalStrings(keep.State.SeenIDs, []string{"1", "2", "3", "9"}) {
+		t.Fatalf("keep + MaxNew 0 SeenIDs = %v, want the first page [1 2 3] sealed in front of [9]", keep.State.SeenIDs)
+	}
+}
+
 // Rule 5: MaxNew == 0 — nothing emitted, and the plugin's baseline rebuild
 // seals the first page: the baseline IDs are merged into seen (runner.py
 // max==0 → _commit_baseline_rebuild → _rebuild_scan_baseline merges the

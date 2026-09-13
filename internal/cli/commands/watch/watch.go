@@ -52,8 +52,19 @@ const (
 	// nothing, rebuild the baseline" (engine rule 5) and would make the
 	// command never push anything, so it must be positive. 10 absorbs
 	// ordinary bursts without flooding the stream; the excess older tweets
-	// are still marked seen (engine rule 4, 旧积压可能被跳过).
+	// are still marked seen (engine rule 4, 旧积压可能被跳过) unless
+	// --max-new-overflow keep says otherwise.
 	defaultMaxNew = 10
+)
+
+// The --max-new-overflow values: what happens to new tweets beyond the
+// --max-new cap in one cycle. drop (the default) marks the excess seen
+// immediately — never re-emitted (宁丢勿重, the plugin's original rule 4);
+// keep leaves the excess unseen so the next cycles re-emit it under the
+// same cap (宁重勿丢).
+const (
+	overflowDrop = "drop"
+	overflowKeep = "keep"
 )
 
 // New builds the `nitter watch [SOURCE...]` command over the shared streams.
@@ -66,15 +77,16 @@ const (
 // an unrecoverable error (state store, non-EPIPE write failure) exits 1.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
-		intervalFlag    string
-		onceFlag        bool
-		includeExisting bool
-		maxNewFlag      int
-		maxPagesFlag    int
-		stateDirFlag    string
-		asJSON          bool
-		asNDJSON        bool
-		filters         tweetfilter.Filters
+		intervalFlag       string
+		onceFlag           bool
+		includeExisting    bool
+		maxNewFlag         int
+		maxNewOverflowFlag string
+		maxPagesFlag       int
+		stateDirFlag       string
+		asJSON             bool
+		asNDJSON           bool
+		filters            tweetfilter.Filters
 	)
 	cmd := &cobra.Command{
 		Use:   "watch [SOURCE...]",
@@ -95,8 +107,11 @@ against the persistent dedup state (~/.nitter-cli/state/seen.json, or
 The first cycle of an uninitialized source only RECORDS state — no history
 is emitted (只记不推); --include-existing lifts that for a run. Later cycles
 emit each source's new tweets: at most --max-new per source per cycle
-(newest first; seen still advances with every new id), 0 emits nothing and
-seals the current first page as the new baseline. A source whose fetch fails
+(newest first). By default the excess beyond the cap is marked seen
+immediately and never re-emitted (宁丢勿重); --max-new-overflow keep leaves
+it unseen so the next cycles re-emit it under the same cap (宁重勿丢).
+--max-new 0 emits nothing and seals the current first page as the new
+baseline, regardless of --max-new-overflow. A source whose fetch fails
 gets an in-place error report while the other sources continue; its state is
 left untouched.
 
@@ -128,6 +143,7 @@ HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 				once:            onceFlag,
 				includeExisting: includeExisting,
 				maxNew:          maxNewFlag,
+				maxNewOverflow:  maxNewOverflowFlag,
 				maxPages:        maxPagesFlag,
 				stateDir:        stateDirFlag,
 				asJSON:          asJSON,
@@ -144,6 +160,8 @@ HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 		"Emit the whole first fetch on an uninitialized source (default: first run only records state)")
 	cmd.Flags().IntVar(&maxNewFlag, "max-new", defaultMaxNew,
 		"Emit at most N new tweets per source per cycle; 0 emits nothing and rebuilds the baseline")
+	cmd.Flags().StringVar(&maxNewOverflowFlag, "max-new-overflow", overflowDrop,
+		"What happens to new tweets beyond --max-new in a burst: \"drop\" marks the excess seen immediately, never re-emitted (default); \"keep\" leaves it unseen so the next cycles re-emit it under the same cap")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Fetch-page budget per cycle (default: config max_pages; built-in default 5)")
 	cmd.Flags().StringVar(&stateDirFlag, "state-dir", "",
@@ -167,6 +185,7 @@ type options struct {
 	once            bool
 	includeExisting bool
 	maxNew          int
+	maxNewOverflow  string
 	maxPages        int
 	stateDir        string
 	asJSON          bool
@@ -193,6 +212,9 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	}
 	if opts.maxNew < 0 {
 		return invocation.Usagef("watch: --max-new must be >= 0 (0 rebuilds the baseline without emitting)")
+	}
+	if opts.maxNewOverflow != overflowDrop && opts.maxNewOverflow != overflowKeep {
+		return invocation.Usagef("watch: --max-new-overflow must be %q or %q, got %q", overflowDrop, overflowKeep, opts.maxNewOverflow)
 	}
 	if opts.maxPages < 0 {
 		return invocation.Usagef("watch: --max-pages must be >= 0")
@@ -247,6 +269,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	cycle := cycleOptions{
 		includeExisting: opts.includeExisting,
 		maxNew:          opts.maxNew,
+		keepOverflow:    opts.maxNewOverflow == overflowKeep,
 		maxPages:        maxPages,
 		mode:            mode,
 		filters:         opts.filters,
@@ -335,9 +358,13 @@ func resolveSources(args []string, cfg settings.Settings) ([]watchengine.Source,
 type cycleOptions struct {
 	includeExisting bool
 	maxNew          int
-	maxPages        int
-	mode            pipeline.Mode
-	filters         tweetfilter.Filters
+	// keepOverflow is the --max-new-overflow keep policy: tweets beyond the
+	// maxNew cap stay unseen so the next cycles re-emit them (engine
+	// KeepOverflow).
+	keepOverflow bool
+	maxPages     int
+	mode         pipeline.Mode
+	filters      tweetfilter.Filters
 }
 
 // runCycle processes every source once, in the given order. It returns the
@@ -384,6 +411,7 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 			Kind:            src.Kind,
 			IncludeExisting: opts.includeExisting,
 			MaxNew:          opts.maxNew,
+			KeepOverflow:    opts.keepOverflow,
 		})
 
 		// Produce first, persist after (先产出后落盘): a write failure below

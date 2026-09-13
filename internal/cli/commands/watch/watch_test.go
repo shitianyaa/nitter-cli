@@ -482,6 +482,184 @@ func TestWatchMaxNewZeroRebuildsBaseline(t *testing.T) {
 	}
 }
 
+// TestWatchMaxNewOverflowKeepReEmitsBacklogNextCycles: --max-new-overflow
+// keep does NOT mark the tweets beyond the cap seen — the following cycles
+// re-emit them (newest first) until the queue drains, without repeating
+// already-delivered tweets (the 宁重勿丢 counterpart of rule 4).
+func TestWatchMaxNewOverflowKeepReEmitsBacklogNextCycles(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+	base := []string{"watch", "user:NASA", "--once", "--ndjson", "--state-dir", stateDir}
+
+	if code, _, errOut := runCLI(t, base...); code != 0 {
+		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+
+	// Burst of three new tweets (105 newest) against --max-new 1 keep.
+	fake.setAnswers(map[string]answer{
+		"/NASA/rss": {200, rssBody("105", "104", "103", "102", "101")},
+	})
+	keep := append(slices.Clone(base), "--max-new", "1", "--max-new-overflow", "keep")
+
+	code, out, errOut := runCLI(t, keep...)
+	if code != 0 {
+		t.Fatalf("run 2: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	if len(envs) != 1 || envs[0].ID != "105" {
+		t.Fatalf("run 2 envelopes = %+v, want exactly the newest new tweet 105", envs)
+	}
+	st := readSeenFile(t, filepath.Join(stateDir, "seen.json")).Sources["user:NASA"]
+	if !slices.Contains(st.SeenIDs, "105") {
+		t.Errorf("run 2 seen_ids = %v, want the emitted 105 recorded", st.SeenIDs)
+	}
+	if slices.Contains(st.SeenIDs, "103") || slices.Contains(st.SeenIDs, "104") {
+		t.Errorf("run 2 seen_ids = %v, want the kept overflow 103/104 NOT recorded", st.SeenIDs)
+	}
+
+	// Cycle 3 re-emits the kept backlog's newest tweet; nothing repeats.
+	code, out, _ = runCLI(t, keep...)
+	if code != 0 {
+		t.Fatalf("run 3: exit = %d, want 0", code)
+	}
+	envs = decodeEnvelopes(t, out)
+	if len(envs) != 1 || envs[0].ID != "104" {
+		t.Fatalf("run 3 envelopes = %+v, want exactly the kept 104 (no duplicates)", envs)
+	}
+
+	// Cycle 4 drains the last backlog tweet.
+	code, out, _ = runCLI(t, keep...)
+	if code != 0 {
+		t.Fatalf("run 4: exit = %d, want 0", code)
+	}
+	envs = decodeEnvelopes(t, out)
+	if len(envs) != 1 || envs[0].ID != "103" {
+		t.Fatalf("run 4 envelopes = %+v, want exactly the kept 103", envs)
+	}
+
+	// Cycle 5: queue drained, dedup back to silence.
+	code, out, _ = runCLI(t, keep...)
+	if code != 0 {
+		t.Fatalf("run 5: exit = %d, want 0", code)
+	}
+	if out != "" {
+		t.Errorf("run 5 stdout = %q, want nothing (queue drained)", out)
+	}
+}
+
+// TestWatchMaxNewOverflowDropMarksExcessSeen: the explicit default `drop`
+// keeps today's behavior byte-identical — the tweets beyond the cap are
+// marked seen immediately and never re-emitted.
+func TestWatchMaxNewOverflowDropMarksExcessSeen(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+	base := []string{"watch", "user:NASA", "--once", "--ndjson", "--state-dir", stateDir}
+
+	if code, _, errOut := runCLI(t, base...); code != 0 {
+		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+
+	fake.setAnswers(map[string]answer{
+		"/NASA/rss": {200, rssBody("105", "104", "103", "102", "101")},
+	})
+	drop := append(slices.Clone(base), "--max-new", "1", "--max-new-overflow", "drop")
+
+	code, out, errOut := runCLI(t, drop...)
+	if code != 0 {
+		t.Fatalf("run 2: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	if len(envs) != 1 || envs[0].ID != "105" {
+		t.Fatalf("run 2 envelopes = %+v, want exactly the newest new tweet 105", envs)
+	}
+	st := readSeenFile(t, filepath.Join(stateDir, "seen.json")).Sources["user:NASA"]
+	for _, id := range []string{"103", "104", "105"} {
+		if !slices.Contains(st.SeenIDs, id) {
+			t.Errorf("run 2 seen_ids missing %q (drop: the excess is sealed at discovery): %v", id, st.SeenIDs)
+		}
+	}
+
+	// Run 3 against the same fixture: the excess is already seen, nothing
+	// re-emits.
+	code, out, _ = runCLI(t, drop...)
+	if code != 0 {
+		t.Fatalf("run 3: exit = %d, want 0", code)
+	}
+	if out != "" {
+		t.Errorf("run 3 stdout = %q, want nothing (drop never re-emits)", out)
+	}
+}
+
+// TestWatchMaxNewOverflowKeepWithZeroMaxNewStillSealsBaseline pins the
+// documented interaction: the overflow policy only governs capped emission
+// rounds — --max-new 0 is the baseline rebuild and seals the current first
+// page under both policies.
+func TestWatchMaxNewOverflowKeepWithZeroMaxNewStillSealsBaseline(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+	base := []string{"watch", "user:NASA", "--once", "--ndjson", "--state-dir", stateDir}
+
+	if code, _, errOut := runCLI(t, base...); code != 0 {
+		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+
+	fake.setAnswers(map[string]answer{
+		"/NASA/rss": {200, rssBody("103", "104")},
+	})
+	code, out, errOut := runCLI(t, append(slices.Clone(base),
+		"--max-new", "0", "--max-new-overflow", "keep")...)
+	if code != 0 {
+		t.Fatalf("run 2: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("run 2 stdout = %q, want nothing (max-new 0 emits nothing under keep too)", out)
+	}
+	st := readSeenFile(t, filepath.Join(stateDir, "seen.json")).Sources["user:NASA"]
+	if !slices.Contains(st.SeenIDs, "103") || !slices.Contains(st.SeenIDs, "104") {
+		t.Errorf("run 2 seen_ids = %v, want the baseline 103/104 sealed in (keep must not disable rule 5)", st.SeenIDs)
+	}
+	if !slices.Equal(st.WatermarkIDs, []string{"103", "104"}) {
+		t.Errorf("run 2 watermark_ids = %v, want [103 104] (baseline rebuilt)", st.WatermarkIDs)
+	}
+
+	// Run 3: the sealed baseline stays deduped.
+	code, out, _ = runCLI(t, append(slices.Clone(base),
+		"--max-new", "0", "--max-new-overflow", "keep")...)
+	if code != 0 {
+		t.Fatalf("run 3: exit = %d, want 0", code)
+	}
+	if out != "" {
+		t.Errorf("run 3 stdout = %q, want nothing (baseline sealed)", out)
+	}
+}
+
+// TestWatchMaxNewOverflowInvalidValueIsUsageError: only drop|keep are
+// accepted; anything else exits 2 naming the flag.
+func TestWatchMaxNewOverflowInvalidValueIsUsageError(t *testing.T) {
+	tempHome(t)
+	for _, value := range []string{"bogus", "Keep", "keep ", ""} {
+		code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", "--max-new-overflow", value)
+		if code != 2 {
+			t.Errorf("--max-new-overflow %q: exit = %d, want 2 (stderr %q)", value, code, errOut)
+		}
+		if !strings.Contains(errOut, "--max-new-overflow") {
+			t.Errorf("--max-new-overflow %q: stderr = %q, want it to name the flag", value, errOut)
+		}
+	}
+}
+
 // TestWatchTagAndListSources: the kind dispatches tag to Search and list to
 // ListTimeline, with meta.source carrying the source key.
 func TestWatchTagAndListSources(t *testing.T) {

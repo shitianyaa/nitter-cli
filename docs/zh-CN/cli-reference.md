@@ -361,8 +361,9 @@ instance_cooldown, proxy, log_level, log_format, download_path
 
 ```bash
 nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
-  [--max-pages N] [--include-existing] [--state-dir DIR] [--ndjson] \
-  [--no-reposts] [--media-only] [--media-type image|video|gif]
+  [--max-new-overflow drop|keep] [--max-pages N] [--include-existing] \
+  [--state-dir DIR] [--ndjson] [--no-reposts] [--media-only] \
+  [--media-type image|video|gif]
 ```
 
 按轮询周期抓取各来源，对照持久化去重状态（`~/.nitter-cli/state/seen.json`，或
@@ -381,6 +382,7 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 | `--once` | 关 | 只跑一轮即退出——推荐的调度器形态。 |
 | `--interval D` | `10m` | 不带 `--once` 时轮次间的睡眠时长；必须是 `>= 1s` 的 duration（两种模式下都会校验）。 |
 | `--max-new N` | `10` | 每源每轮最多输出的新推文数（从新到旧）。`0` 不输出任何内容，并把当前首页封存为新基准；负数是用法错误。 |
+| `--max-new-overflow drop\|keep` | `drop` | 单轮突发超出 `--max-new` 上限的部分如何处理。`drop` 立即将超出部分标记为已见——之后绝不补推（宁丢勿重）。`keep` 不将其标记为已见，后续各轮会在同一上限下重新推送（宁重勿丢；突发量超过两倍上限时需多轮才能排空）。其他值是用法错误；`--max-new 0` 始终按规则重建基准，不受本项影响。 |
 | `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；`0` = 用默认值。 |
 | `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
 | `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
@@ -396,9 +398,12 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 
 - 未初始化源的第一轮只**记录**状态——不输出任何历史（只记不推）。
   `--include-existing` 对该次运行解除此限制，且该轮首抓不受 `--max-new` 限制。
-- 之后的每轮输出各源的新推文，每源每轮最多 `--max-new` 条。**超出上限的新推文
-  会被立即标记为已见、之后绝不补推**：停机恢复后，单源单轮突发超过上限的部分
-  会被静默跳过——调度器部署应显式设置 `--max-new`。
+- 之后的每轮输出各源的新推文，每源每轮最多 `--max-new` 条。默认
+  （`--max-new-overflow drop`）下**超出上限的新推文会被立即标记为已见、之后
+  绝不补推**：停机恢复后，单源单轮突发超过上限的部分会被静默跳过——调度器
+  部署应显式设置 `--max-new`。`--max-new-overflow keep` 则不将超出部分标记为
+  已见，后续各轮会在同一上限下重新推送（宁重勿丢），直至积压排空；突发量
+  超过两倍上限时需要多轮。
 - 已初始化源的抓取成功但结果为空时，整组保留旧状态（不封存任何东西）。
 - **字段过滤在去重之前运行**：被 `--no-reposts`、`--media-only` 或
   `--media-type` 过滤掉的推文不会被记为已见——每轮都会重新抓取、重新过滤但不
@@ -412,7 +417,7 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 - 抓取失败的源收到就地错误报告（`--ndjson` 流上是错误信封；其他模式是 stderr 的
   `error: <key>: <message>` 行），其余源继续；该源状态保持不动。`--once` 只要有
   源失败即退出 1，全部成功退出 0。用法问题退出 2（来源字符串不合法、来源集为
-  空、`--interval < 1s`、flag 为负、`--json`）。
+  空、`--interval < 1s`、flag 为负、`--max-new-overflow` 不合法、`--json`）。
 - 不带 `--once` 时命令持续循环，直到 SIGINT/SIGTERM（优雅退出 0）或不可恢复
   错误（状态存储失败、非 EPIPE 的 stdout 写失败 → 退出 1）。
 - stdout 管道被关闭（EPIPE）视为消费端挂断，两种模式下都退出 0。Windows 上该
@@ -426,6 +431,12 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 
 ```bash
 nitter watch user:NASA tag:#AI --once --ndjson --max-new 50
+```
+
+突发时宁愿重推也不丢推，加 `--max-new-overflow keep`：
+
+```bash
+nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow keep
 ```
 
 ```json

@@ -157,6 +157,7 @@ nitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; fai
 nitter watch --once --ndjson                            # sources from [[watch.sources]]
 nitter watch user:NASA --once --include-existing --ndjson   # first run emits history (explicit opt-in)
 nitter watch user:NASA --once --max-new 50 --ndjson     # raise the per-source emission cap (default 10)
+nitter watch user:NASA --once --max-new 10 --max-new-overflow keep --ndjson   # bursts beyond the cap re-emit on the next cycles instead of being lost
 nitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
 nitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
 nitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state (seen list cannot see it)
@@ -206,11 +207,15 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    run. An empty first cycle on a `user:` source still initializes (next cycle
    emits); `tag:`/`list:` sources stay uninitialized until a non-empty cycle.
 6. **`--max-new` (default 10)**: caps emission per source per cycle (newest
-   first). Excess new tweets are marked seen immediately and never re-emitted —
-   after downtime, a burst larger than the cap per source per cycle silently
-   loses the tweets beyond the cap. Scheduler deployments should set
-   `--max-new` explicitly. `--max-new 0` emits nothing and seals the current
-   first page as the new baseline.
+   first). By default (`--max-new-overflow drop`) excess new tweets are marked
+   seen immediately and never re-emitted — after downtime, a burst larger than
+   the cap per source per cycle silently loses the tweets beyond the cap.
+   Scheduler deployments should set `--max-new` explicitly.
+   `--max-new-overflow keep` instead leaves the excess unseen, so the next
+   cycles re-emit it under the same cap (宁重勿丢; a burst larger than twice
+   the cap drains over several cycles). `--max-new 0` emits nothing and seals
+   the current first page as the new baseline, under both policies.
+   Another `--max-new-overflow` value is a usage error (exit 2).
 7. **Tag sources take the raw query**: `tag:#AI`, `tag:from:nasa`. The ref
    after the first colon passes through verbatim (URL-escaping happens exactly
    once in the HTTP layer); the pre-escaped `tag:%23AI` form double-escapes and
@@ -293,8 +298,8 @@ references/download.md).
 - [references/instances.md](references/instances.md) — configuring instances
   and diagnosing their health.
 - [references/watch.md](references/watch.md) — scheduling and dedup details:
-  `--once` cron mode, first-run record-only, `--max-new` rule, tag form,
-  `--state-dir`, exit-code matrix.
+  `--once` cron mode, first-run record-only, `--max-new` rule and the
+  `--max-new-overflow` policy, tag form, `--state-dir`, exit-code matrix.
 - [references/media.md](references/media.md) — media resolution: ref and
   batch semantics, the strategy chain and its trust boundary, quality and
   probe, output shapes, download and delivery.
