@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,6 +28,7 @@ func TestDefaults(t *testing.T) {
 		Proxy:            "",
 		LogLevel:         "info",
 		LogFormat:        "text",
+		DownloadPath:     "./nitter-media",
 	}
 	if got := settings.Defaults(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Defaults() = %+v, want %+v", got, want)
@@ -42,6 +44,7 @@ instance_cooldown = "90s"
 proxy             = "http://127.0.0.1:7890"
 log_level         = "debug"
 log_format        = "json"
+download_path     = "/srv/nitter-media"
 
 [[instances]]
 url = "http://nitter.internal:8080"
@@ -99,6 +102,7 @@ func TestLoad(t *testing.T) {
 			Proxy:            "http://127.0.0.1:7890",
 			LogLevel:         "debug",
 			LogFormat:        "json",
+			DownloadPath:     "/srv/nitter-media",
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("Load() = %+v, want %+v", got, want)
@@ -174,6 +178,40 @@ func TestLoad(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "NITTER_DEFAULT_LIMIT") {
 			t.Fatalf("Load() error = %v, want it to name NITTER_DEFAULT_LIMIT", err)
+		}
+	})
+
+	t.Run("download_path has no env override", func(t *testing.T) {
+		// Only default_limit, log_level and log_format have env layers; a
+		// NITTER_DOWNLOAD_PATH variable must be ignored, not honored.
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		got, err := settings.Load(cfgPath, envMap(map[string]string{
+			"NITTER_DOWNLOAD_PATH": "/tmp/from-env",
+		}))
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if want := settings.Defaults().DownloadPath; got.DownloadPath != want {
+			t.Fatalf("DownloadPath = %q, want the default %q (no env override exists)", got.DownloadPath, want)
+		}
+	})
+
+	t.Run("download_path accepts any string without validation", func(t *testing.T) {
+		for _, value := range []string{"", " ", "~/pictures", "C:\\Users\\me\\media", "relative/dir"} {
+			cfgPath := filepath.Join(t.TempDir(), "config.toml")
+			content := "download_path = " + strconv.Quote(value) + "\n"
+			if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+
+			got, err := settings.Load(cfgPath, envMap(nil))
+			if err != nil {
+				t.Fatalf("Load() with download_path %q error = %v, want any string accepted", value, err)
+			}
+			if got.DownloadPath != value {
+				t.Fatalf("DownloadPath = %q, want %q (any string accepted)", got.DownloadPath, value)
+			}
 		}
 	})
 }
@@ -258,6 +296,15 @@ func TestDefaultConfigTOML(t *testing.T) {
 			if strings.HasPrefix(trimmed, "[[instances]]") || strings.HasPrefix(trimmed, "[[watch.sources]]") {
 				t.Fatalf("baseline has active array-table header %q; examples must stay commented out", trimmed)
 			}
+		}
+	})
+
+	t.Run("documents download_path with default and --output override", func(t *testing.T) {
+		if !strings.Contains(settings.DefaultConfigTOML, `download_path     = "./nitter-media"`) {
+			t.Fatalf("baseline must carry the active download_path default:\n%s", settings.DefaultConfigTOML)
+		}
+		if !strings.Contains(settings.DefaultConfigTOML, "--output") {
+			t.Fatalf("baseline comment must note that `nitter download --output` overrides download_path per call:\n%s", settings.DefaultConfigTOML)
 		}
 	})
 }
@@ -373,6 +420,38 @@ id = "user:NASA"
 		}
 		if string(data) != "default_limit = 7\n" {
 			t.Fatalf("config changed after failed save: %q", data)
+		}
+	})
+
+	t.Run("download_path set then unset round-trips to the default", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		if err := settings.SaveKnown(cfgPath, func(tree map[string]any) error {
+			tree["download_path"] = "./somewhere else"
+			return nil
+		}); err != nil {
+			t.Fatalf("SaveKnown() set error = %v", err)
+		}
+		got, err := settings.Load(cfgPath, envMap(nil))
+		if err != nil {
+			t.Fatalf("Load() after set: %v", err)
+		}
+		if got.DownloadPath != "./somewhere else" {
+			t.Fatalf("DownloadPath = %q, want %q after set", got.DownloadPath, "./somewhere else")
+		}
+
+		if err := settings.SaveKnown(cfgPath, func(tree map[string]any) error {
+			delete(tree, "download_path")
+			return nil
+		}); err != nil {
+			t.Fatalf("SaveKnown() unset error = %v", err)
+		}
+		got, err = settings.Load(cfgPath, envMap(nil))
+		if err != nil {
+			t.Fatalf("Load() after unset: %v", err)
+		}
+		if want := settings.Defaults().DownloadPath; got.DownloadPath != want {
+			t.Fatalf("DownloadPath = %q, want the default %q after unset", got.DownloadPath, want)
 		}
 	})
 }

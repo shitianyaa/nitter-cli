@@ -40,6 +40,12 @@ type Settings struct {
 	Proxy            string `toml:"proxy"`
 	LogLevel         string `toml:"log_level"`
 	LogFormat        string `toml:"log_format"`
+
+	// DownloadPath is where `nitter download` writes media; the default is
+	// cwd-relative and `nitter download --output DIR` overrides it per
+	// invocation. No existence check here: any string is accepted and the
+	// download command creates the directory at runtime (mkdir -p).
+	DownloadPath string `toml:"download_path"`
 }
 
 // Instance is one [[instances]] entry: a Nitter instance the user runs.
@@ -66,6 +72,7 @@ func Defaults() Settings {
 		Proxy:            "",
 		LogLevel:         "info",
 		LogFormat:        "text",
+		DownloadPath:     "./nitter-media",
 	}
 }
 

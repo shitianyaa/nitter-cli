@@ -19,6 +19,7 @@ instance_cooldown = "60s"     # cooldown after an instance failure
 proxy             = ""        # empty = use HTTPS_PROXY/ALL_PROXY env
 log_level         = "info"    # debug|info
 log_format        = "text"    # text|json
+download_path     = "./nitter-media"  # default, cwd-relative; nitter download --output DIR (e.g. --output /srv/media) overrides it per call
 
 # Array tables below are managed by hand-editing this file ("nitter config
 # set" refuses them). Examples:

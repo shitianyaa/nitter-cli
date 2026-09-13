@@ -246,25 +246,28 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-管理 `~/.nitter-cli/config.toml` 的九个标量键（默认值、环境变量覆盖与数组表见
+管理 `~/.nitter-cli/config.toml` 的十个标量键（默认值、环境变量覆盖与数组表见
 [README](../README.zh-CN.md#配置)）：
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format
+instance_cooldown, proxy, log_level, log_format, download_path
 ```
 
 - `config path` 打印配置文件路径。不接受参数（否则退出 2）。
-- `config get` 不带键时按 `key = value` 打印全部九个键；带键时只打印该键。
+- `config get` 不带键时按 `key = value` 打印全部十个键；带键时只打印该键。
   未知键在读取文件之前即被拒绝（退出 2）。
 - `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
   `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
   `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
-  `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy` 接受任意
-  字符串）。不给 VALUE 时从管道 stdin 读一行（敏感值不该进 argv）；TTY 下既无
-  VALUE 也不可读 stdin 是用法错误。未知键被拒绝，并提示
-  `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
+  `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy` 与
+  `download_path` 接受任意字符串）。不给 VALUE 时从管道 stdin 读一行（敏感值
+  不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。未知键被拒绝，
+  并提示 `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
 - `config unset KEY` 删除该键，使其回落到环境变量/默认值。
+- `download_path`（默认 `./nitter-media`，相对当前工作目录）是 `nitter
+  download` 写入媒体的位置。它没有环境变量覆盖；`nitter download --output
+  DIR` 在每次调用时覆盖它，目录在下载时创建——`config set` 不做存在性检查。
 - 写入保留未知键与数组表，且为原子写（临时文件落盘，权限 0600）。**config.toml
   中的注释不保证在 `config set`/`config unset` 后保留。**
 - 全新安装时，第一条真实命令（`--help`/`-h`、`--version`、`help` 子命令以及

@@ -275,26 +275,32 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-Manages the nine scalar keys of `~/.nitter-cli/config.toml` (defaults, env
+Manages the ten scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
 [README](../README.md#configuration)):
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format
+instance_cooldown, proxy, log_level, log_format, download_path
 ```
 
 - `config path` prints the config file path. Takes no arguments (else exit 2).
-- `config get` without a key prints all nine keys as `key = value`; with a key
+- `config get` without a key prints all ten keys as `key = value`; with a key
   it prints that one. Unknown keys are rejected (exit 2) before the file is read.
 - `config set KEY [VALUE]` validates and coerces the value **before any disk
   write** (integers `>= 0` for `default_limit`/`max_pages`/`retry_attempts`;
   durations `>= 0` for `request_interval`/`retry_delay`/`instance_cooldown`;
-  `log_level` is `debug|info`; `log_format` is `text|json`; `proxy` accepts any
-  string). Without a VALUE, one line is read from piped stdin (secrets should
-  not need argv); on a TTY with no VALUE it is a usage error. Unknown keys are
-  rejected with a hint that `[[instances]]`/`[[watch.sources]]` are hand-edited.
+  `log_level` is `debug|info`; `log_format` is `text|json`; `proxy` and
+  `download_path` accept any string). Without a VALUE, one line is read from
+  piped stdin (secrets should not need argv); on a TTY with no VALUE it is a
+  usage error. Unknown keys are rejected with a hint that
+  `[[instances]]`/`[[watch.sources]]` are hand-edited.
 - `config unset KEY` removes the key so it falls back to env/default.
+- `download_path` (default `./nitter-media`, relative to the working
+  directory) is where `nitter download` writes media. It has no env override;
+  `nitter download --output DIR` overrides it per invocation, and the
+  directory is created at download time — `config set` performs no existence
+  check.
 - Writes preserve unknown keys and the array tables and are atomic (staged file,
   mode 0600). **Comments in config.toml are not guaranteed to survive a
   `config set`/`config unset`.**

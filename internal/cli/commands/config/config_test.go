@@ -113,6 +113,7 @@ func TestConfigSetSeedsBaselineOnFreshHome(t *testing.T) {
 	for _, want := range []string{
 		"max_pages", "request_interval", "retry_attempts",
 		"retry_delay", "instance_cooldown", "proxy", "log_level", "log_format",
+		"download_path",
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("written config lost baseline key %q:\n%s", want, data)
@@ -176,6 +177,7 @@ func TestConfigGetAllListsExactlyTheKnownKeys(t *testing.T) {
 		"proxy = ",
 		"log_level = info",
 		"log_format = text",
+		"download_path = ./nitter-media",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines (%q), want %d", len(lines), out, len(want))
@@ -381,6 +383,53 @@ func TestConfigUnsetRoundtripFallsBackToDefault(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out); got != "default_limit = 20" {
 		t.Fatalf("get output = %q, want the default %q after unset", got, "default_limit = 20")
+	}
+}
+
+func TestConfigSetGetUnsetDownloadPath(t *testing.T) {
+	tempHome(t)
+	// Any string is accepted — the value is checked at download runtime with
+	// a mkdir, not here — so a path with spaces and a tilde must go through
+	// set/get/unset unchanged.
+	const value = "~/pictures/nitter media"
+	if code, _, errOut := runCLI(t, "", "config", "set", "download_path", value); code != 0 {
+		t.Fatalf("set exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	code, out, _ := runCLI(t, "", "config", "get", "download_path")
+	if code != 0 {
+		t.Fatalf("get exit = %d, want 0", code)
+	}
+	if got := strings.TrimSpace(out); got != "download_path = "+value {
+		t.Fatalf("get output = %q, want %q", got, "download_path = "+value)
+	}
+
+	if code, _, errOut := runCLI(t, "", "config", "unset", "download_path"); code != 0 {
+		t.Fatalf("unset exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	code, out, _ = runCLI(t, "", "config", "get", "download_path")
+	if code != 0 {
+		t.Fatalf("get after unset exit = %d, want 0", code)
+	}
+	if got := strings.TrimSpace(out); got != "download_path = ./nitter-media" {
+		t.Fatalf("get output = %q, want the default %q after unset", got, "download_path = ./nitter-media")
+	}
+}
+
+func TestConfigGetDownloadPathReadsFileOverDefault(t *testing.T) {
+	home := tempHome(t)
+	if err := os.MkdirAll(filepath.Dir(configFile(home)), 0o700); err != nil {
+		t.Fatalf("create app dir: %v", err)
+	}
+	if err := os.WriteFile(configFile(home), []byte("download_path = \"/srv/media from file\"\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	code, out, _ := runCLI(t, "", "config", "get", "download_path")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if got := strings.TrimSpace(out); got != "download_path = /srv/media from file" {
+		t.Fatalf("get output = %q, want the file value to beat the default", got)
 	}
 }
 
