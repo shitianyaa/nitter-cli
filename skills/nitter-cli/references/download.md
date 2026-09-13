@@ -84,6 +84,42 @@ are governed by the installed binary's `nitter download --help`.
   at download time — an m3u8/HLS URL is never planned, so a planned file is
   always a real media file.
 
+## Naming templates
+
+`filename_template` (config key, default `{id}-{seq}` — byte-identical to
+the plain naming above) and `--filename-template` (flag, overrides the
+config per invocation) render every regular file's name. Placeholders:
+`{id}` the status id, `{seq}` the file's 1-based position in the plan,
+`{user}` the ref's user segment as given (empty for a bare ID; the
+user-less `/i/status/<id>` route reports `i`), `{kind}`
+image/video/gif/cover, `{ext}` the planned extension with its leading dot
+(empty when the plan carries none — the response's `Content-Type` then
+decides at download time and the extension is appended after the final
+rendered name; a template without `{ext}` gets the extension appended at
+the end).
+
+- Covers ignore the filename template BY DESIGN: `--kind cover` always
+  lands as `<id>-cover.<ext>`, whatever the template says.
+- `directory_template` (config key only, no flag; default empty = flat in
+  the output directory root) renders each file's subdirectory from
+  `{id}`/`{user}`/`{kind}`. `{seq}` and `{ext}` are forbidden in the
+  directory position; `/` separates levels and empty levels are skipped
+  (an empty `{user}` contribution disappears). Subdirectories are created
+  on demand like the output root itself.
+- Rendered names are sanitized: Windows-illegal characters (`\ / : * ? " <
+  > |`, control characters) become `_`, and a directory level that renders
+  to `.` or `..` is rejected — nothing escapes the output directory.
+- An invalid template (unknown or malformed placeholder, forbidden
+  placeholder in the directory position, path separator in the filename
+  position) never fails the run: ONE stderr `warning:` line names the
+  template and the default template (filenames) or flat (directory)
+  applies instead. An empty template value IS the default, silently.
+- Two planned files of ONE ref that render the same name collide: the
+  later one gets a numeric `-2`, `-3`, ... suffix before the extension
+  (at the end of the name when the extension is decided at download time)
+  plus a warning. Across refs nothing changes: duplicate refs meet the
+  same filenames and `--on-exists` decides.
+
 ## Output directory and `--on-exists`
 
 - The output directory is `--output DIR`, else the `download_path` config

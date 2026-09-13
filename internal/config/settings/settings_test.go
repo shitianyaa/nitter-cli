@@ -19,16 +19,18 @@ func envMap(m map[string]string) func(string) string {
 
 func TestDefaults(t *testing.T) {
 	want := settings.Settings{
-		DefaultLimit:     20,
-		MaxPages:         5,
-		RequestInterval:  "1s",
-		RetryAttempts:    2,
-		RetryDelay:       "1s",
-		InstanceCooldown: "60s",
-		Proxy:            "",
-		LogLevel:         "info",
-		LogFormat:        "text",
-		DownloadPath:     "./nitter-media",
+		DefaultLimit:      20,
+		MaxPages:          5,
+		RequestInterval:   "1s",
+		RetryAttempts:     2,
+		RetryDelay:        "1s",
+		InstanceCooldown:  "60s",
+		Proxy:             "",
+		LogLevel:          "info",
+		LogFormat:         "text",
+		DownloadPath:      "./nitter-media",
+		FilenameTemplate:  "{id}-{seq}",
+		DirectoryTemplate: "",
 	}
 	if got := settings.Defaults(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Defaults() = %+v, want %+v", got, want)
@@ -103,6 +105,9 @@ func TestLoad(t *testing.T) {
 			LogLevel:         "debug",
 			LogFormat:        "json",
 			DownloadPath:     "/srv/nitter-media",
+			// The fixture names no template keys: the defaults merge over.
+			FilenameTemplate:  "{id}-{seq}",
+			DirectoryTemplate: "",
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("Load() = %+v, want %+v", got, want)
@@ -194,6 +199,24 @@ func TestLoad(t *testing.T) {
 		}
 		if want := settings.Defaults().DownloadPath; got.DownloadPath != want {
 			t.Fatalf("DownloadPath = %q, want the default %q (no env override exists)", got.DownloadPath, want)
+		}
+	})
+
+	t.Run("download templates have no env override", func(t *testing.T) {
+		// The env set stays at three keys (default_limit, log_level,
+		// log_format); template variables must be ignored, not honored.
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		got, err := settings.Load(cfgPath, envMap(map[string]string{
+			"NITTER_FILENAME_TEMPLATE":  "{x}",
+			"NITTER_DIRECTORY_TEMPLATE": "y",
+		}))
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if want := settings.Defaults(); got.FilenameTemplate != want.FilenameTemplate || got.DirectoryTemplate != want.DirectoryTemplate {
+			t.Fatalf("templates = %q/%q, want the defaults %q/%q (no env override exists)",
+				got.FilenameTemplate, got.DirectoryTemplate, want.FilenameTemplate, want.DirectoryTemplate)
 		}
 	})
 
@@ -305,6 +328,15 @@ func TestDefaultConfigTOML(t *testing.T) {
 		}
 		if !strings.Contains(settings.DefaultConfigTOML, "--output") {
 			t.Fatalf("baseline comment must note that `nitter download --output` overrides download_path per call:\n%s", settings.DefaultConfigTOML)
+		}
+	})
+
+	t.Run("documents the download naming templates", func(t *testing.T) {
+		if !strings.Contains(settings.DefaultConfigTOML, `filename_template  = "{id}-{seq}"`) {
+			t.Fatalf("baseline must carry the active filename_template default:\n%s", settings.DefaultConfigTOML)
+		}
+		if !strings.Contains(settings.DefaultConfigTOML, `directory_template = ""`) {
+			t.Fatalf("baseline must carry the empty directory_template default (flat):\n%s", settings.DefaultConfigTOML)
 		}
 	})
 }

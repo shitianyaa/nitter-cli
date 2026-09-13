@@ -26,7 +26,7 @@ timer、Hermes）驱动、以 NDJSON 消费而设计。
 - **三种输出模式**（所有数据命令统一）：人类可读的制表符行、整结果 `--json`、
   逐记录 `--ndjson`（`nitter.pipeline/v1` 信封）——且 stdout 是管道而非终端时
   自动默认 NDJSON。
-- **管理自身配置与状态**：`config path/get/set/unset` 管理十个标量键，
+- **管理自身配置与状态**：`config path/get/set/unset` 管理十二个标量键，
   `seen list/clear` 管理 watch 去重状态。
 - **检查更新**：`update --check` 将当前版本与 GitHub 最新发布版比较
   （严格 semver，支持 `--json`）。不做自替换安装。
@@ -100,7 +100,7 @@ nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**
 写入（值也可从 stdin 管道读入）；`nitter config unset KEY` 删除。`[[instances]]`
 与 `[[watch.sources]]` 数组表只能直接编辑文件——`config set` 拒绝它们。
 
-### 标量键（全部十个）
+### 标量键（全部十二个）
 
 | 键 | 类型 | 默认 | 环境变量覆盖 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -114,6 +114,8 @@ nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**
 | `log_level` | 枚举 | `info` | `NITTER_LOG_LEVEL` | `debug` 或 `info`；诊断只进 stderr，不污染 stdout |
 | `log_format` | 枚举 | `text` | `NITTER_LOG_FORMAT` | `text` 或 `json`（单行） |
 | `download_path` | string | `./nitter-media` | — | `nitter download` 写入媒体的位置（相对当前工作目录；按需创建；`download --output DIR` 单次覆盖） |
+| `filename_template` | string | `{id}-{seq}` | — | 普通媒体的下载文件名，占位符 `{id}` `{seq}` `{user}` `{kind}` `{ext}`（默认 = 模板出现前的 `<id>-<seq>.<ext>` 命名；封面始终 `<id>-cover.<ext>`；`download --filename-template` 单次覆盖；非法模板告警并回退默认） |
+| `directory_template` | string | `""` | — | `download_path` 之下的下载子目录，占位符 `{id}` `{user}` `{kind}`（`/` 分隔层级；禁用 `{seq}`/`{ext}`；空 = 平铺） |
 
 环境变量只覆盖这三个键，且优先于文件：`NITTER_DEFAULT_LIMIT`（整数）、
 `NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`。

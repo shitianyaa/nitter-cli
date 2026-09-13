@@ -113,7 +113,7 @@ func TestConfigSetSeedsBaselineOnFreshHome(t *testing.T) {
 	for _, want := range []string{
 		"max_pages", "request_interval", "retry_attempts",
 		"retry_delay", "instance_cooldown", "proxy", "log_level", "log_format",
-		"download_path",
+		"download_path", "filename_template", "directory_template",
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("written config lost baseline key %q:\n%s", want, data)
@@ -160,6 +160,26 @@ func TestConfigSetThenGet(t *testing.T) {
 	}
 }
 
+func TestConfigSetGetTemplateKey(t *testing.T) {
+	// A template key accepts any string: an invalid template is a
+	// download-time warning, never a config-set rejection.
+	home := tempHome(t)
+	code, _, errOut := runCLI(t, "", "config", "set", "filename_template", "{user}/{id}-{seq}")
+	if code != 0 {
+		t.Fatalf("set exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	code, out, _ := runCLI(t, "", "config", "get", "filename_template")
+	if code != 0 {
+		t.Fatalf("get exit = %d, want 0", code)
+	}
+	if got := strings.TrimSpace(out); got != "filename_template = {user}/{id}-{seq}" {
+		t.Fatalf("get output = %q, want %q", got, "filename_template = {user}/{id}-{seq}")
+	}
+	if _, err := os.Stat(configFile(home)); err != nil {
+		t.Fatalf("config file missing: %v", err)
+	}
+}
+
 func TestConfigGetAllListsExactlyTheKnownKeys(t *testing.T) {
 	tempHome(t)
 	code, out, _ := runCLI(t, "", "config", "get")
@@ -178,6 +198,8 @@ func TestConfigGetAllListsExactlyTheKnownKeys(t *testing.T) {
 		"log_level = info",
 		"log_format = text",
 		"download_path = ./nitter-media",
+		"filename_template = {id}-{seq}",
+		"directory_template = ",
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d lines (%q), want %d", len(lines), out, len(want))

@@ -216,7 +216,8 @@ failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--stra
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
   [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
-  [--on-exists refuse|skip|overwrite] [--json|--ndjson]
+  [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
+  [--json|--ndjson]
 ```
 
 用 `media` 命令的策略链解析每条 status REF，并把计划好的媒体文件下载到输出
@@ -242,7 +243,25 @@ download；信封不合法是用法错误），否则每个非空行就是一条
 文件扩展名优先取自解析出的 URL 路径；路径不带扩展名时取下载响应的
 Content-Type（`image/jpeg`→`.jpg`、`image/png`→`.png`、`image/webp`→
 `.webp`、`image/gif`→`.gif`、`video/mp4`→`.mp4`），再退回按 kind 的默认值
-（图片与封面 `.jpg`，视频与 GIF `.mp4`）。文件名为 `<id>-<seq>.<ext>`。
+（图片与封面 `.jpg`，视频与 GIF `.mp4`）。
+
+**命名模板**：`filename_template` 配置键（默认 `{id}-{seq}`，即
+`<id>-<seq>.<ext>`）渲染每个普通文件的文件名；`--filename-template TEMPLATE`
+单次覆盖（flag > config）。占位符：`{id}` status id，`{seq}` 文件在计划中的
+1-based 序号，`{user}` ref 的 user 段原样（裸 ID 为空；无 user 的
+`/i/status/<id>` 路由报告 `i`），`{kind}` image/video/gif/cover，`{ext}`
+计划扩展名（带前导点）——计划不带扩展名时为空，此时扩展名由下载响应的
+Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无模板时完全一致；
+模板不含 `{ext}` 时扩展名追加在末尾。封面忽略文件名模板：始终落盘为
+`<id>-cover.<ext>`。`directory_template` 配置键（无 flag；默认空 = 平铺）把
+文件放进输出目录的子目录，按文件从 `{id}`/`{user}`/`{kind}` 渲染——该位置
+禁用 `{seq}` 与 `{ext}`，`/` 分隔层级，空层级跳过。渲染结果做安全清洗
+（Windows 非法字符 `\ / : * ? " < > |` 与控制字符替换为 `_`；`.` 与 `..`
+目录层级被拒绝）。非法模板——未知或畸形占位符、目录位置出现禁用占位符、
+文件名位置出现路径分隔符——绝不使运行失败：打印一条 stderr 警告（命名该
+模板），文件名回退默认模板、目录回退平铺。同一 ref 的两个计划文件渲染出
+相同名字时发生碰撞：后到者获得扩展名之前的 `-2`、`-3`… 数字后缀并告警；
+跨 ref 沿用原有 `--on-exists` 语义。空模板值即默认值。
 
 **策略与信任边界**（`--strategy`，默认 `auto`）：与 `media` 命令相同的链路
 ——`auto` 依次尝试 fx → vx → syndication → nitter → xdown，首个产出媒体的
@@ -329,28 +348,33 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-管理 `~/.nitter-cli/config.toml` 的十个标量键（默认值、环境变量覆盖与数组表见
+管理 `~/.nitter-cli/config.toml` 的十二个标量键（默认值、环境变量覆盖与数组表见
 [README](../README.zh-CN.md#配置)）：
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path
+instance_cooldown, proxy, log_level, log_format, download_path,
+filename_template, directory_template
 ```
 
 - `config path` 打印配置文件路径。不接受参数（否则退出 2）。
-- `config get` 不带键时按 `key = value` 打印全部十个键；带键时只打印该键。
+- `config get` 不带键时按 `key = value` 打印全部十二个键；带键时只打印该键。
   未知键在读取文件之前即被拒绝（退出 2）。
 - `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
   `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
   `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
-  `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy` 与
-  `download_path` 接受任意字符串）。不给 VALUE 时从管道 stdin 读一行（敏感值
-  不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。未知键被拒绝，
-  并提示 `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
+  `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
+  `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
+  读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。
+  未知键被拒绝，并提示 `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
 - `config unset KEY` 删除该键，使其回落到环境变量/默认值。
 - `download_path`（默认 `./nitter-media`，相对当前工作目录）是 `nitter
   download` 写入媒体的位置。它没有环境变量覆盖；`nitter download --output
   DIR` 在每次调用时覆盖它，目录在下载时创建——`config set` 不做存在性检查。
+- `filename_template`（默认 `{id}-{seq}`）与 `directory_template`（默认空 =
+  平铺）是 `nitter download` 的命名模板；两者都没有环境变量覆盖。
+  `--filename-template` 在每次调用时覆盖文件名模板。`config set` 接受任意
+  字符串——非法模板在下载时以 stderr 警告回退默认/平铺（见 download 一节）。
 - 写入保留未知键与数组表，且为原子写（临时文件落盘，权限 0600）。**config.toml
   中的注释不保证在 `config set`/`config unset` 后保留。**
 - 全新安装时，第一条真实命令（`--help`/`-h`、`--version`、`help` 子命令以及

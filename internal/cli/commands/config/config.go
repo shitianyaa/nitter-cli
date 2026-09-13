@@ -1,5 +1,5 @@
 // Package config implements the `nitter config` command family: path, get,
-// set and unset over ~/.nitter-cli/config.toml. Only the ten scalar keys
+// set and unset over ~/.nitter-cli/config.toml. Only the twelve scalar keys
 // listed in knownKeys are managed; the [[instances]] / [[watch.sources]]
 // array tables are hand-edited TOML and rejected here. All input-contract
 // violations are validated before any file read/write.
@@ -33,20 +33,24 @@ var knownKeys = []string{
 	"log_level",
 	"log_format",
 	"download_path",
+	"filename_template",
+	"directory_template",
 }
 
 // getters maps each known key to its effective value (env > file > default).
 var getters = map[string]func(settings.Settings) string{
-	"default_limit":     func(s settings.Settings) string { return strconv.Itoa(s.DefaultLimit) },
-	"max_pages":         func(s settings.Settings) string { return strconv.Itoa(s.MaxPages) },
-	"request_interval":  func(s settings.Settings) string { return s.RequestInterval },
-	"retry_attempts":    func(s settings.Settings) string { return strconv.Itoa(s.RetryAttempts) },
-	"retry_delay":       func(s settings.Settings) string { return s.RetryDelay },
-	"instance_cooldown": func(s settings.Settings) string { return s.InstanceCooldown },
-	"proxy":             func(s settings.Settings) string { return s.Proxy },
-	"log_level":         func(s settings.Settings) string { return s.LogLevel },
-	"log_format":        func(s settings.Settings) string { return s.LogFormat },
-	"download_path":     func(s settings.Settings) string { return s.DownloadPath },
+	"default_limit":      func(s settings.Settings) string { return strconv.Itoa(s.DefaultLimit) },
+	"max_pages":          func(s settings.Settings) string { return strconv.Itoa(s.MaxPages) },
+	"request_interval":   func(s settings.Settings) string { return s.RequestInterval },
+	"retry_attempts":     func(s settings.Settings) string { return strconv.Itoa(s.RetryAttempts) },
+	"retry_delay":        func(s settings.Settings) string { return s.RetryDelay },
+	"instance_cooldown":  func(s settings.Settings) string { return s.InstanceCooldown },
+	"proxy":              func(s settings.Settings) string { return s.Proxy },
+	"log_level":          func(s settings.Settings) string { return s.LogLevel },
+	"log_format":         func(s settings.Settings) string { return s.LogFormat },
+	"download_path":      func(s settings.Settings) string { return s.DownloadPath },
+	"filename_template":  func(s settings.Settings) string { return s.FilenameTemplate },
+	"directory_template": func(s settings.Settings) string { return s.DirectoryTemplate },
 }
 
 // arrayTableHint is appended when set/unset targets something outside the
@@ -236,8 +240,10 @@ func valueInput(s *invocation.Streams, key string, args []string) (string, error
 // value to store (int for integer keys, string otherwise). It runs before any
 // file read/write so a rejected value never touches the disk. Integer and
 // duration keys accept 0 (its semantics are defined downstream) and reject
-// negatives; log_level/log_format are enums; proxy and download_path accept
-// any string (download_path is checked at download runtime with a mkdir -p).
+// negatives; log_level/log_format are enums; proxy, download_path and the two
+// download naming templates accept any string (download_path is checked at
+// download runtime with a mkdir -p; an invalid template is a download-time
+// warning plus fallback to the default, never a set-time rejection).
 func validateAndCoerce(key, raw string) (any, error) {
 	switch key {
 	case "default_limit", "max_pages", "retry_attempts":

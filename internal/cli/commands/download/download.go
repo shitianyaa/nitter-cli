@@ -88,8 +88,14 @@ type options struct {
 	kind     string
 	onExists string
 	output   string
-	asJSON   bool
-	asNDJSON bool
+	// filenameTemplate backs the --filename-template flag; run() resolves it
+	// (flag > config > default) before runBatch. directoryTemplate is
+	// resolved from the config only (no flag exists). The internal test
+	// harness sets both directly.
+	filenameTemplate  string
+	directoryTemplate string
+	asJSON            bool
+	asNDJSON          bool
 }
 
 // capabilities bundles the three wiring capabilities one download run
@@ -154,6 +160,32 @@ image/png→.png, image/webp→.webp, image/gif→.gif, video/mp4→.mp4), falli
 back to a kind-based default (.jpg for images and covers, .mp4 for
 videos/GIFs).
 
+Names follow the filename_template config key (default {id}-{seq}, i.e.
+<id>-<seq>.<ext>), overridable per invocation with --filename-template.
+Placeholders: {id} the status id, {seq} the file's 1-based position in the
+plan, {user} the ref's user segment as given (empty for a bare ID; the
+user-less /i/status/<id> route reports i), {kind} image/video/gif/cover,
+{ext} the planned extension with its leading dot — empty when the plan
+carries none, in which case the response's Content-Type decides at download
+time and the extension is appended after the final rendered name exactly as
+without a template; a template without {ext} gets the extension appended at
+the end. Covers ignore the filename template: they always land as
+<id>-cover.<ext>. The directory_template config key (no flag; default empty)
+places the files in subdirectories of the output directory, rendered per
+file from {id}/{user}/{kind} — {seq} and {ext} are not allowed there, "/"
+separates levels, empty levels are skipped, and empty means flat.
+
+Rendered names are sanitized (Windows-illegal characters \ / : * ? " < > |
+and control characters become _; "." and ".." directory levels are rejected).
+An invalid template — an unknown or malformed placeholder, a forbidden
+placeholder in the directory position, a path separator in the filename
+position — never fails the run: one stderr warning line names the template
+and the default (filenames) or flat (directory) behavior applies instead.
+Two planned files of one ref rendering the same name collide: the later one
+gets a -2, -3, ... suffix before the extension plus a warning; across refs
+the --on-exists semantics apply unchanged. An empty template value means the
+default.
+
 Strategies (--strategy, default auto) are the media command's: auto tries
 fx → vx → syndication → nitter → xdown and the first strategy that yields
 media wins (source stamps which one). Trust boundary: fx/vx/syndication/
@@ -208,6 +240,8 @@ refs, refs given both as arguments and on stdin, malformed stdin envelopes,
 		"Resolution strategy: auto (fx→vx→syndication→nitter→xdown) or one of fx, vx, syndication, nitter, xdown")
 	cmd.Flags().StringVar(&opts.onExists, "on-exists", "refuse",
 		"When the target file already exists: refuse (error), skip (keep, report with the on-disk size) or overwrite")
+	cmd.Flags().StringVar(&opts.filenameTemplate, "filename-template", "",
+		"Filename template for planned files with the placeholders {id}, {seq}, {user}, {kind} and {ext} (default: the filename_template config, itself {id}-{seq}); covers always land as <id>-cover.<ext>; an invalid template warns on stderr and falls back to the default")
 	cmd.Flags().BoolVar(&opts.asJSON, "json", false,
 		"Print the downloaded files as one JSON document (single object when exactly one file, array otherwise)")
 	cmd.Flags().BoolVar(&opts.asNDJSON, "ndjson", false,
@@ -279,6 +313,14 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options
 		return fmt.Errorf("create output directory %s: %w", outDir, err)
 	}
 
+	// --filename-template overrides the filename_template config per
+	// invocation (flag > config); an empty value at either level IS the
+	// default template. directory_template has no flag.
+	if opts.filenameTemplate == "" {
+		opts.filenameTemplate = cfg.FilenameTemplate
+	}
+	opts.directoryTemplate = cfg.DirectoryTemplate
+
 	caps := capabilities{
 		resolver:   w.Media(),
 		planner:    w.Planner(),
@@ -301,6 +343,10 @@ func runBatch(s *invocation.Streams, mode pipeline.Mode, pairs []statusRef, opts
 	if opts.strategy != "auto" {
 		strategies = []string{opts.strategy}
 	}
+	// The naming templates are resolved once per run ("" = default, invalid
+	// = one-shot warning + fallback inside the engine); collision tracking
+	// gets a fresh per-ref scope below.
+	eng := newNameEngine(opts.filenameTemplate, opts.directoryTemplate, s.Err)
 
 	type fileRow struct {
 		rec     nitter.DownloadRecord
@@ -344,9 +390,21 @@ func runBatch(s *invocation.Streams, mode pipeline.Mode, pairs []statusRef, opts
 		if len(res) > 0 {
 			source = res[0].Source
 		}
+		namer := eng.newRefNamer()
 		refFailed := false
 		for _, pf := range plan {
-			rec, skipped, err := fetchFile(ctx, caps.downloader, pf, outDir, opts.onExists, pair.raw, source)
+			tgt, err := namer.target(pf, pair.user, outDir)
+			if err != nil {
+				refFailed = true
+				if err := reportRefError(s, mode, pair.raw, "download", err); err != nil {
+					if pipeline.IsBrokenPipe(err) {
+						return nil
+					}
+					return err
+				}
+				continue
+			}
+			rec, skipped, err := fetchFile(ctx, caps.downloader, pf, tgt, opts.onExists, pair.raw, source)
 			if err != nil {
 				refFailed = true
 				if err := reportRefError(s, mode, pair.raw, "download", err); err != nil {
@@ -498,21 +556,17 @@ func nonEmptyLines(r io.Reader) []string {
 	return out
 }
 
-// fetchFile downloads one planned file: the plan's URL first, then its
-// fallbacks in order; the row reports whichever candidate succeeded. An
-// existing target is NOT a candidate failure — every candidate would land on
-// the same filename — so refuse reports the refusal as the entry's error,
-// skip converts it into a skip row (existing file's on-disk size, no sha256)
-// and overwrite never sees one (force=true). skipped distinguishes the skip
-// row for the text renderer.
-func fetchFile(ctx context.Context, dl client.MediaDownloader, pf client.PlannedFile, outDir, onExists, ref, source string) (rec nitter.DownloadRecord, skipped bool, err error) {
-	stem := pf.StatusID + "-" + pf.Seq
-	if pf.Kind == "cover" {
-		stem = pf.StatusID + "-cover"
-	}
+// fetchFile downloads one planned file to its resolved target: the plan's
+// URL first, then its fallbacks in order; the row reports whichever candidate
+// succeeded. All candidates land on the SAME target name — an existing target
+// is NOT a candidate failure — so refuse reports the refusal as the entry's
+// error, skip converts it into a skip row (existing file's on-disk size, no
+// sha256) and overwrite never sees one (force=true). skipped distinguishes
+// the skip row for the text renderer.
+func fetchFile(ctx context.Context, dl client.MediaDownloader, pf client.PlannedFile, tgt fileTarget, onExists, ref, source string) (rec nitter.DownloadRecord, skipped bool, err error) {
 	var lastErr error
 	for _, u := range append([]string{pf.URL}, pf.Fallbacks...) {
-		rec, err = fetchOneURL(ctx, dl, u, pf, stem, outDir, onExists == "overwrite")
+		rec, err = fetchOneURL(ctx, dl, u, pf, tgt, onExists == "overwrite")
 		if err == nil {
 			rec.Ref = ref
 			rec.Kind = pf.Kind
@@ -521,7 +575,7 @@ func fetchFile(ctx context.Context, dl client.MediaDownloader, pf client.Planned
 		}
 		if errors.Is(err, client.ErrFileExists) {
 			if onExists == "skip" {
-				rec, err = skipRecord(err, pf, stem, outDir, ref, source)
+				rec, err = skipRecord(err, pf, tgt, ref, source)
 				if err != nil {
 					return nitter.DownloadRecord{}, false, err
 				}
@@ -534,13 +588,14 @@ func fetchFile(ctx context.Context, dl client.MediaDownloader, pf client.Planned
 	return nitter.DownloadRecord{}, false, lastErr
 }
 
-// fetchOneURL fetches one candidate URL: FetchToFile when the plan carries
-// an extension, FetchToFileAuto (Content-Type-derived extension) otherwise.
-func fetchOneURL(ctx context.Context, dl client.MediaDownloader, u string, pf client.PlannedFile, stem, outDir string, force bool) (nitter.DownloadRecord, error) {
-	if pf.Ext != "" {
-		return dl.FetchToFile(ctx, u, filepath.Join(outDir, stem+pf.Ext), force)
+// fetchOneURL fetches one candidate URL: FetchToFile when the target name
+// carries its extension, FetchToFileAuto (Content-Type-derived extension,
+// appended after the final rendered name) otherwise.
+func fetchOneURL(ctx context.Context, dl client.MediaDownloader, u string, pf client.PlannedFile, tgt fileTarget, force bool) (nitter.DownloadRecord, error) {
+	if tgt.extKnown {
+		return dl.FetchToFile(ctx, u, filepath.Join(tgt.dir, tgt.name), force)
 	}
-	return dl.FetchToFileAuto(ctx, u, filepath.Join(outDir, stem), defaultExtForKind(pf.Kind), force)
+	return dl.FetchToFileAuto(ctx, u, filepath.Join(tgt.dir, tgt.name), defaultExtForKind(pf.Kind), force)
 }
 
 // defaultExtForKind is the kind-based default extension the auto path falls
@@ -558,12 +613,12 @@ func defaultExtForKind(kind string) string {
 // skipRecord builds the skip row for an existence refusal: the existing
 // file's actual on-disk size, no URL (nothing was downloaded) and no sha256
 // (nothing is fabricated) — the documented skip contract. The path comes
-// from the plan when the extension was known and from the refusal itself on
-// the auto-extension path (only the downloader knows the derived name).
-func skipRecord(existsErr error, pf client.PlannedFile, stem, outDir, ref, source string) (nitter.DownloadRecord, error) {
+// from the target when the extension was known and from the refusal itself
+// on the auto-extension path (only the downloader knows the derived name).
+func skipRecord(existsErr error, pf client.PlannedFile, tgt fileTarget, ref, source string) (nitter.DownloadRecord, error) {
 	path := ""
-	if pf.Ext != "" {
-		path = filepath.Join(outDir, stem+pf.Ext)
+	if tgt.extKnown {
+		path = filepath.Join(tgt.dir, tgt.name)
 	} else if p, ok := client.ExistsPath(existsErr); ok {
 		path = p
 	}

@@ -46,6 +46,22 @@ type Settings struct {
 	// invocation. No existence check here: any string is accepted and the
 	// download command creates the directory at runtime (mkdir -p).
 	DownloadPath string `toml:"download_path"`
+
+	// FilenameTemplate is the download filename template for regular media
+	// files, with the placeholders {id}, {seq}, {user}, {kind} and {ext}.
+	// The default "{id}-{seq}" reproduces the pre-template naming
+	// byte-for-byte; covers always land as <id>-cover.<ext> regardless of
+	// the template. `nitter download --filename-template` overrides it per
+	// invocation; an empty value means the default. An invalid template is
+	// a download-time warning plus fallback to the default, never an error.
+	// No env override.
+	FilenameTemplate string `toml:"filename_template"`
+
+	// DirectoryTemplate is the download subdirectory template below the
+	// output directory, rendered per planned file from {id}, {user} and
+	// {kind} ({seq}/{ext} are forbidden in the directory position). Empty =
+	// flat in the output directory root (the default). No env override.
+	DirectoryTemplate string `toml:"directory_template"`
 }
 
 // Instance is one [[instances]] entry: a Nitter instance the user runs.
@@ -63,16 +79,18 @@ type WatchSource struct {
 // Defaults returns the baseline settings.
 func Defaults() Settings {
 	return Settings{
-		DefaultLimit:     20,
-		MaxPages:         5,
-		RequestInterval:  "1s",
-		RetryAttempts:    2,
-		RetryDelay:       "1s",
-		InstanceCooldown: "60s",
-		Proxy:            "",
-		LogLevel:         "info",
-		LogFormat:        "text",
-		DownloadPath:     "./nitter-media",
+		DefaultLimit:      20,
+		MaxPages:          5,
+		RequestInterval:   "1s",
+		RetryAttempts:     2,
+		RetryDelay:        "1s",
+		InstanceCooldown:  "60s",
+		Proxy:             "",
+		LogLevel:          "info",
+		LogFormat:         "text",
+		DownloadPath:      "./nitter-media",
+		FilenameTemplate:  "{id}-{seq}",
+		DirectoryTemplate: "",
 	}
 }
 

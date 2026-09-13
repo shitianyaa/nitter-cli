@@ -30,7 +30,7 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   (`nitter.pipeline/v1`) — and NDJSON is the automatic default whenever stdout
   is a pipe rather than a terminal.
 - **Manage its own configuration and state**: `config path/get/set/unset` for the
-  ten scalar keys, `seen list/clear` for the watch dedup state.
+  twelve scalar keys, `seen list/clear` for the watch dedup state.
 - **Check for updates**: `update --check` compares the installed version against
   the latest GitHub release (strict semver, `--json` for machines). It performs
   no self-install.
@@ -110,7 +110,7 @@ control**. Nothing is fetched until you configure one.
 `[[watch.sources]]` array tables are managed by editing the file directly —
 `config set` refuses them.
 
-### Scalar keys (all ten)
+### Scalar keys (all twelve)
 
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
@@ -124,6 +124,8 @@ control**. Nothing is fetched until you configure one.
 | `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
 | `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or `json` (single-line) |
 | `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media (cwd-relative; created on demand; `download --output DIR` overrides it per invocation) |
+| `filename_template` | string | `{id}-{seq}` | — | Download filename for regular media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = the pre-template `<id>-<seq>.<ext>` naming; covers always `<id>-cover.<ext>`; `download --filename-template` overrides per invocation; invalid templates warn and fall back) |
+| `directory_template` | string | `""` | — | Download subdirectory below `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates levels; `{seq}`/`{ext}` forbidden; empty = flat) |
 
 Environment overrides apply on top of the file for exactly these three keys:
 `NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`.

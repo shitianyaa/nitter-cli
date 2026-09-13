@@ -317,6 +317,284 @@ func TestRunBatchSkipKeepsFileAndReportsDiskSize(t *testing.T) {
 	}
 }
 
+// TestRunBatchExplicitDefaultTemplateMatchesLegacyNames pins byte-identity
+// under the DEFAULT template spelled out explicitly ({id}-{seq}, flat): the
+// names are the pre-template ones.
+func TestRunBatchExplicitDefaultTemplateMatchesLegacyNames(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "{id}-{seq}"
+	bt.opts.directoryTemplate = ""
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, testID+"-1.mp4")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "v" {
+		t.Errorf("file = %q (%v), want the bytes at %s", got, rerr, wantPath)
+	}
+	if want := bt.wantRow(testID+"-1.mp4", 1, "video") + "\n"; bt.stdout() != want {
+		t.Errorf("stdout = %q, want %q", bt.stdout(), want)
+	}
+	if strings.Contains(bt.stderr(), "warning") {
+		t.Errorf("stderr = %q, want no warnings for the default templates", bt.stderr())
+	}
+}
+
+// TestRunBatchCustomFilenameTemplateRendersPlaceholders pins template
+// rendering at the batch level: the planned file lands under the rendered
+// name and the row reports it.
+func TestRunBatchCustomFilenameTemplateRendersPlaceholders(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "{user}-{kind}-{seq}"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, "nasa-video-1.mp4")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "v" {
+		t.Errorf("file = %q (%v), want the bytes at %s", got, rerr, wantPath)
+	}
+	if want := bt.wantRow("nasa-video-1.mp4", 1, "video") + "\n"; bt.stdout() != want {
+		t.Errorf("stdout = %q, want %q", bt.stdout(), want)
+	}
+}
+
+// TestRunBatchDirectoryTemplateCreatesSubdirectories pins the directory
+// template: the file lands in the rendered subdirectory of the output
+// directory and the subdirectory is created on demand.
+func TestRunBatchDirectoryTemplateCreatesSubdirectories(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.directoryTemplate = "{user}/{kind}"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, "nasa", "video", testID+"-1.mp4")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "v" {
+		t.Errorf("file = %q (%v), want the bytes at %s", got, rerr, wantPath)
+	}
+	if want := bt.wantRow(filepath.Join("nasa", "video", testID+"-1.mp4"), 1, "video") + "\n"; bt.stdout() != want {
+		t.Errorf("stdout = %q, want %q", bt.stdout(), want)
+	}
+}
+
+// TestRunBatchUnknownPlaceholderWarnsAndFallsBack pins the pixiv semantics:
+// an invalid template never fails the run — one stderr warning line, the
+// default naming instead.
+func TestRunBatchUnknownPlaceholderWarnsAndFallsBack(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "{date}-{id}"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(bt.outDir, testID+"-1.mp4")); err != nil {
+		t.Errorf("default-named file missing: %v", err)
+	}
+	warnings := strings.Split(strings.TrimRight(bt.stderr(), "\n"), "\n")
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "warning:") ||
+		!strings.Contains(warnings[0], "filename_template") || !strings.Contains(warnings[0], "{date}") {
+		t.Errorf("stderr = %q, want exactly one filename_template warning naming {date}", bt.stderr())
+	}
+}
+
+// TestRunBatchDirectoryTemplateInvalidFallsBackFlat pins the directory
+// template's warning fallback: a {seq} placeholder is forbidden in the
+// directory position, the run continues flat.
+func TestRunBatchDirectoryTemplateInvalidFallsBackFlat(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.directoryTemplate = "{seq}/{id}"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(bt.outDir, testID+"-1.mp4")); err != nil {
+		t.Errorf("flat file missing: %v", err)
+	}
+	if !strings.Contains(bt.stderr(), "directory_template") {
+		t.Errorf("stderr = %q, want a directory_template warning", bt.stderr())
+	}
+}
+
+// TestRunBatchDirectoryTraversalStaysInsideOutputDir pins the traversal
+// guard: a directory template reaching above the output directory is
+// rejected with the warning fallback and the file lands flat inside it.
+func TestRunBatchDirectoryTraversalStaysInsideOutputDir(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.mp4": {status: 200, body: "v", contentType: "video/mp4"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.directoryTemplate = "../escape"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "video",
+		Ext:      ".mp4",
+		URL:      srv.addr + "/x.mp4",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, testID+"-1.mp4")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("file missing at %s: %v", wantPath, err)
+	}
+	if _, err := os.Stat(filepath.Join(bt.outDir, "..", "escape")); !os.IsNotExist(err) {
+		t.Errorf("traversal directory escaped the output dir: %v", err)
+	}
+	if !strings.Contains(bt.stderr(), "directory_template") {
+		t.Errorf("stderr = %q, want a directory_template warning", bt.stderr())
+	}
+}
+
+// TestRunBatchSanitizesIllegalFilenameCharacters pins sanitization: Windows-
+// illegal characters in the rendered name are replaced with underscores.
+func TestRunBatchSanitizesIllegalFilenameCharacters(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/x.jpg": {status: 200, body: "img", contentType: "image/jpeg"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "<{kind}>"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "image",
+		Ext:      ".jpg",
+		URL:      srv.addr + "/x.jpg",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, "_image_.jpg")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "img" {
+		t.Errorf("file = %q (%v), want the bytes at %s", got, rerr, wantPath)
+	}
+}
+
+// TestRunBatchCollisionSuffixesWithinRef pins the per-ref collision policy:
+// two planned files of one ref rendering the same name get a numeric suffix
+// before the extension plus a warning, never a silent overwrite.
+func TestRunBatchCollisionSuffixesWithinRef(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/1.jpg": {status: 200, body: "one", contentType: "image/jpeg"},
+		"/2.jpg": {status: 200, body: "two", contentType: "image/jpeg"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "{id}"
+	plan := []client.PlannedFile{
+		{StatusID: testID, Seq: "1", Kind: "image", Ext: ".jpg", URL: srv.addr + "/1.jpg"},
+		{StatusID: testID, Seq: "2", Kind: "image", Ext: ".jpg", URL: srv.addr + "/2.jpg"},
+	}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(bt.outDir, testID+".jpg")); err != nil || string(got) != "one" {
+		t.Errorf("first file = %q (%v), want %q", got, err, "one")
+	}
+	if got, err := os.ReadFile(filepath.Join(bt.outDir, testID+"-2.jpg")); err != nil || string(got) != "two" {
+		t.Errorf("second file = %q (%v), want %q at the -2 suffix", got, err, "two")
+	}
+	if !strings.Contains(bt.stderr(), "already used") {
+		t.Errorf("stderr = %q, want the collision warning", bt.stderr())
+	}
+}
+
+// TestRunBatchCoverKeepsCoverNameUnderTemplate pins the cover invariant at
+// the batch level: covers always land as <id>-cover.<ext>, whatever the
+// filename template says.
+func TestRunBatchCoverKeepsCoverNameUnderTemplate(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/cover.jpg": {status: 200, body: "cover", contentType: "image/jpeg"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "custom-{seq}"
+	bt.caps.resolver = &fakeResolver{res: []nitter.MediaResolution{{Kind: "video", Source: "fx"}}}
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "cover",
+		Ext:      ".jpg",
+		URL:      srv.addr + "/cover.jpg",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, testID+"-cover.jpg")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "cover" {
+		t.Errorf("file = %q (%v), want the cover bytes at %s", got, rerr, wantPath)
+	}
+}
+
+// TestRunBatchAutoExtensionFlowsThroughTemplate pins R-M9-4 under templates:
+// a plan without an extension renders the template as the base path and the
+// Content-Type-derived extension is appended after the FINAL rendered name.
+func TestRunBatchAutoExtensionFlowsThroughTemplate(t *testing.T) {
+	srv := newRecordingSrv(t, map[string]srvAnswer{
+		"/photo": {status: 200, body: "bytes", contentType: "image/png"},
+	})
+	bt := newBatchTest(t)
+	bt.opts.filenameTemplate = "{id}-photo"
+	plan := []client.PlannedFile{{
+		StatusID: testID,
+		Seq:      "1",
+		Kind:     "image",
+		Ext:      "", // the URL carries no extension
+		URL:      srv.addr + "/photo",
+	}}
+	if err := bt.run(plan); err != nil {
+		t.Fatalf("runBatch: %v", err)
+	}
+	wantPath := filepath.Join(bt.outDir, testID+"-photo.png")
+	if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "bytes" {
+		t.Errorf("file = %q (%v), want the bytes at %s", got, rerr, wantPath)
+	}
+}
+
 // TestRunBatchPassesStrategyChain pins the --strategy to strategy-list
 // expansion the command performs (auto is the media command's chain).
 func TestRunBatchPassesStrategyChain(t *testing.T) {

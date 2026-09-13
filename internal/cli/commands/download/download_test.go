@@ -909,3 +909,92 @@ func TestDownloadTTYDefaultStaysTextRows(t *testing.T) {
 		t.Errorf("file = %q (%v), want the streamed bytes at %s", got, err, wantPath)
 	}
 }
+
+// TestDownloadFilenameTemplateFlagOverridesConfig pins the precedence: the
+// config filename_template applies alone; --filename-template overrides it
+// per invocation.
+func TestDownloadFilenameTemplateFlagOverridesConfig(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: "video"},
+	})
+	writeConfig(t, home, fastTOML+
+		"filename_template = \"cfg-{id}\"\n"+
+		"[[instances]]\nurl = \""+fake.addr+"\"\n")
+	outDir := t.TempDir()
+
+	// Config alone: cfg-<id>.mp4.
+	code, _, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
+	if code != 0 {
+		t.Fatalf("config run: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "cfg-"+id100+".mp4")); err != nil {
+		t.Errorf("config template not applied: %v", err)
+	}
+
+	// The flag wins over the config.
+	code, _, errOut = runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir,
+		"--filename-template", "flag-{kind}-{seq}")
+	if code != 0 {
+		t.Fatalf("flag run: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "flag-video-1.mp4")); err != nil {
+		t.Errorf("flag template not applied: %v", err)
+	}
+}
+
+// TestDownloadDirectoryTemplatePlacesFilesInSubdirectories pins the config
+// directory_template end to end: the nitter-strategy video lands in the
+// rendered subdirectory of the output directory.
+func TestDownloadDirectoryTemplatePlacesFilesInSubdirectories(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: "video"},
+	})
+	writeConfig(t, home, fastTOML+
+		"directory_template = \"media/{kind}\"\n"+
+		"[[instances]]\nurl = \""+fake.addr+"\"\n")
+	outDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	wantPath := filepath.Join(outDir, "media", "video", id100+"-1.mp4")
+	_, kind, id, _, _ := downloadEnvelope(t, strings.TrimSpace(out))
+	if kind != "download" || id != wantPath {
+		t.Errorf("envelope = %s, want the download record at %s", strings.TrimSpace(out), wantPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("subdirectory file missing: %v", err)
+	}
+}
+
+// TestDownloadInvalidConfigTemplateWarnsAndFallsBack pins the pixiv
+// semantics end to end: an invalid filename_template in the config never
+// fails the run — one stderr warning, default naming.
+func TestDownloadInvalidConfigTemplateWarnsAndFallsBack(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: "video"},
+	})
+	writeConfig(t, home, fastTOML+
+		"filename_template = \"{bogus}-{id}\"\n"+
+		"[[instances]]\nurl = \""+fake.addr+"\"\n")
+	outDir := t.TempDir()
+
+	code, _, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (invalid template warns, never fails; stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, id100+"-1.mp4")); err != nil {
+		t.Errorf("default-named file missing: %v", err)
+	}
+	warnings := strings.Split(strings.TrimRight(errOut, "\n"), "\n")
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "filename_template") {
+		t.Errorf("stderr = %q, want exactly one filename_template warning", errOut)
+	}
+}

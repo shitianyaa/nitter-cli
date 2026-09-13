@@ -185,14 +185,19 @@ nitter update --check --json                            # {current, latest, outd
 
 ## Config keys
 
-Ten scalar keys in `~/.nitter-cli/config.toml`, managed with
+Twelve scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
 `instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
 (text), `download_path` (`./nitter-media`, cwd-relative — where `download`
-writes media; `download --output` overrides it per call). Env overrides exist
-for three keys only: `NITTER_DEFAULT_LIMIT`,
+writes media; `download --output` overrides it per call), `filename_template`
+(`{id}-{seq}` — the download filename, placeholders
+`{id}`/`{seq}`/`{user}`/`{kind}`/`{ext}`; covers always `<id>-cover`;
+`--filename-template` overrides per call), `directory_template` (empty =
+flat; download subdirectory from `{id}`/`{user}`/`{kind}`). An invalid
+template warns on stderr and falls back to the default at download time. Env
+overrides exist for three keys only: `NITTER_DEFAULT_LIMIT`,
 `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and

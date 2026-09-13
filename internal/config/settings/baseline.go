@@ -20,6 +20,8 @@ proxy             = ""        # empty = use HTTPS_PROXY/ALL_PROXY env
 log_level         = "info"    # debug|info
 log_format        = "text"    # text|json
 download_path     = "./nitter-media"  # default, cwd-relative; nitter download --output DIR (e.g. --output /srv/media) overrides it per call
+filename_template  = "{id}-{seq}"     # download filename stem: {id} {seq} {user} {kind} {ext}; covers stay <id>-cover
+directory_template = ""               # download subdirectory: {id} {user} {kind}; empty = flat in download_path
 
 # Array tables below are managed by hand-editing this file ("nitter config
 # set" refuses them). Examples:

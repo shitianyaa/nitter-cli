@@ -247,7 +247,8 @@ arguments and on stdin) exit 2.
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
   [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
-  [--on-exists refuse|skip|overwrite] [--json|--ndjson]
+  [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
+  [--json|--ndjson]
 ```
 
 Resolves each status REF with the media command's strategies and downloads
@@ -281,7 +282,33 @@ The file extension comes from the resolved URL path when it carries one,
 otherwise from the download response's Content-Type (`image/jpeg`→`.jpg`,
 `image/png`→`.png`, `image/webp`→`.webp`, `image/gif`→`.gif`,
 `video/mp4`→`.mp4`), falling back to a kind-based default (`.jpg` for images
-and covers, `.mp4` for videos/GIFs). Filenames are `<id>-<seq>.<ext>`.
+and covers, `.mp4` for videos/GIFs).
+
+**Naming templates**: the `filename_template` config key (default
+`{id}-{seq}`, i.e. `<id>-<seq>.<ext>`) renders every regular file's name;
+`--filename-template TEMPLATE` overrides it per invocation (flag > config).
+Placeholders: `{id}` the status id, `{seq}` the file's 1-based position in
+the plan, `{user}` the ref's user segment as given (empty for a bare ID; the
+user-less `/i/status/<id>` route reports `i`), `{kind}`
+image/video/gif/cover, `{ext}` the planned extension with its leading dot —
+empty when the plan carries none, in which case the response's Content-Type
+decides at download time and the extension is appended after the final
+rendered name exactly as without a template; a template without `{ext}`
+gets the extension appended at the end. Covers ignore the filename template:
+they always land as `<id>-cover.<ext>`. The `directory_template` config key
+(no flag; default empty = flat) places the files in subdirectories of the
+output directory, rendered per file from `{id}`/`{user}`/`{kind}` — `{seq}`
+and `{ext}` are not allowed there, `/` separates levels, empty levels are
+skipped. Rendered names are sanitized (Windows-illegal characters `\ / : *
+? " < > |` and control characters become `_`; `.` and `..` directory levels
+are rejected). An invalid template — an unknown or malformed placeholder, a
+forbidden placeholder in the directory position, a path separator in the
+filename position — never fails the run: one stderr warning line names the
+template and the default (filenames) or flat (directory) behavior applies
+instead. Two planned files of one ref rendering the same name collide: the
+later one gets a `-2`, `-3`, ... suffix before the extension plus a warning;
+across refs the `--on-exists` semantics apply unchanged. An empty template
+value means the default.
 
 **Strategies and trust boundary** (`--strategy`, default `auto`): the media
 command's chain — `auto` tries fx → vx → syndication → nitter → xdown and
@@ -381,32 +408,40 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-Manages the ten scalar keys of `~/.nitter-cli/config.toml` (defaults, env
+Manages the twelve scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
 [README](../README.md#configuration)):
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path
+instance_cooldown, proxy, log_level, log_format, download_path,
+filename_template, directory_template
 ```
 
 - `config path` prints the config file path. Takes no arguments (else exit 2).
-- `config get` without a key prints all ten keys as `key = value`; with a key
-  it prints that one. Unknown keys are rejected (exit 2) before the file is read.
+- `config get` without a key prints all twelve keys as `key = value`; with a
+  key it prints that one. Unknown keys are rejected (exit 2) before the file
+  is read.
 - `config set KEY [VALUE]` validates and coerces the value **before any disk
   write** (integers `>= 0` for `default_limit`/`max_pages`/`retry_attempts`;
   durations `>= 0` for `request_interval`/`retry_delay`/`instance_cooldown`;
-  `log_level` is `debug|info`; `log_format` is `text|json`; `proxy` and
-  `download_path` accept any string). Without a VALUE, one line is read from
-  piped stdin (secrets should not need argv); on a TTY with no VALUE it is a
-  usage error. Unknown keys are rejected with a hint that
-  `[[instances]]`/`[[watch.sources]]` are hand-edited.
+  `log_level` is `debug|info`; `log_format` is `text|json`; `proxy`,
+  `download_path` and the two naming templates accept any string). Without a
+  VALUE, one line is read from piped stdin (secrets should not need argv); on
+  a TTY with no VALUE it is a usage error. Unknown keys are rejected with a
+  hint that `[[instances]]`/`[[watch.sources]]` are hand-edited.
 - `config unset KEY` removes the key so it falls back to env/default.
 - `download_path` (default `./nitter-media`, relative to the working
   directory) is where `nitter download` writes media. It has no env override;
   `nitter download --output DIR` overrides it per invocation, and the
   directory is created at download time — `config set` performs no existence
   check.
+- `filename_template` (default `{id}-{seq}`) and `directory_template`
+  (default empty = flat) are `nitter download`'s naming templates; neither
+  has an env override. `--filename-template` overrides the filename one per
+  invocation. Any string is accepted at `config set` time — an invalid
+  template warns on stderr and falls back to the default/flat at download
+  time (see the download section).
 - Writes preserve unknown keys and the array tables and are atomic (staged file,
   mode 0600). **Comments in config.toml are not guaranteed to survive a
   `config set`/`config unset`.**
