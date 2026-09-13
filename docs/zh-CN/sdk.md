@@ -20,7 +20,9 @@ import "github.com/shitianyaa/nitter-cli/sdk"
   删除、重命名或改作他用。
 - **数据模型不用 `omitempty`。** `Tweet`/`Author`/`Media`/`Quoted`/`Page` 的
   每个字段无条件输出，消费方可以信赖每条 JSON 行的键一定存在；空值输出为零值
-  JSON（来源没有媒体时 `media` 为 `null`）。
+  JSON（来源没有媒体时 `media` 为 `null`）。本节后文的媒体管道类型
+  （`MediaVariant`/`MediaResolution`/`DownloadRecord`）是文档化的例外：其
+  稀疏可选字段使用 `omitempty`，键必然存在与否以各结构体处的列表为准。
 - **生产方绝不虚构数据。** 来源不携带的字段保持零值。
 - **脱敏契约。** `*Error` 结构体以及经 `Unwrap` 可达的任何包装错误，都不得
   包含凭证、URL 查询串、请求头或响应体——只有稳定的 kind、操作名与简短的
@@ -81,7 +83,7 @@ SDK 的窄 HTTP 边界：恰好是抓取所需，别无其他。真实传输层�
 ## 数据模型
 
 以下结构体都是 NDJSON 数据契约；JSON 键冻结（只增不改），每个字段无条件
-输出。
+输出——本节末尾的媒体管道一对是文档化的例外（稀疏字段使用 `omitempty`）。
 
 ### Tweet
 
@@ -155,6 +157,55 @@ type Probe struct {
 
 单个实例的分能力结果：RSS 源、用户 HTML 时间线、搜索、List。`Latency` 序列化
 为 Go duration 字符串（例如 `"212ms"`）。
+
+### MediaResolution 与 DownloadRecord（media / download 命令）
+
+媒体管道以只增方式为数据契约扩展了两个稀疏类型：与上面的模型不同，它们的
+可选字段使用 `omitempty`，键必然存在的只有 `MediaResolution` 的
+`ref`/`source`/`kind`/`url` 与 `DownloadRecord` 的
+`ref`/`path`/`kind`/`source`/`url`/`bytes`。
+
+```go
+type MediaVariant struct {
+    URL         string // 单个可下载编码的直链
+    Bitrate     int64  // 上游报告的码率（bps，缺省为 0）
+    ContentType string // "video/mp4"、"application/x-mpegURL" 等（omitempty）
+}
+
+type MediaResolution struct {
+    Ref             string         // 规范形式 https://x.com/<user>/status/<id>
+    Source          string         // 策略："fx"、"vx"、"syndication"、"nitter" 或 "xdown"
+    Kind            string         // "image"、"video" 或 "gif"
+    URL             string         // 直接下载链接——第三方策略恒为 https；纯 http 只可能来自用户自己的 nitter 实例
+    FallbackURL     string         // 同一媒体的备选链接（omitempty）
+    CoverURL        string         // 视频/GIF 的封面/缩略图链接（omitempty）
+    Label           string         // 来源自带的标签（omitempty）
+    Width, Height   int            // 像素尺寸（omitempty）
+    DurationSeconds float64        // 来源携带，或 media 命令 --probe 测得（omitempty）
+    SizeBytes       int64          // 仅 media 命令的 --probe 填充（omitempty）
+    Variants        []MediaVariant // 来源提供的全部编码，保持上游顺序（omitempty）
+}
+
+type DownloadRecord struct {
+    Ref    string // 该文件所属的原始输入引用
+    Path   string // 磁盘上的绝对路径（download 信封的 id）
+    Kind   string // "image"、"video"、"gif" 或 "cover"
+    Source string // 解析该 status 的策略
+    URL    string // 实际下载的直链（skip 行为空）
+    Bytes  int64  // 流式下载的大小（skip 行为已有文件的磁盘大小）
+    SHA256 string // 流式字节的 lowercase hex 摘要（omitempty）
+}
+```
+
+`CoverURL`（为 download 命令新增的只增字段）承载视频/GIF 条目的封面/缩略图
+——fx 的 `thumbnail_url`、syndication 的 `video.poster`、xdown 的封面图
+条目；图片条目为空，来源不携带封面时也为空。它是 https 链接或空串（禁纯
+http 规则同样适用）。
+
+`DownloadRecord` 是 `nitter download` 写入磁盘的一个文件（或
+`--on-exists skip` 下发现的已有文件）。它唯一一处刻意的稀疏省略是
+`SHA256`：skip 行没有重新下载，因此不报告摘要——省略的 `sha256` 键就是
+文档化的 skip 标记，绝不虚构数据。
 
 ## 错误
 

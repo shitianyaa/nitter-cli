@@ -23,7 +23,10 @@ import "github.com/shitianyaa/nitter-cli/sdk"
 - **No `omitempty` on data models.** Every field of `Tweet`/`Author`/`Media`/
   `Quoted`/`Page` marshals unconditionally, so consumers can rely on key
   presence in every JSON line; empty values render as zero JSON values
-  (`media` is `null` when the source carried no media).
+  (`media` is `null` when the source carried no media). The media-pipeline
+  types below (`MediaVariant`/`MediaResolution`/`DownloadRecord`) are the
+  documented exception: their sparse optional fields use `omitempty`, so key
+  presence is guaranteed only for the keys listed with each struct.
 - **Producers never fabricate data.** Fields a source does not carry stay at
   their zero value.
 - **Redaction contract.** Neither the `*Error` struct nor any wrapped error
@@ -91,7 +94,9 @@ success weighting: the config order is the policy.
 ## Data models
 
 All structs below are the NDJSON data contract; their JSON keys are frozen
-(additive-only) and every field marshals unconditionally.
+(additive-only) and every field marshals unconditionally — the
+media-pipeline pair at the end of this section is the documented exception
+(its sparse fields use `omitempty`).
 
 ### Tweet
 
@@ -166,6 +171,58 @@ type Probe struct {
 
 One instance's per-capability result: RSS feed, user HTML timeline, search,
 list. `Latency` marshals as a Go duration string (for example `"212ms"`).
+
+### MediaResolution and DownloadRecord (media / download commands)
+
+The media pipeline extends the data contract additively with two sparse
+types: unlike the models above they use `omitempty` on their optional
+fields, so key presence is guaranteed only for `MediaResolution`'s
+`ref`/`source`/`kind`/`url` and `DownloadRecord`'s
+`ref`/`path`/`kind`/`source`/`url`/`bytes`.
+
+```go
+type MediaVariant struct {
+    URL         string // direct link of one downloadable encoding
+    Bitrate     int64  // upstream-reported bits per second (0 when absent)
+    ContentType string // "video/mp4", "application/x-mpegURL", … (omitempty)
+}
+
+type MediaResolution struct {
+    Ref             string         // canonical https://x.com/<user>/status/<id>
+    Source          string         // strategy: "fx", "vx", "syndication", "nitter" or "xdown"
+    Kind            string         // "image", "video" or "gif"
+    URL             string         // direct download link — always https for third-party strategies; plain http only ever from the user's own nitter instance
+    FallbackURL     string         // alternative link for the same media (omitempty)
+    CoverURL        string         // poster/thumbnail link of a video or GIF (omitempty)
+    Label           string         // the source's own label (omitempty)
+    Width, Height   int            // pixel dimensions (omitempty)
+    DurationSeconds float64        // source-carried, or measured by the media command's --probe (omitempty)
+    SizeBytes       int64          // the media command's --probe only (omitempty)
+    Variants        []MediaVariant // every encoding the source offered, upstream order (omitempty)
+}
+
+type DownloadRecord struct {
+    Ref    string // the raw input reference the file belongs to
+    Path   string // absolute on-disk path (the download envelope's id)
+    Kind   string // "image", "video", "gif" or "cover"
+    Source string // strategy that resolved the status
+    URL    string // the direct link that was downloaded (empty on a skip row)
+    Bytes  int64  // streamed size (a skip row: the existing file's on-disk size)
+    SHA256 string // lowercase hex digest of the streamed bytes (omitempty)
+}
+```
+
+`CoverURL` (added for the download command, additive) carries the
+poster/thumbnail of a video or GIF entry — fx's `thumbnail_url`,
+syndication's `video.poster`, the xdown cover-image entry; empty for images
+and whenever the source carries no cover. It is an https link or empty (the
+no-plain-http rule applies).
+
+`DownloadRecord` is one file `nitter download` wrote to disk (or found
+already on disk under `--on-exists skip`). Its one deliberate sparse
+omission is `SHA256`: a skip row reports no digest for a file the command
+did not download — the omitted `sha256` key is the documented skip marker;
+nothing is fabricated.
 
 ## Errors
 

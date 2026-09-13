@@ -30,7 +30,7 @@ successful output; **stderr is never JSON**.
 | `list: "..." is not a valid list ID (non-empty, no whitespace, ?, # or /)` | 2 | Bad list ID | Use the numeric ID (or a ref the instance accepts) |
 | `get: status reference given both as an argument and on stdin` | 2 | Ambiguous ref input | Pass the ref one way only |
 | `appapi.ParseStatusRef: invalid_argument: not a status reference ...` | 2 | Unparseable `get` ref | Use a bare numeric ID or a `<user>/status/<id>` URL (`/photo/N`, `/video/1` suffixes allowed) |
-| `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The nine scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML |
+| `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The ten scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML |
 | `config set <key>: "..." is not an integer / not a duration / is invalid` | 2 | Value failed schema validation | Follow the documented shapes: ints >= 0, durations >= 0 (`500ms`, `2s`), `log_level` debug|info, `log_format` text|json |
 | `watch: invalid config [[watch.sources]] entry ...` | 2 | Malformed source id in config | Fix the entry to `user:<handle>`, `tag:<query>` (raw query), or `list:<id>` |
 | `unsupported .../seen.json schema version N (want 1); refusing to reset state` or a parse error on state | 1 | Corrupt or foreign state file | Hard error by design (never a silent reset). With user consent, move the file away or start from a fresh `--state-dir`; report it as a bug if it corrupted on its own |

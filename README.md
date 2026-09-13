@@ -18,13 +18,18 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 - **Watch sources continuously**: `watch` polls `user:`/`tag:`/`list:` sources,
   deduplicates against `~/.nitter-cli/state/seen.json` and emits only new tweets.
   `--once` runs exactly one cycle — the recommended scheduler form.
+- **Download media to disk**: `download` resolves each status ref through the
+  `media` strategy chain and writes the planned files to `--output DIR` or the
+  `download_path` config key — a video status converges to its ONE best file
+  (bitrate-ranked, with the other candidates as fallbacks), an image-only status
+  to every image, and `--kind cover` fetches just the video's cover image.
 - **Diagnose instances**: `instances test` probes RSS / user timeline / search /
   list capabilities of each configured instance with one report line each.
 - **Three output modes for every data command**: human-readable tab-separated rows,
   whole-result `--json`, and one-envelope-per-record `--ndjson`
   (`nitter.pipeline/v1`).
 - **Manage its own configuration and state**: `config path/get/set/unset` for the
-  nine scalar keys, `seen list/clear` for the watch dedup state.
+  ten scalar keys, `seen list/clear` for the watch dedup state.
 - **Check for updates**: `update --check` compares the installed version against
   the latest GitHub release (strict semver, `--json` for machines). It performs
   no self-install.
@@ -37,11 +42,18 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 nitter-cli ships without instances: **you point it at a Nitter instance you
 control**. Nothing is fetched until you configure one.
 
-1. **Build** (Go 1.27+):
+1. **Install** — two routes:
+
+   a. **Download a release binary** (recommended): pick the archive for your
+   platform from
+   [GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases) and
+   verify it against the attached `checksums.txt`.
+
+   b. **Build from source** (Go 1.27+):
 
    ```bash
    sh scripts/build.sh          # produces ./nitter
-   ./nitter --version          # nitter version 0.1.0 (or a dev line)
+   ./nitter --version          # nitter version 0.5.0 (or a dev line)
    ```
 
 2. **Configure your instance** — edit `~/.nitter-cli/config.toml` (the path is
@@ -97,7 +109,7 @@ control**. Nothing is fetched until you configure one.
 `[[watch.sources]]` array tables are managed by editing the file directly —
 `config set` refuses them.
 
-### Scalar keys (all nine)
+### Scalar keys (all ten)
 
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
@@ -110,6 +122,7 @@ control**. Nothing is fetched until you configure one.
 | `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = environment proxies (`HTTPS_PROXY`/`ALL_PROXY`) |
 | `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
 | `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or `json` (single-line) |
+| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media (cwd-relative; created on demand; `download --output DIR` overrides it per invocation) |
 
 Environment overrides apply on top of the file for exactly these three keys:
 `NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`.

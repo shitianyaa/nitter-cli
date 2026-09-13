@@ -49,8 +49,9 @@ text rendering (the two are identical tab-separated lines; no ANSI colors).
 `instance` (the base URL of the instance that produced the batch) and
 `fetched_at` (RFC3339 UTC). Empty `meta` fields are omitted. The `kind` enum is
 additive-only in v1; the currently emitted kinds are `tweet` (data commands),
-`instance_report` (`instances test --ndjson`), `media` (`media --ndjson`) and
-`error` (per-source fetch failures of `watch`, per-ref failures of `media`):
+`instance_report` (`instances test --ndjson`), `media` (`media --ndjson`),
+`download` (`download --ndjson`) and `error` (per-source fetch failures of
+`watch`, per-ref failures of `media` and `download`):
 
 ```json
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
@@ -233,6 +234,104 @@ and the run exits 1 with a `media completed with N of M refs failed` summary
 when at least one ref failed; usage problems (`--json` with `--ndjson`,
 invalid `--strategy` or `--quality`, bad/missing refs, refs given both as
 arguments and on stdin) exit 2.
+
+## nitter download
+
+```bash
+nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
+  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--on-exists refuse|skip|overwrite] [--json|--ndjson]
+```
+
+Resolves each status REF with the media command's strategies and downloads
+the planned media files to the output directory. `REF` takes the same shapes
+as `nitter get` and `nitter media` (bare numeric ID, or a status URL of
+x.com, twitter.com or any Nitter instance; `/photo/N` and `/video/1`
+suffixes accepted). Multiple REFs run as a batch; with no argument and a
+non-TTY stdin the input is read from stdin — when the first non-whitespace
+byte is `{`, every non-empty line must be a strict `nitter.pipeline/v1` tweet
+envelope and each record's `data.url` is used as the REF (the
+`nitter get --ndjson` and `nitter watch --ndjson` streams feed download
+directly; a malformed envelope is a usage error), otherwise every non-empty
+line is a plain REF. Giving refs both as arguments and on stdin is an
+ambiguity error (exit 2).
+
+**Selection** (`--kind`, default: everything) follows the video-wins rule: a
+status carrying video or GIF downloads its ONE best video file — ranked by
+bitrate (or xdown's p-numbers; empirically xdown serves several bitrate
+entries plus a cover image for one video tweet, which is why the plan
+converges) — and the winner keeps the remaining candidates as its fallback
+chain: the first URL that fails falls through the fallbacks in order, and
+the row reports whichever candidate succeeded. An image-only status
+downloads every image (`<id>-1.jpg` ... `<id>-4.jpg`). `--kind
+image|video|gif` pre-filters that; `--kind cover` plans exactly the video's
+cover image as `<id>-cover.<ext>` — an image-only status has none and
+reports `not_found`. A filter matching nothing yields no files, not an error
+(a `nothing found for <ref>` line on stderr). Playlists (HLS `.m3u8`, DASH
+`.mpd`) are never download candidates.
+
+The file extension comes from the resolved URL path when it carries one,
+otherwise from the download response's Content-Type (`image/jpeg`→`.jpg`,
+`image/png`→`.png`, `image/webp`→`.webp`, `image/gif`→`.gif`,
+`video/mp4`→`.mp4`), falling back to a kind-based default (`.jpg` for images
+and covers, `.mp4` for videos/GIFs). Filenames are `<id>-<seq>.<ext>`.
+
+**Strategies and trust boundary** (`--strategy`, default `auto`): the media
+command's chain — `auto` tries fx → vx → syndication → nitter → xdown and
+the first strategy that yields media wins (`source` stamps which one); an
+explicit name runs only that one. For download the boundary is stricter than
+for `media`, because the fetch happens too: fx, vx, syndication and xdown
+are **third-party public services** — resolving AND downloading sends the
+tweet URL through them, so only use them for public statuses you are fine
+sharing. `--strategy nitter` is the fully private path: resolution and
+download both stay on **your own** configured instance (the first
+`[[instances]]` entry, or `--instance`); its direct links may be plain-http
+links served by your own instance and are trusted for that. Download
+requests ride the configured proxy (`--proxy` / config `proxy`) like every
+other fetch of this CLI.
+
+The output directory is `--output DIR`, else the `download_path` config key
+(default `./nitter-media`; relative paths resolve against the working
+directory); it is created on demand (`mkdir -p`).
+
+**`--on-exists`** (default `refuse`) decides what happens when a target file
+is already on disk: `refuse` reports the entry as an error and the batch
+continues; `skip` keeps the existing file, reports its row with the file's
+actual on-disk size and NO sha256 (nothing was re-downloaded, nothing is
+fabricated) and is never counted as a failure; `overwrite` re-downloads
+through the same atomic temp-then-rename flow. Duplicate refs in one batch
+meet the same filenames: under `refuse` the second occurrence fails with the
+exists error while the batch continues.
+
+Human/text output is one tab-separated row per downloaded file:
+
+```text
+https://x.com/NASA/status/2081668333762687236	/home/you/nitter-media/2081668333762687236-1.mp4	24000000	video	fx
+```
+
+Columns: `ref path bytes kind source` — `path` is the absolute file path
+(also the NDJSON envelope's `id`); under `--on-exists skip` the path cell
+reads `<path> (skipped)`. `--json` prints the downloaded files as one JSON
+document (a single object when exactly one file, an array otherwise, `[]`
+when none). `--ndjson` prints one envelope per downloaded file (`kind`
+`download`, the absolute path as `id`, the DownloadRecord as `data`,
+`meta.input` = the raw ref) and one `kind:"error"` envelope per failed ref
+(`data.command` is `download`, `data.stage` is `resolve`, `plan` or
+`download`), in ref order:
+
+```json
+{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2081668333762687236-1.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","path":"/home/you/nitter-media/2081668333762687236-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+```
+
+Exit codes: success 0 (an invocation that plans and downloads nothing prints
+`(empty)` on stderr; a consumer closing the stdout pipe early is a clean
+stop); a per-ref failure gets an in-place error report (error envelope on
+the NDJSON stream, `error: <ref>: <message>` on stderr otherwise) while the
+other refs continue, and the run exits 1 with a
+`download completed with N of M refs failed` summary when at least one ref
+failed; usage problems (unknown `--kind`/`--quality`/`--strategy`/
+`--on-exists`, bad or missing refs, refs given both as arguments and on
+stdin, malformed stdin envelopes, `--json` with `--ndjson`) exit 2.
 
 ## nitter instances test
 

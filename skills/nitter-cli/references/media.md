@@ -80,14 +80,22 @@ source-reported duration is never overwritten. Images are not probed.
   absent trailing cells.
 - `--json`: a single object when exactly one entry resolved, an array
   otherwise, `[]` when nothing resolved. Fields `ref`, `source`, `kind`,
-  `url` are always present; `fallback_url`, `label`, `width`, `height`,
-  `duration_seconds`, `size_bytes`, `variants` appear only when non-empty.
+  `url` are always present; `fallback_url`, `cover_url`, `label`, `width`,
+  `height`, `duration_seconds`, `size_bytes`, `variants` appear only when
+  non-empty (`cover_url` is the poster/thumbnail of a video/GIF entry —
+  the same link `download --kind cover` fetches).
 - `--ndjson`: one `nitter.pipeline/v1` envelope per entry (`kind:"media"`,
   `id` = the download URL, `meta.input` = the raw ref) plus one
   `kind:"error"` envelope per failed ref. A consumer closing the stream
   early (EPIPE) is a graceful exit 0.
 
 ## Downloading and delivering (agent checklist)
+
+The CLI can do the download itself: `nitter download` resolves with these
+same strategies and writes the planned files to disk — selection rule,
+`--on-exists` semantics, the stdin pipeline from `watch` and its own privacy
+wording: references/download.md. It is a Disk write command (consent each
+time). The plain-GET path below stays for callers who resolve-only.
 
 - Every projected URL is a direct https link — fetch it with a plain GET
   (curl, wget, or the host's HTTP client). No cookies, no sign-in, no

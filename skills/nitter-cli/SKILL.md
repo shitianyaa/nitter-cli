@@ -1,6 +1,6 @@
 ---
 slug: nitter-cli
-version: 0.4.0
+version: 0.5.0
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
@@ -20,7 +20,7 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.1.0`). If the binary is
+  `nitter version <v>` (for example `nitter version 0.5.0`). If the binary is
   missing or not executable, state the blocker; do not guess installation steps
   unless the user explicitly asks for install help.
 - Instances come from the user's config (`nitter config path` prints the
@@ -52,6 +52,11 @@ safety boundaries, and semantics traps.
 7. `watch --json` does not exist (it is rejected with exit 2): watch streams
    NDJSON. Do not pass `--json` and `--ndjson` together to any command
    (mutually exclusive, exit 2).
+8. `download` writes files to disk (the `download_path` config key, default
+   `./nitter-media`, or `--output DIR`): state the target directory and the
+   exact refs to the user before each invocation; consent never carries over.
+   The default `--on-exists refuse` never replaces an existing file — only
+   pass `overwrite` or `skip` when the user asked for that.
 
 ## Command tiers
 
@@ -59,6 +64,7 @@ safety boundaries, and semantics traps.
 | --- | --- | --- |
 | Read-only | `user`, `search`, `list`, `get`, `media`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
 | Local write | `config set`, `config unset`, `seen clear` | Confirm every single time; authorization does not carry over |
+| Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
 
@@ -74,20 +80,23 @@ the user is fine sharing (see trap 16).
 - For humans: the default tab-separated text (same on a TTY and in a pipe).
 - For programs: `--ndjson` — one `nitter.pipeline/v1` envelope per line, kind
   `tweet` or `error` (plus `instance_report` for `instances test --ndjson`,
-  `media` for `media --ndjson`).
+  `media` for `media --ndjson`, `download` for `download --ndjson`).
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
-  `user` `search` `list` `get` `media` `instances test` `seen list`
+  `user` `search` `list` `get` `media` `download` `instances test` `seen list`
   `update --check`; `--ndjson` on `user` `search` `list` `get` `media`
-  `instances test` and `watch`; `watch` has no `--json`; `config`/
+  `download` `instances test` and `watch`; `watch` has no `--json`; `config`/
   `seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
   prefer `--json` + `jq` for field extraction; if absent, fall back to the
   plain output silently — never ask the user to install anything.
-- Stdin is read by three commands only, and only when they receive no
+- Stdin is read by four commands only, and only when they receive no
   positional value and stdin is not a TTY: `get` (one ref), `media` (one ref
-  per non-empty line), `config set KEY` (the value, one line — this keeps
+  per non-empty line), `download` (refs one per non-empty line, or — when the
+  first non-whitespace byte is `{` — strict `nitter.pipeline/v1` tweet
+  envelopes whose `data.url` becomes the ref, so `watch --ndjson` output feeds
+  it directly), `config set KEY` (the value, one line — this keeps
   secrets such as a credential-bearing `proxy` URL out of argv). Passing the
   value both as an argument and on stdin is an ambiguity error (exit 2).
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,
@@ -137,6 +146,12 @@ nitter media <ref> --strategy xdown --json                # force one resolver (
 nitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
 nitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
+nitter download <ref> --output D:/media --ndjson          # resolve + write media files to disk (dir created on demand)
+nitter download <ref> --kind cover                        # only the video's cover image (<id>-cover.<ext>)
+nitter download <ref> --strategy nitter                   # resolve + download both stay on the user's own instance
+nitter download <ref> --on-exists skip                    # keep existing files: row marked (skipped), on-disk size, no sha256
+nitter watch user:NASA --once --ndjson | nitter download --ndjson   # feed the watch stream straight into downloads (Disk write: consent)
+
 nitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
 nitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
 nitter watch --once --ndjson                            # sources from [[watch.sources]]
@@ -157,12 +172,14 @@ nitter update --check --json                            # {current, latest, outd
 
 ## Config keys
 
-Nine scalar keys in `~/.nitter-cli/config.toml`, managed with
+Ten scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
 `instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
-(text). Env overrides exist for three keys only: `NITTER_DEFAULT_LIMIT`,
+(text), `download_path` (`./nitter-media`, cwd-relative — where `download`
+writes media; `download --output` overrides it per call). Env overrides exist
+for three keys only: `NITTER_DEFAULT_LIMIT`,
 `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and
@@ -218,7 +235,8 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     `--once` exits 1.
 12. **Exit codes**: 0 success (including empty results and EPIPE), 1 runtime
     failure (all instances failed / partial watch failure / partial `media`
-    batch failure / corrupt state file / unknown subcommand), 2 usage error.
+    batch failure / partial `download` batch failure / corrupt state file /
+    unknown subcommand), 2 usage error.
     Check the exit code before parsing any JSON; stderr is never JSON.
 13. **`--state-dir` isolates watch state** (testing, multi-instance setups), but
     `seen list`/`seen clear` have no `--state-dir` and always operate on the
@@ -251,12 +269,17 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     (every variant stays in `variants`); `--probe` adds duration/size via
     extra ranged requests and is best-effort — a probe failure keeps the
     values empty and never fails the run. Full details and download
-    guidance: references/media.md.
+    guidance: references/media.md. To have the CLI write the files to disk
+    itself (video-wins selection, `--on-exists`, the `watch` pipeline), see
+    references/download.md.
 
 ## Media delivery for agents
 
 `nitter media` resolves links; the download is the agent's job (full
-details: references/media.md).
+details: references/media.md). To resolve and download in one step, the CLI
+has `nitter download` — a Disk write command: agree on the target directory
+and the exact refs with the user before each invocation (full details:
+references/download.md).
 
 - Resolved URLs are direct https links — fetch them with a plain GET (curl,
   wget, or the host's HTTP client); no cookies or sign-in involved.
@@ -275,5 +298,9 @@ details: references/media.md).
 - [references/media.md](references/media.md) — media resolution: ref and
   batch semantics, the strategy chain and its trust boundary, quality and
   probe, output shapes, download and delivery.
+- [references/download.md](references/download.md) — writing media to disk:
+  pre-download checklist, video-wins selection, filenames and extensions,
+  `--on-exists` semantics, the stdin pipeline from `watch`, reporting and
+  exit codes.
 - [references/troubleshooting.md](references/troubleshooting.md) — common error
   table and fixes.

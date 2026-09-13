@@ -17,11 +17,15 @@ timer、Hermes）驱动、以 NDJSON 消费而设计。
 - **持续监视来源**：`watch` 轮询 `user:`/`tag:`/`list:` 源，对照
   `~/.nitter-cli/state/seen.json` 去重，只输出新推文。`--once` 单轮即退——
   这是推荐的调度器形态。
+- **把媒体下载到磁盘**：`download` 用 `media` 的策略链解析每条 status ref，
+  把计划好的文件写入 `--output DIR` 或 `download_path` 配置键——带视频的推文
+  只收敛为一个最佳文件（按码率排序，其余候选作回退），纯图推文下载全部
+  图片，`--kind cover` 只取视频封面图。
 - **诊断实例**：`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 / List
   能力，每个实例一行报告。
 - **三种输出模式**（所有数据命令统一）：人类可读的制表符行、整结果 `--json`、
   逐记录 `--ndjson`（`nitter.pipeline/v1` 信封）。
-- **管理自身配置与状态**：`config path/get/set/unset` 管理九个标量键，
+- **管理自身配置与状态**：`config path/get/set/unset` 管理十个标量键，
   `seen list/clear` 管理 watch 去重状态。
 - **检查更新**：`update --check` 将当前版本与 GitHub 最新发布版比较
   （严格 semver，支持 `--json`）。不做自替换安装。
@@ -33,11 +37,17 @@ timer、Hermes）驱动、以 NDJSON 消费而设计。
 nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**。未配置实例前
 不会发起任何抓取。
 
-1. **构建**（Go 1.27+）：
+1. **安装**——两条路线：
+
+   a. **下载发布版二进制**（推荐）：从
+   [GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases)
+   选择对应平台的压缩包，并对照附带的 `checksums.txt` 校验。
+
+   b. **从源码构建**（Go 1.27+）：
 
    ```bash
    sh scripts/build.sh          # 生成 ./nitter
-   ./nitter --version          # nitter version 0.1.0（或 dev 版本行）
+   ./nitter --version          # nitter version 0.5.0（或 dev 版本行）
    ```
 
 2. **配置实例**——编辑 `~/.nitter-cli/config.toml`（路径可用 `nitter config
@@ -89,7 +99,7 @@ nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**
 写入（值也可从 stdin 管道读入）；`nitter config unset KEY` 删除。`[[instances]]`
 与 `[[watch.sources]]` 数组表只能直接编辑文件——`config set` 拒绝它们。
 
-### 标量键（全部九个）
+### 标量键（全部十个）
 
 | 键 | 类型 | 默认 | 环境变量覆盖 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -102,6 +112,7 @@ nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**
 | `proxy` | string | `""` | — | 代理 URL（`http(s)`、`socks5(h)`）；空 = 走环境代理（`HTTPS_PROXY`/`ALL_PROXY`） |
 | `log_level` | 枚举 | `info` | `NITTER_LOG_LEVEL` | `debug` 或 `info`；诊断只进 stderr，不污染 stdout |
 | `log_format` | 枚举 | `text` | `NITTER_LOG_FORMAT` | `text` 或 `json`（单行） |
+| `download_path` | string | `./nitter-media` | — | `nitter download` 写入媒体的位置（相对当前工作目录；按需创建；`download --output DIR` 单次覆盖） |
 
 环境变量只覆盖这三个键，且优先于文件：`NITTER_DEFAULT_LIMIT`（整数）、
 `NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`。

@@ -13,7 +13,7 @@
   逐源错误报告。
 - `nitter instances test`：逐实例探测能力（RSS / 用户 HTML / 搜索 / List），
   提供人类、`--json` 与 `--ndjson` 三种报告。
-- `nitter config path/get/set/unset`：管理九个标量配置键，支持环境变量覆盖
+- `nitter config path/get/set/unset`：管理十个标量配置键，支持环境变量覆盖
   （`NITTER_DEFAULT_LIMIT`、`NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`）、0600
   原子写入与首跑自动生成基线配置。
 - `nitter seen list/clear`：检视与清除 watch 去重状态（`seen list --json` 恒为
@@ -51,6 +51,28 @@
   流式输出。Nitter 读取用户自己的配置实例（其纯 http 链接按原样保留）；
   fx/vx/syndication/xdown 是会收到推文 URL 的第三方公共服务——已写入文档的
   信任边界，仅用于公开推文。
+- `nitter download <REF>...`：经 `media` 的策略链解析 status，把计划好的媒体
+  文件流式写入磁盘——补上 `media` 刻意不做的下载半边。选择遵循 video-wins
+  规则：带视频/GIF 的推文只下载唯一一个最佳文件（按码率或 xdown 的 p 值排序
+  ——实测 xdown 对一条视频推文返回多个码率条目外加一张封面图），其余候选作为
+  回退链；纯图推文下载全部图片；`--kind cover` 只计划视频封面
+  `<id>-cover.<ext>`；播放列表（HLS/DASH）绝不成为候选。扩展名取自 URL 路径
+  或响应 Content-Type；文件以 `<status-id>-<seq>.<ext>` 落在 `--output DIR`
+  或新的 `download_path` 配置键（默认 `./nitter-media`）下，
+  `--on-exists refuse|skip|overwrite` 决定文件已存在时的行为（skip 报告磁盘
+  大小且不含 sha256——绝不虚构）。批次/stdin 语义与 `media` 同构，
+  `nitter get --ndjson`/`nitter watch --ndjson` 的 tweet 流可直接喂入；
+  `--json` 把记录输出为一个文档，`--ndjson` 以新增的 `download` kind（只增）
+  流式输出（每文件一个信封，id = 绝对路径，`meta.input` = 原始 ref）外加逐
+  REF 错误信封；部分失败以 `download completed with N of M refs failed` 摘要
+  退出 1。下载走配置的代理；fx/vx/syndication/xdown 在解析与下载时都会收到
+  推文 URL（第三方信任边界，仅限公开推文）——`--strategy nitter` 让解析与
+  下载完全留在用户自己的实例上。
+- 媒体管道的 SDK/配置只增面：`MediaResolution` 新增 `cover_url` 字段
+  （视频/GIF 条目的封面/缩略图——fx `thumbnail_url`、syndication
+  `video.poster`、xdown 封面图），以及第十个标量配置键 `download_path`
+  （默认 `./nitter-media`，相对工作目录，无环境变量覆盖；
+  `nitter download --output DIR` 单次覆盖）。
 
 ## 变更
 

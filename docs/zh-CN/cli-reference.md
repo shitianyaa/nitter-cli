@@ -48,8 +48,8 @@ ANSI 颜色）。
 （产出这批结果的实例 base URL）、`fetched_at`（RFC3339 UTC）。`meta` 的空字段
 会被省略。`kind` 枚举在 v1 内只增不改；当前实际输出的 kind 为 `tweet`（数据
 命令）、`instance_report`（`instances test --ndjson`）、`media`
-（`media --ndjson`）与 `error`（`watch` 的逐源抓取失败、`media` 的逐 REF
-失败）：
+（`media --ndjson`）、`download`（`download --ndjson`）与 `error`（`watch`
+的逐源抓取失败，`media` 与 `download` 的逐 REF 失败）：
 
 ```json
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
@@ -206,6 +206,85 @@ https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/e
 其余 REF 继续运行；至少一个 REF 失败时以 `media completed with N of M refs
 failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--strategy`/
 `--quality` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出）退出 2。
+
+## nitter download
+
+```bash
+nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
+  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--on-exists refuse|skip|overwrite] [--json|--ndjson]
+```
+
+用 `media` 命令的策略链解析每条 status REF，并把计划好的媒体文件下载到输出
+目录。`REF` 的形态与 `nitter get`、`nitter media` 相同（纯数字 ID，或
+x.com / twitter.com / 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与
+`/video/1` 后缀）。多个 REF 按批次运行；不给位置参数且 stdin 非 TTY 时从
+stdin 读取输入——首个非空白字节为 `{` 时，每个非空行都必须是严格的
+`nitter.pipeline/v1` tweet 信封，且每条记录的 `data.url` 被用作 REF
+（`nitter get --ndjson` 与 `nitter watch --ndjson` 的流可以直接喂给
+download；信封不合法是用法错误），否则每个非空行就是一条普通 REF。位置参数
+与 stdin 同时给出是歧义错误（退出 2）。
+
+**选择**（`--kind`，默认：全部）遵循 video-wins 规则：带视频或 GIF 的推文
+只下载唯一一个最佳视频文件——按码率（或 xdown 的 p 值）排序；实测 xdown
+对一条视频推文会返回多个码率条目外加一张封面图，这正是计划层要收敛的原因——
+胜出者把其余候选保留为回退链：第一个 URL 失败时按序落到回退项，行内报告的是
+实际成功的那个候选。纯图推文下载全部图片（`<id>-1.jpg` ... `<id>-4.jpg`）。
+`--kind image|video|gif` 是其前置过滤；`--kind cover` 只计划视频的封面图，
+写为 `<id>-cover.<ext>`——纯图推文没有封面，按 `not_found` 报告。过滤器匹配
+不到任何文件不算错误（stderr 打印一行 `nothing found for <ref>`）。播放列表
+（HLS `.m3u8`、DASH `.mpd`）永远不会成为下载候选。
+
+文件扩展名优先取自解析出的 URL 路径；路径不带扩展名时取下载响应的
+Content-Type（`image/jpeg`→`.jpg`、`image/png`→`.png`、`image/webp`→
+`.webp`、`image/gif`→`.gif`、`video/mp4`→`.mp4`），再退回按 kind 的默认值
+（图片与封面 `.jpg`，视频与 GIF `.mp4`）。文件名为 `<id>-<seq>.<ext>`。
+
+**策略与信任边界**（`--strategy`，默认 `auto`）：与 `media` 命令相同的链路
+——`auto` 依次尝试 fx → vx → syndication → nitter → xdown，首个产出媒体的
+策略胜出（`source` 标明）；显式指定名称则只运行该策略。对 download 而言边界
+比 `media` 更严格，因为抓取本身也会发生：fx、vx、syndication、xdown 是
+**第三方公共服务**——解析与下载都会把推文 URL 发送给它们，因此只用于你愿意
+分享的公开推文。`--strategy nitter` 是完全私有路径：解析与下载都留在**你自己**
+配置的实例上（`[[instances]]` 的第一个条目，或 `--instance`）；其直链可能是
+你自己实例提供的纯 http 链接，对此予以信任。下载请求与其他一切抓取一样走
+配置的代理（`--proxy` / 配置 `proxy`）。
+
+输出目录为 `--output DIR`，否则为 `download_path` 配置键（默认
+`./nitter-media`；相对路径按工作目录解析）；目录按需创建（`mkdir -p`）。
+
+**`--on-exists`**（默认 `refuse`）决定目标文件已存在于磁盘时的行为：
+`refuse` 把该条目报告为错误，批次继续；`skip` 保留已有文件，行内以文件实际
+的磁盘大小报告、且不含 sha256（没有重新下载，也不虚构数据），绝不计为失败；
+`overwrite` 经同样的「临时文件落盘再原子重命名」流程重新下载。同一批次内的
+重复 ref 会命中相同文件名：`refuse` 下第二次出现按文件已存在报错，批次继续。
+
+人类 / text 输出为每个下载文件一行制表符行：
+
+```text
+https://x.com/NASA/status/2081668333762687236	/home/you/nitter-media/2081668333762687236-1.mp4	24000000	video	fx
+```
+
+列为 `ref path bytes kind source`——`path` 是绝对文件路径（也是 NDJSON 信封
+的 `id`）；`--on-exists skip` 下 path 单元格为 `<path> (skipped)`。`--json`
+把下载的文件输出为一个 JSON 文档（恰好一个文件时是单个对象，否则为数组，
+没有文件时为 `[]`）。`--ndjson` 按引用顺序输出：每个下载文件一个信封
+（`kind` `download`，绝对路径作为 `id`，DownloadRecord 作为 `data`，
+`meta.input` = 原始 ref），每个失败的 REF 一个 `kind:"error"` 信封
+（`data.command` 为 `download`，`data.stage` 为 `resolve`、`plan` 或
+`download`）：
+
+```json
+{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2081668333762687236-1.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","path":"/home/you/nitter-media/2081668333762687236-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+```
+
+退出码：成功为 0（没有计划、没有下载时在 stderr 打印 `(empty)`；消费端提前
+关闭 stdout 管道是干净停止）；单个 REF 失败会得到就地错误报告（NDJSON 流上
+为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），其余 REF
+继续运行；至少一个 REF 失败时以 `download completed with N of M refs
+failed` 摘要退出 1；用法问题（`--kind`/`--quality`/`--strategy`/
+`--on-exists` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出、stdin
+信封不合法、`--json` 与 `--ndjson` 同给）退出 2。
 
 ## nitter instances test
 
