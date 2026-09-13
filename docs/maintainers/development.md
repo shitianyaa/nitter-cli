@@ -14,8 +14,8 @@ gofmt -l .             # 必须为空
 sh scripts/build.sh    # 产出 ./nitter（VERSION=可覆盖，默认 dev）
 ```
 
-- `go test -race ./...` 由 CI 执行（ci.yml，见 Task 23 的 workflow）；本地
-  Windows 环境此前不可用时，以 CI 结果为准。
+- `go test -race ./...` 由 CI 执行（ci.yml）；本地 `go test -race` 不可用时，
+  以 CI 结果为准。
 - 若安装了 `pre-commit`，交付前运行 `pre-commit run --all-files`。仓库钩子：
   `gofmt -l` 必须为空 + `go test ./...`。
 - 手工冒烟（离线安全）：`./nitter --version`、`./nitter <cmd> --help`、
@@ -76,13 +76,17 @@ skills/nitter-cli/          # 随仓库分发的 Agent Skill
 
 ## 发布流程（骨架）
 
-发布自动化由 `.github/workflows/release.yml` 承担（Task 23 交付骨架）：
+发布自动化由 `.github/workflows/release.yml` 承担：
 
-1. **tag 触发**：校验目标 `changelog/vX.Y.Z/` 双语条目齐全。
-2. **构建矩阵**：6 平台（沿用 javdb 矩阵：macos-15-intel / macos-15 /
-   ubuntu-22.04 / ubuntu-22.04-arm / windows-2025 / windows-11-arm），
-   `CGO_ENABLED=0`，产物带 `VERSION` linker 注入与 checksums.txt。
-3. **GitHub Release 草稿**：正文 = 英文 + 简体中文双语说明（取自该版本目录）。
+1. **tag 触发**：软校验目标 `changelog/vX.Y.Z/` 双语条目齐全（缺失时仅发出
+   warning，不阻断构建）。
+2. **构建矩阵**：6 平台（macos-15-intel / macos-15 / ubuntu-24.04 /
+   ubuntu-24.04-arm / windows-2025 / windows-11-arm），`CGO_ENABLED=0`，
+   产物为 tar.gz（unix）/ zip（windows）压缩包，附 `VERSION` linker 注入与
+   合并后的 `checksums.txt`。
+3. **GitHub Release 草稿**：workflow 以 `--generate-notes` 创建草稿并上传
+   全部压缩包与 `checksums.txt`；发布前由维护者把 `changelog/vX.Y.Z/` 的
+   双语说明填入草稿正文。
 4. 发布前人工核对：`nitter --version` 输出新版本号；skill
    `skills/nitter-cli/SKILL.md` 的 `version` 字段与 release 版本对齐。
 

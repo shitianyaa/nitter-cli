@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e/run.sh — offline e2e contract gate for nitter-cli.
 #
-# Exit-code contract (javdb e2e convention):
+# Exit-code contract:
 #   0 — every check passed (skips allowed)
 #   1 — at least one check failed
 #   2 — nothing ran except skips (soft pass for schedulers)
@@ -194,7 +194,7 @@ PYEOF
 fi
 
 # instances test against the same unreachable instance: the report is the
-# product (exit 0). Since M10 the piped default is NDJSON — stdout is a file
+# product (exit 0). Since 0.6.0 the piped default is NDJSON — stdout is a file
 # here (no --ndjson flag given), so the stream must carry an
 # nitter.pipeline/v1 instance_report envelope whose RSS probe failed.
 ./nitter instances test http://127.0.0.1:1 \

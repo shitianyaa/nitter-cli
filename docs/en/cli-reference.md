@@ -410,7 +410,7 @@ nitter config unset KEY
 
 Manages the twelve scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
-[README](../README.md#configuration)):
+[README](../../README.md#configuration)):
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
@@ -605,7 +605,7 @@ nitter update
 nitter update --check [--prerelease] [--json]
 ```
 
-Reports how to update the binary. **The MVP performs no self-install** — the
+Reports how to update the binary. **`update` never self-installs** — the
 guidance form (without `--check`) prints the package-manager / manual-download
 instructions and exits 0.
 

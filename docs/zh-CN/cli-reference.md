@@ -349,7 +349,7 @@ nitter config unset KEY
 ```
 
 管理 `~/.nitter-cli/config.toml` 的十二个标量键（默认值、环境变量覆盖与数组表见
-[README](../README.zh-CN.md#配置)）：
+[README](../../README.zh-CN.md#配置)）：
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
@@ -516,7 +516,7 @@ nitter update
 nitter update --check [--prerelease] [--json]
 ```
 
-报告二进制的更新方式。**MVP 不做自替换安装**——不带 `--check` 的形式只打印
+报告二进制的更新方式。**`update` 不做自替换安装**——不带 `--check` 的形式只打印
 「请用包管理器重装 / 手动下载」的指引，退出 0。
 
 - `--check` 经 GitHub Releases API 将当前版本与
