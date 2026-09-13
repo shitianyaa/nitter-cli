@@ -34,20 +34,17 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-// seenPath is the default seen.json location under the (temp) home — the
-// seen commands have no --state-dir; they always operate on the default
-// layout.
+// seenPath is the default seen.json location under the (temp) home.
 func seenPath(t *testing.T, home string) string {
 	t.Helper()
 	return filepath.Join(home, ".nitter-cli", "state", "seen.json")
 }
 
-// seedSeen writes a seen.json fixture with two sources (distinct counts and
-// timestamps, keys chosen so "tag:%23AI" sorts before "user:NASA") and
-// returns the file path.
-func seedSeen(t *testing.T, home string) string {
+// seedSeenAt writes a seen.json fixture with two sources (distinct counts
+// and timestamps, keys chosen so "tag:%23AI" sorts before "user:NASA") at
+// the given path (creating the parent directory) and returns the file path.
+func seedSeenAt(t *testing.T, path string) string {
 	t.Helper()
-	path := seenPath(t, home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("mkdir state dir: %v", err)
 	}
@@ -58,6 +55,12 @@ func seedSeen(t *testing.T, home string) string {
 		t.Fatalf("seed seen.json: %v", err)
 	}
 	return path
+}
+
+// seedSeen writes the seen.json fixture at the default location under home.
+func seedSeen(t *testing.T, home string) string {
+	t.Helper()
+	return seedSeenAt(t, seenPath(t, home))
 }
 
 // TestSeenListHumanLinesSortedBySource: one tab-separated summary line per
@@ -370,5 +373,124 @@ func TestSeenClearCorruptStoreExitsOne(t *testing.T) {
 	code, _, _ := runCLI(t, "seen", "clear", "--confirm")
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1", code)
+	}
+}
+
+// TestSeenListStateDirOverridesDefault: --state-dir points seen list at a
+// watch --state-dir directory instead of the default location (parity with
+// watch). The default location is seeded with different content and must be
+// ignored entirely.
+func TestSeenListStateDirOverridesDefault(t *testing.T) {
+	home := tempHome(t)
+	seedSeen(t, home) // two sources at the default location: must NOT be read
+	stateDir := t.TempDir()
+	customPath := filepath.Join(stateDir, "seen.json")
+	customBody := `{"version":1,"sources":{` +
+		`"list:42":{"initialized":true,"seen_ids":["501"],"watermark_ids":["501"],"updated_at":"2026-09-12T10:00:00Z"}}}` + "\n"
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
+	}
+	if err := os.WriteFile(customPath, []byte(customBody), 0o600); err != nil {
+		t.Fatalf("seed custom seen.json: %v", err)
+	}
+
+	code, out, errOut := runCLI(t, "seen", "list", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	want := "list:42\tinitialized=true\tseen=1\twatermark=1\t2026-09-12T10:00:00Z"
+	if strings.TrimSpace(out) != want {
+		t.Errorf("output = %q, want the custom dir's single line %q (not the default location)", out, want)
+	}
+
+	code, out, _ = runCLI(t, "seen", "list", "--state-dir", stateDir, "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(out), &arr); err != nil || len(arr) != 1 {
+		t.Fatalf("--json output = %q (%v), want a 1-element array", out, err)
+	}
+}
+
+// TestSeenClearStateDirOverridesDefault: --state-dir points seen clear at
+// the watch state directory; the default location stays byte-identical.
+func TestSeenClearStateDirOverridesDefault(t *testing.T) {
+	home := tempHome(t)
+	defaultPath := seedSeen(t, home)
+	stateDir := t.TempDir()
+	path := seedSeenAt(t, filepath.Join(stateDir, "seen.json"))
+	before, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read default seen.json: %v", err)
+	}
+
+	code, _, errOut := runCLI(t, "seen", "clear", "--state-dir", stateDir, "--source", "user:NASA", "--confirm")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var file struct {
+		Version int                       `json:"version"`
+		Sources map[string]map[string]any `json:"sources"`
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read custom seen.json: %v", err)
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatalf("decode custom seen.json: %v", err)
+	}
+	if _, ok := file.Sources["user:NASA"]; ok {
+		t.Error("user:NASA still present in the custom dir after clear")
+	}
+	if _, ok := file.Sources["tag:%23AI"]; !ok {
+		t.Error("tag:%23AI must survive a single-source clear in the custom dir")
+	}
+	after, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatalf("read default seen.json: %v", err)
+	}
+	if !slices.Equal(before, after) {
+		t.Errorf("the default location changed (it must be ignored with --state-dir)")
+	}
+
+	// Without --source: every entry in the custom dir goes, version kept.
+	code, _, errOut = runCLI(t, "seen", "clear", "--state-dir", stateDir, "--confirm")
+	if code != 0 {
+		t.Fatalf("clear all: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read custom seen.json: %v", err)
+	}
+	if !strings.Contains(string(data), `"version":1`) || !strings.Contains(string(data), `"sources":{}`) {
+		t.Errorf("cleared custom file = %s, want version kept and empty sources", data)
+	}
+}
+
+// TestSeenMissingStateDirIsEmpty: a --state-dir without seen.json is the
+// empty-store contract — (empty) on stderr, exit 0 — and the read/clear
+// create nothing (no directory, no file).
+func TestSeenMissingStateDirIsEmpty(t *testing.T) {
+	tempHome(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+
+	code, out, errOut := runCLI(t, "seen", "list", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("list: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("list: stdout = %q, want nothing", out)
+	}
+	if strings.TrimSpace(errOut) != "(empty)" {
+		t.Errorf("list: stderr = %q, want the (empty) hint", errOut)
+	}
+
+	code, _, errOut = runCLI(t, "seen", "clear", "--state-dir", stateDir, "--confirm")
+	if code != 0 {
+		t.Fatalf("clear: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Errorf("missing --state-dir was created (stat err = %v), want reads to create nothing", err)
 	}
 }

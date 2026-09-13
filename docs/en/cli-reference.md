@@ -24,7 +24,7 @@ help. An unknown subcommand exits 1 (not 2).
 | --- | --- |
 | `0` | Success — including empty results, a consumer closing the stdout pipe (EPIPE, best-effort detection on Windows), and SIGINT/SIGTERM shutdown of `watch`. |
 | `1` | Runtime failure — acquisition failure (every instance failed), `watch --once` with at least one failed source, corrupt state file, config file read/parse failure, unknown subcommand. |
-| `2` | Usage error — bad flags/arguments, input-contract violations, `--json` with `--ndjson`, `watch --json`, invalid config values. SDK/network errors are never classified as usage errors. |
+| `2` | Usage error — bad flags/arguments, input-contract violations, `--json` with `--ndjson`, `watch --json` without `--once`, invalid config values. SDK/network errors are never classified as usage errors. |
 
 ## Output modes
 
@@ -78,8 +78,11 @@ successful output; stderr is never JSON.
 - `--limit` caps the number of tweets (`0` = all); when omitted the config
   `default_limit` (default 20) applies. A negative flag value is a usage error.
 - `--max-pages` caps pagination; when omitted the config `max_pages` (default 5)
-  applies. **`--max-pages 0` means "use the default", not "unlimited"**; a
-  negative value is a usage error.
+  applies. On `user` an **explicit `--max-pages 0` removes the cap**: the HTML
+  fallback follows the load-more cursor chain until upstream exhaustion (the
+  context bounds a runaway run); the RSS feed is single-page and unaffected. On
+  `search`/`list` `0` keeps meaning "use the default". A negative value is a
+  usage error.
 - Retries: `retry_attempts` (default 2) extra attempts with linear backoff
   `retry_delay` (default 1s); a 429 with a valid `Retry-After` waits once and
   retries once.
@@ -95,6 +98,8 @@ Fetches the timeline of `HANDLE` — 1–15 letters, digits or underscores, with
 the `@` (bad shape exits 2 before any network). The RSS feed (`<HANDLE>/rss`) is
 tried first; when it fails or yields no tweets the HTML user page is fetched,
 following its load-more cursor. NDJSON `meta.source` is `user:<HANDLE>`.
+`--max-pages 0` lets the HTML fallback paginate without a page bound (until
+upstream exhaustion); see the shared fetch behavior above.
 
 Field filters apply **after the fetch, before output** (the three combine
 freely; an invalid `--media-type` value exits 2):
@@ -419,7 +424,7 @@ or parsed (invalid TOML) fails with exit 1; a value failing schema validation
 ```bash
 nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
   [--max-new-overflow drop|keep] [--max-pages N] [--include-existing] \
-  [--state-dir DIR] [--ndjson] [--no-reposts] [--media-only] \
+  [--state-dir DIR] [--ndjson] [--json] [--no-reposts] [--media-only] \
   [--media-type image|video|gif]
 ```
 
@@ -447,7 +452,7 @@ are empty: exit 2.
 | `--include-existing` | off | Emit the whole first fetch on an uninitialized source (default: first run only records state). |
 | `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). |
 | `--ndjson` | off | One envelope per record: `kind` `tweet` and `kind` `error`. |
-| `--json` | — | **Not supported**: watch is a stream of mixed tweets and errors, not a single JSON document; always a usage error. |
+| `--json` | — | Only with `--once`: prints ONE JSON document `{"tweets":[…bare Tweet objects…],"errors":[{"ref","code","message"}…]}` — the cycle's selected tweets and its per-source fetch failures (both arrays literal `[]` when empty; the failed-source summary still exits 1). Without `--once` it is a usage error: the resident loop is a stream of cycles, not one document. |
 | `--no-reposts` | off | Drop pure retweets **before dedup** (the retweet header only exists on the HTML parse path). |
 | `--media-only` | off | Drop tweets without media attachments, **before dedup**. |
 | `--media-type image\|video\|gif` | — | Keep only tweets carrying at least one media entry of that type, **before dedup**; another value is a usage error. |
@@ -486,7 +491,8 @@ Global `--proxy`/`--instance` apply as everywhere.
   the other sources continue; its state is left untouched. `--once` exits 1 when
   at least one source failed, 0 when all succeeded. Exit 2 for usage problems
   (bad source string, empty source set, `--interval < 1s`, negative flags,
-  invalid `--max-new-overflow`, `--json`).
+  invalid `--max-new-overflow`, `--json` without `--once`, `--json` with
+  `--ndjson`).
 - Without `--once` the command loops until SIGINT/SIGTERM (graceful exit 0) or
   an unrecoverable error (state-store failure, non-EPIPE stdout write failure →
   exit 1).
@@ -496,8 +502,8 @@ Global `--proxy`/`--instance` apply as everywhere.
 
 **State** is per source: up to 300 seen IDs (newest-first) plus the 20 most
 recent numeric first-page IDs as the scan watermark. Inspect it with
-`nitter seen list`; note that `seen` has no `--state-dir` — if you run
-`watch --state-dir <dir>`, read that directory's `seen.json` directly.
+`nitter seen list --state-dir <dir>` (or, without the flag, the default
+location); `seen clear` takes the same flag.
 
 Example — a scheduler entry consuming the NDJSON stream (illustrative):
 
@@ -516,15 +522,23 @@ nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow k
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
+`--once --json` prints the whole cycle as one document instead (illustrative):
+
+```json
+{"tweets":[{"id":"2081668333762687236","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
+```
+
 ## nitter seen
 
 ```bash
-nitter seen list [--source SOURCE] [--json]
-nitter seen clear [--source SOURCE] --confirm
+nitter seen list [--source SOURCE] [--json] [--state-dir DIR]
+nitter seen clear [--source SOURCE] [--state-dir DIR] --confirm
 ```
 
-Inspects and clears the watch dedup state at the **default** location
-`~/.nitter-cli/state/seen.json` — `seen` has no `--state-dir`.
+Inspects and clears the watch dedup state — at the **default** location
+`~/.nitter-cli/state/seen.json`, or at `<--state-dir>/seen.json` (the same
+directory `watch --state-dir` uses). Nothing is created: a state directory
+without a `seen.json` is simply the empty store.
 
 - `seen list` prints one tab-separated line per source, sorted by key:
 

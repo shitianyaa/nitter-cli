@@ -1,14 +1,17 @@
 // Package seen implements the `nitter seen` commands: inspect (list) and
 // clear the persistent watch dedup state (seen.json). The commands operate
-// on the default state location (paths.SeenFile) — the same file the watch
-// command reads and writes by default. Source references are parsed with
-// watch.ParseSource, so `--source` takes the same "user:NASA" form watch
-// takes. State changes are gated behind --confirm (状态变更需显式授权) and
-// persist through the store's atomic writes.
+// on the state directory given via --state-dir, defaulting to the default
+// state location (paths.StateDir) — the same file the watch command reads
+// and writes by default, and the same directory its --state-dir selects.
+// Source references are parsed with watch.ParseSource, so `--source` takes
+// the same "user:NASA" form watch takes. State changes are gated behind
+// --confirm (状态变更需显式授权) and persist through the store's atomic
+// writes.
 package seen
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -29,14 +32,17 @@ func New(s *invocation.Streams) *cobra.Command {
 		Use:   "seen",
 		Short: "Inspect and clear the persistent watch dedup state (seen.json)",
 		Long: `Inspect and clear the persistent watch dedup state that nitter watch
-keeps in ~/.nitter-cli/state/seen.json.
+keeps in ~/.nitter-cli/state/seen.json (or <--state-dir>/seen.json):
 
-  nitter seen list [--source SOURCE] [--json]
+  nitter seen list [--source SOURCE] [--json] [--state-dir DIR]
       One summary line per source (or a JSON array with --json).
 
-  nitter seen clear [--source SOURCE] --confirm
+  nitter seen clear [--source SOURCE] [--state-dir DIR] --confirm
       Delete one source's entry, or every entry without --source. State
       changes need explicit authorization: --confirm is required.
+
+--state-dir points both subcommands at another state directory, the same
+way watch --state-dir does; without it the default location applies.
 
 A corrupt state file is a hard error (exit 1) — the store never silently
 resets state, because a silent reset would re-push a whole watch history.`,
@@ -51,8 +57,9 @@ resets state, because a silent reset would re-push a whole watch history.`,
 // (a bad --source value) exit 2; a corrupt state file exits 1.
 func newList(s *invocation.Streams) *cobra.Command {
 	var (
-		sourceFlag string
-		asJSON     bool
+		sourceFlag   string
+		stateDirFlag string
+		asJSON       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -70,11 +77,13 @@ empty store prints the (empty) hint on stderr and nothing on stdout; with
 --json it prints [] on stdout instead.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runList(s, sourceFlag, asJSON)
+			return runList(s, sourceFlag, stateDirFlag, asJSON)
 		},
 	}
 	cmd.Flags().StringVar(&sourceFlag, "source", "",
 		"Only this source (same form as watch sources, e.g. user:NASA)")
+	cmd.Flags().StringVar(&stateDirFlag, "state-dir", "",
+		"State directory holding seen.json (default: ~/.nitter-cli/state)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print a JSON array of {source, initialized, seen_count, watermark_count, updated_at}")
 	return cmd
@@ -91,13 +100,14 @@ type sourceSummary struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
-// runList lists the stored source states (all, or one with --source).
-func runList(s *invocation.Streams, sourceFlag string, asJSON bool) error {
+// runList lists the stored source states (all, or one with --source) from
+// the state dir the --state-dir flag selects ("" = the default location).
+func runList(s *invocation.Streams, sourceFlag, stateDir string, asJSON bool) error {
 	filter, err := parseSourceFlag(sourceFlag)
 	if err != nil {
 		return err
 	}
-	store, err := openStore()
+	store, err := openStore(stateDir)
 	if err != nil {
 		return err
 	}
@@ -188,8 +198,9 @@ func writeEmpty(s *invocation.Streams, asJSON bool) error {
 // corrupt state file exits 1.
 func newClear(s *invocation.Streams) *cobra.Command {
 	var (
-		sourceFlag string
-		confirm    bool
+		sourceFlag   string
+		stateDirFlag string
+		confirm      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clear",
@@ -205,11 +216,13 @@ Clearing a source that is not stored succeeds with a "not found" hint
 failure never leaves a half-cleared state behind.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClear(s, sourceFlag, confirm)
+			return runClear(s, sourceFlag, stateDirFlag, confirm)
 		},
 	}
 	cmd.Flags().StringVar(&sourceFlag, "source", "",
 		"Only this source (same form as watch sources, e.g. user:NASA); without it every source is cleared")
+	cmd.Flags().StringVar(&stateDirFlag, "state-dir", "",
+		"State directory holding seen.json (default: ~/.nitter-cli/state)")
 	cmd.Flags().BoolVar(&confirm, "confirm", false,
 		"Required: state changes need explicit authorization (状态变更需显式授权)")
 	return cmd
@@ -218,7 +231,7 @@ failure never leaves a half-cleared state behind.`,
 // runClear deletes one or all source entries through the store's atomic
 // writes. Success prints nothing (the exit code is the signal); an absent
 // single-source target prints a "not found" hint on stderr.
-func runClear(s *invocation.Streams, sourceFlag string, confirm bool) error {
+func runClear(s *invocation.Streams, sourceFlag, stateDir string, confirm bool) error {
 	if !confirm {
 		return invocation.Usagef("seen clear: state changes need explicit authorization (状态变更需显式授权) — pass --confirm to proceed")
 	}
@@ -226,7 +239,7 @@ func runClear(s *invocation.Streams, sourceFlag string, confirm bool) error {
 	if err != nil {
 		return err
 	}
-	store, err := openStore()
+	store, err := openStore(stateDir)
 	if err != nil {
 		return err
 	}
@@ -257,12 +270,18 @@ func parseSourceFlag(sourceFlag string) (string, error) {
 	return src.Key(), nil
 }
 
-// openStore opens the default seen.json location. A corrupt file is a hard
-// error (KindLocalState, exit 1) — never a silent reset.
-func openStore() (*seenstore.Store, error) {
-	p, err := paths.New()
-	if err != nil {
-		return nil, err
+// openStore opens seen.json under the given state directory ("" = the
+// default location, paths.SeenFile — the same resolution watch does for its
+// --state-dir). A corrupt file is a hard error (KindLocalState, exit 1) —
+// never a silent reset. Nothing is created: a missing file is an empty
+// store, and the first write is the only thing that can create the file.
+func openStore(stateDir string) (*seenstore.Store, error) {
+	if stateDir == "" {
+		p, err := paths.New()
+		if err != nil {
+			return nil, err
+		}
+		return seenstore.Open(p.SeenFile, time.Now)
 	}
-	return seenstore.Open(p.SeenFile, time.Now)
+	return seenstore.Open(filepath.Join(stateDir, "seen.json"), time.Now)
 }

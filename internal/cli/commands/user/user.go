@@ -60,8 +60,11 @@ Instances are tried in config order; an instance whose whole fetch fails
 cools down while the next one is tried.
 
 --limit caps the number of tweets (0 = all); without the flag the config's
-default_limit applies. --max-pages caps HTML pagination (0 = default 5);
-without the flag the config's max_pages applies.
+default_limit applies. --max-pages caps HTML pagination; an explicit
+--max-pages 0 removes the cap — the HTML fallback follows the load-more
+cursor chain until upstream exhaustion (the RSS feed is single-page, so
+the cap never applies to it). Without the flag the config's max_pages
+(default 5) applies.
 
 --json prints a machine-readable document: one JSON object for a single
 tweet, an array otherwise (an empty timeline prints []). --ndjson instead
@@ -82,7 +85,7 @@ and the (empty) hint on stderr in the default modes.`,
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
 		"Maximum tweets to fetch, 0 for all (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
-		"Maximum HTML pages when falling back (default: config max_pages; built-in default 5)")
+		"Maximum HTML pages when falling back (default: config max_pages; built-in default 5; 0 = unbounded until upstream exhaustion)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
@@ -130,6 +133,12 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, ma
 	}
 	if cmd.Flags().Changed("max-pages") {
 		maxPages = maxPagesFlag
+		if maxPagesFlag == 0 {
+			// The explicit flag 0 is the unbounded contract (the omitted
+			// flag keeps the config/default cap): pass the acquisition
+			// layer's sentinel.
+			maxPages = client.UnboundedMaxPages
+		}
 	}
 
 	w, err := client.Build(s.RootOptions, cfg, time.Now)

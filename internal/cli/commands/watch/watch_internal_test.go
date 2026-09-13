@@ -29,7 +29,8 @@ func errorCode(t *testing.T, src watchengine.Source, err error) string {
 	t.Helper()
 	var buf bytes.Buffer
 	s := &invocation.Streams{Out: &buf, Err: &bytes.Buffer{}}
-	if werr := reportSourceError(s, pipeline.ModeNDJSON, src, src.Key(), err); werr != nil {
+	opts := cycleOptions{mode: pipeline.ModeNDJSON}
+	if werr := reportSourceError(s, opts, src, src.Key(), err); werr != nil {
 		t.Fatalf("reportSourceError: %v", werr)
 	}
 	var env struct {
@@ -67,4 +68,30 @@ func TestReportSourceErrorCodeClassifiesSDKKind(t *testing.T) {
 			t.Errorf("code = %q, want the fallback \"error\"", got)
 		}
 	})
+}
+
+// TestReportSourceErrorCollectAppendsEntry pins the --once --json path: the
+// error is appended to the document as {ref, code, message} — same code
+// classification as the NDJSON envelope, nothing written to the streams.
+func TestReportSourceErrorCollectAppendsEntry(t *testing.T) {
+	src := watchengine.Source{Kind: watchengine.KindUser, Ref: "NASA"}
+	doc := &jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}
+	var out, errOut bytes.Buffer
+	s := &invocation.Streams{Out: &out, Err: &errOut}
+	opts := cycleOptions{collect: doc}
+
+	err := fmt.Errorf("fetch user:NASA: %w", nitter.Errorf(nitter.KindRateLimited, "op", "slow down"))
+	if werr := reportSourceError(s, opts, src, src.Key(), err); werr != nil {
+		t.Fatalf("reportSourceError: %v", werr)
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Errorf("collect mode wrote to the streams: out %q err %q", out.String(), errOut.String())
+	}
+	if len(doc.Errors) != 1 {
+		t.Fatalf("errors = %v, want one entry", doc.Errors)
+	}
+	entry := doc.Errors[0]
+	if entry.Ref != "user:NASA" || entry.Code != string(nitter.KindRateLimited) || entry.Message == "" {
+		t.Errorf("entry = %+v, want ref user:NASA / code rate_limited / a message", entry)
+	}
 }

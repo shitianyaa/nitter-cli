@@ -47,7 +47,11 @@ type PageOptions struct {
 	// single-page: its items are collected up to the limit.
 	Limit int
 	// MaxPages caps how many HTML timeline pages are fetched on the HTML
-	// path (the first page counts). 0 (or negative) → defaultMaxPages.
+	// path (the first page counts). 0 → defaultMaxPages; negative →
+	// UNBOUNDED: the cursor chain is followed until the upstream stops
+	// serving a cursor (or the context is canceled) — the CLI's `user
+	// --max-pages 0` maps to this. Search/List keep the historical
+	// "0 = default" semantics at their own entry points.
 	MaxPages int
 }
 
@@ -70,8 +74,10 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) 
 	if c.Chooser == nil {
 		return nil, "", nitter.Errorf(nitter.KindLocalState, opTimeline, "no instance chooser wired into the appapi client")
 	}
+	// 0 keeps the built-in default; a negative value is the explicit
+	// unbounded contract (PageOptions.MaxPages doc) and passes through.
 	maxPages := opts.MaxPages
-	if maxPages <= 0 {
+	if maxPages == 0 {
 		maxPages = defaultMaxPages
 	}
 
@@ -177,6 +183,9 @@ func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int
 // panel) and parses the timeline, then follows the load-more cursor while a
 // cursor exists, the limit is not met and the page budget lasts. Page URLs
 // re-encode the cursor extracted by the parser (it arrives URL-decoded).
+// maxPages < 0 removes the budget: pagination runs until the upstream stops
+// serving a cursor (upstream exhaustion; a runaway chain is bounded by the
+// caller's context cancellation, honored inside the loop).
 func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, maxPages int) ([]nitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+"/"+handle, nil)
 	if err != nil {
@@ -192,7 +201,7 @@ func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, m
 	tweets := page.Tweets
 	pages := 1
 	cursor := page.NextCursor
-	for cursor != "" && (limit <= 0 || len(tweets) < limit) && pages < maxPages {
+	for cursor != "" && (limit <= 0 || len(tweets) < limit) && (maxPages < 0 || pages < maxPages) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

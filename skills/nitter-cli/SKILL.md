@@ -49,9 +49,11 @@ safety boundaries, and semantics traps.
 6. Do not wrap commands in invented timeouts. For long-running work use
    `watch --once` plus scheduler polling; do not keep a foreground loop running
    and waiting.
-7. `watch --json` does not exist (it is rejected with exit 2): watch streams
-   NDJSON. Do not pass `--json` and `--ndjson` together to any command
-   (mutually exclusive, exit 2).
+7. `watch --json` is only valid with `--once`: it prints ONE JSON document
+   `{"tweets":[...bare Tweet objects...],"errors":[{"ref","code","message"}...]}`
+   for that single cycle. Without `--once` it is rejected (exit 2) — the
+   resident loop is a stream of cycles; use `--ndjson` there. Do not pass
+   `--json` and `--ndjson` together to any command (mutually exclusive, exit 2).
 8. `download` writes files to disk (the `download_path` config key, default
    `./nitter-media`, or `--output DIR`): state the target directory and the
    exact refs to the user before each invocation; consent never carries over.
@@ -70,7 +72,8 @@ safety boundaries, and semantics traps.
 
 Notes: `instances test` completes even when every probe fails (the report is
 the product — exit 0); treat the report, not the exit code, as the diagnostic.
-`seen clear` requires `--confirm` and only touches the default state location.
+`seen clear` requires `--confirm` and operates on the state location it is
+given (default `~/.nitter-cli/state`, or `--state-dir DIR`).
 `media` is read-only too, but its auto chain hands the tweet URL to third-party
 public resolvers (fx/vx/syndication/xdown) — use it only for public statuses
 the user is fine sharing (see trap 16).
@@ -90,8 +93,8 @@ the user is fine sharing (see trap 16).
   for many, `[]` when empty). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
   `update --check`; `--ndjson` on `user` `search` `list` `get` `media`
-  `download` `instances test` and `watch`; `watch` has no `--json`; `config`/
-  `seen clear` have neither.
+  `download` `instances test` and `watch`; `watch --json` only with `--once`
+  (one `{"tweets","errors"}` document); `config`/`seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
   prefer `--json` + `jq` for field extraction; if absent, fall back to the
@@ -135,6 +138,7 @@ nitter user NASA --limit 20 --json                      # array of tweet objects
 nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
 nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
 nitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
+nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounded HTML pagination, until upstream exhaustion
 nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
@@ -160,16 +164,18 @@ nitter watch user:NASA --once --ndjson | nitter download --ndjson   # feed the w
 
 nitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
 nitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
+nitter watch user:NASA --once --json                    # one {"tweets":[...],"errors":[{ref,code,message}...]} document for the cycle (once mode only)
 nitter watch --once --ndjson                            # sources from [[watch.sources]]
 nitter watch user:NASA --once --include-existing --ndjson   # first run emits history (explicit opt-in)
 nitter watch user:NASA --once --max-new 50 --ndjson     # raise the per-source emission cap (default 10)
 nitter watch user:NASA --once --max-new 10 --max-new-overflow keep --ndjson   # bursts beyond the cap re-emit on the next cycles instead of being lost
 nitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
 nitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
-nitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state (seen list cannot see it)
+nitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state; inspect with seen list --state-dir D:/tmp/state
 
 nitter seen list                                        # inspect dedup state (default location)
 nitter seen list --json
+nitter seen list --state-dir D:/tmp/state               # inspect the state of a watch --state-dir run
 nitter seen clear --source user:NASA --confirm          # state change: consent each time
 nitter seen clear --confirm                             # clear ALL sources: consent each time
 
@@ -236,7 +242,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    Do not treat an empty `reposted_by` on RSS data as "not a retweet".
 9. **Empty JSON fields are contract, not bugs**: `published_at` is always UTC
    RFC3339; a tweet without media marshals `"media": null` (not `[]`);
-   `--max-pages 0` means the built-in default (5).
+   `--max-pages 0` on `user` means UNBOUNDED (the HTML fallback paginates until
+   upstream exhaustion; the RSS feed is single-page ~20 anyway) — on
+   `search`/`list` it still means the built-in default (5).
 10. **New lists may look empty**: a freshly created list can be empty until the
     Nitter instance ingests it — indistinguishable from a truly empty list;
     neither is an error.
@@ -249,10 +257,10 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     batch failure / partial `download` batch failure / corrupt state file /
     unknown subcommand), 2 usage error.
     Check the exit code before parsing any JSON; stderr is never JSON.
-13. **`--state-dir` isolates watch state** (testing, multi-instance setups), but
-    `seen list`/`seen clear` have no `--state-dir` and always operate on the
-    default location — with a custom `--state-dir`, read that directory's
-    `seen.json` directly.
+13. **`--state-dir` isolates watch state** (testing, multi-instance setups);
+    `seen list`/`seen clear` accept the same `--state-dir DIR` to operate on
+    that directory's `seen.json` — without the flag they use the default
+    location (`~/.nitter-cli/state`).
 14. **Instances are trust boundaries**: only the user's own instances belong in
     config; the CLI follows media/redirect URLs an instance returns, so the
     network around the instance must isolate internal services.

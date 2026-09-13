@@ -34,6 +34,14 @@ const opBuild = "client.Build"
 // request pacing, retries and backoff come from settings.
 const wiringTimeout = 20 * time.Second
 
+// UnboundedMaxPages asks the acquisition layer to follow the HTML cursor
+// chain without a page budget: pagination stops only when the upstream
+// stops serving a cursor (or the context is canceled). `user --max-pages 0`
+// passes this sentinel; a positive value stays a hard page cap, and 0 (the
+// omitted flag — e.g. watch, or the config's max_pages) keeps the built-in
+// default of 5.
+const UnboundedMaxPages = -1
+
 // TestOptions re-exports the appapi probe options so command packages can
 // name the type without importing internal/nitter/appapi (R11 boundary).
 type TestOptions = appapi.TestOptions

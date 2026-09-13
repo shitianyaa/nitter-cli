@@ -21,7 +21,7 @@ successful output; **stderr is never JSON**.
 | RSS probes `ok` but `search` empty or `fail(...)` | 0/1 | Search is a separate Nitter capability, disabled or slow on this instance | Run `nitter instances test --full`; use an instance with search enabled |
 | `search "#AI"` returns nothing though the tag exists | 0 | Two candidates: instance search disabled, or the query was pre-escaped | Prefer the raw form (`nitter search "#AI"`); the pre-escaped `%23` form double-escapes and must not be used anywhere (`watch tag:` sources included) |
 | `watch: no sources given and no [[watch.sources]] configured` | 2 | Neither argv sources nor config sources | Pass sources (`user:NASA tag:#AI list:12345`) or add `[[watch.sources]]` |
-| `watch: --json is not supported; watch streams NDJSON (use --ndjson)` | 2 | `--json` passed to watch | Use `--ndjson`; watch is a mixed stream, never one JSON document |
+| `watch: --json requires --once; ...` | 2 | `--json` passed to the resident watch loop (no `--once`) | The loop is a stream, not one document: use `--ndjson`, or add `--once` to get the `{"tweets","errors"}` document of that single cycle |
 | `--json and --ndjson are mutually exclusive` | 2 | Both flags on one command | Pick one; `--json` for single-document extraction, `--ndjson` for streams |
 | `watch: --interval must be >= 1s, got ...` | 2 | Interval below the 1s floor or not a duration | Use e.g. `10m`; the value is validated even with `--once` |
 | `seen clear: state changes need explicit authorization ... pass --confirm` | 2 | `seen clear` without `--confirm` | Get user consent, then add `--confirm`; consent is per-command, never carried over |
@@ -44,7 +44,7 @@ successful output; **stderr is never JSON**.
 1. Exit code (0/1/2) — then look at stderr (human text) or the `kind:"error"`
    envelopes on the NDJSON stream (watch per-source failures land on stdout).
 2. For fetch problems: `nitter instances test [--full]` and read the cells.
-3. For watch problems: `nitter seen list` (default state location only) and
-   references/watch.md's exit-code matrix.
+3. For watch problems: `nitter seen list --state-dir <dir>` (or the default
+   location without the flag) and references/watch.md's exit-code matrix.
 4. For anything state-changing (clear, set, unset): fresh user consent, every
    time.

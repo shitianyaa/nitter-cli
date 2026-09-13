@@ -105,7 +105,7 @@ nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**
 | 键 | 类型 | 默认 | 环境变量覆盖 | 含义 |
 | --- | --- | --- | --- | --- |
 | `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | 手动命令未传 `--limit` 时的条数（`0` = 全部） |
-| `max_pages` | int | `5` | — | 单次抓取分页上限（命令上传 `--max-pages 0` 也表示这个默认，而非「不限」） |
+| `max_pages` | int | `5` | — | 单次抓取分页上限（在 `user` 上，显式传 `--max-pages 0` 则取消上限） |
 | `request_interval` | duration | `1s` | — | 相邻请求开始时间的全局最小间隔 |
 | `retry_attempts` | int | `2` | — | 首次之外的重试次数（网络错误与 5xx） |
 | `retry_delay` | duration | `1s` | — | 线性退避基数：第 n 次重试等待 `retry_delay × n` |
@@ -171,7 +171,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 - `1` — 运行时失败（所有实例都失败；`watch --once` 有至少一个源失败；
   `seen.json` 损坏；配置文件读取/解析失败）；
 - `2` — 用法错误（flag 或参数不合法、输入契约违规、`--json --ndjson` 同时给出、
-  `watch --json`、配置值不合法；未知**子命令**名退出 1）。
+  不带 `--once` 的 `watch --json`、配置值不合法；未知**子命令**名退出 1）。
 
 ## watch 语义（自动化前必读）
 
@@ -198,9 +198,9 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   推文之后照常落盘；若落盘本身被截断，下一轮会重推同一批推文（宁重勿丢）。
   Windows 上管道断裂可能以不同 errno（`ERROR_BROKEN_PIPE`）出现，EPIPE → 0 的
   判定在 Windows 上是尽力而为。
-- **`seen` 没有 `--state-dir`**：`nitter seen list/clear` 只作用于默认的
-  `~/.nitter-cli/state/seen.json`。如果你用 `watch --state-dir <dir>`，请直接
-  读取该目录下的 `seen.json`（JSON，schema v1）。
+- **`seen` 跟随 `--state-dir`**：`nitter seen list/clear` 作用于默认的
+  `~/.nitter-cli/state/seen.json`，或传 `--state-dir <dir>` 时作用于
+  `<dir>/seen.json`——与 `watch --state-dir` 使用同一个目录。
 
 ## FAQ
 

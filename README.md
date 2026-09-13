@@ -115,7 +115,7 @@ control**. Nothing is fetched until you configure one.
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
 | `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Tweets per manual command when `--limit` is not given (`0` = all) |
-| `max_pages` | int | `5` | — | Pagination cap per fetch (`--max-pages 0` on a command also means this default, not "unlimited") |
+| `max_pages` | int | `5` | — | Pagination cap per fetch (on `user`, an explicit `--max-pages 0` instead removes the cap) |
 | `request_interval` | duration | `1s` | — | Global minimum interval between the starts of consecutive requests |
 | `retry_attempts` | int | `2` | — | Extra attempts after the first, for network errors and 5xx |
 | `retry_delay` | duration | `1s` | — | Linear backoff base: the n-th retry waits `retry_delay × n` |
@@ -184,8 +184,8 @@ only describe successful output; **stderr is never JSON**.
 - `1` — runtime failure (every instance failed; `watch --once` with at least one
   failed source; a corrupt `seen.json`; config file read/parse failures);
 - `2` — usage error (bad flags or arguments, input-contract violations,
-  `--json --ndjson` together, `watch --json`, invalid config values; unknown
-  *subcommand* names exit 1).
+  `--json --ndjson` together, `watch --json` without `--once`, invalid config
+  values; unknown *subcommand* names exit 1).
 
 ## Watch semantics (read before automating)
 
@@ -220,9 +220,9 @@ only describe successful output; **stderr is never JSON**.
   same tweets (宁重勿丢 — prefer duplicates over losses). On Windows, broken pipes
   may surface as a different errno (`ERROR_BROKEN_PIPE`), so the EPIPE → 0
   detection is best-effort there.
-- **`seen` has no `--state-dir`**: `nitter seen list/clear` always operate on the
-  default `~/.nitter-cli/state/seen.json`. If you run `watch --state-dir
-  <dir>`, inspect that directory's `seen.json` directly (JSON, schema v1).
+- **`seen` follows `--state-dir`**: `nitter seen list/clear` operate on the
+  default `~/.nitter-cli/state/seen.json`, or on `<dir>/seen.json` when given
+  `--state-dir <dir>` — the same directory `watch --state-dir` uses.
 
 ## FAQ
 

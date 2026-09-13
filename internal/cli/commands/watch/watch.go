@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,6 +31,7 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
 	"github.com/shitianyaa/nitter-cli/internal/cli/result"
 	"github.com/shitianyaa/nitter-cli/internal/cli/tweetfilter"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
 	"github.com/shitianyaa/nitter-cli/internal/config/paths"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
@@ -72,9 +74,10 @@ const (
 // Exit codes (repo-wide semantics): a --once cycle with every source healthy
 // exits 0 (also: SIGINT/SIGTERM graceful exit, EPIPE on stdout); a --once
 // cycle in which at least one source failed exits 1; usage problems (bad
-// source string, empty source set, --interval < 1s, negative flags, --json)
-// exit 2. Loop mode runs until the context is canceled (signals → exit 0) or
-// an unrecoverable error (state store, non-EPIPE write failure) exits 1.
+// source string, empty source set, --interval < 1s, negative flags, --json
+// without --once, --json with --ndjson) exit 2. Loop mode runs until the
+// context is canceled (signals → exit 0) or an unrecoverable error (state
+// store, non-EPIPE write failure) exits 1.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
 		intervalFlag       string
@@ -126,8 +129,11 @@ losses).
 
 --ndjson prints one nitter.pipeline/v1 envelope per record: kind tweet
 (the tweet as data, provenance meta.source/meta.instance/meta.fetched_at)
-and kind error for per-source fetch failures. --json is rejected: watch is
-a stream of mixed tweets and errors, which is not a single JSON document.
+and kind error for per-source fetch failures. --json (only with --once)
+prints one JSON document instead: {"tweets":[<bare Tweet objects>],
+"errors":[{"ref","code","message"}...]} — the cycle's selected tweets and
+its per-source fetch failures. Without --once --json is rejected: the
+resident loop is a stream of cycles, not one document (use --ndjson).
 
 Field filters (--no-reposts, --media-only, --media-type image|video|gif)
 run after the fetch but BEFORE selection/dedup: filtered tweets are not
@@ -167,7 +173,7 @@ HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 	cmd.Flags().StringVar(&stateDirFlag, "state-dir", "",
 		"State directory holding seen.json (default: ~/.nitter-cli/state)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
-		"Not supported: watch streams NDJSON (usage error; use --ndjson)")
+		"With --once: print one JSON document {\"tweets\":[...],\"errors\":[{ref,code,message}...]}; rejected without --once (use --ndjson for the envelope stream)")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
 		"Print one nitter.pipeline/v1 envelope per record (tweets and errors)")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
@@ -193,20 +199,48 @@ type options struct {
 	filters         tweetfilter.Filters
 }
 
+// jsonErrorEntry is one failed source in the --once --json document:
+// ref is the source key (meta.input's counterpart), code the SDK error kind
+// of the failure (same classification as the NDJSON error envelope) and
+// message the redacted error text.
+type jsonErrorEntry struct {
+	Ref     string `json:"ref"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// jsonDocument is the `watch --once --json` output document (ruling
+// R-M10-2): the cycle's selected tweets as bare Tweet objects plus one
+// entry per failed source. Both fields are initialized as empty slices so
+// an empty cycle marshals as [], never null.
+type jsonDocument struct {
+	Tweets []nitter.Tweet   `json:"tweets"`
+	Errors []jsonErrorEntry `json:"errors"`
+}
+
 // run executes the watch command: validate flags, resolve sources (argv,
 // else config), open the state store, build the wiring, then run one cycle
 // (--once) or the ticker loop.
 func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options) error {
-	// watch is a stream of mixed tweets and errors — never one JSON
-	// document. --json is registered precisely to fail with guidance.
+	// --json is defined for --once only: one cycle IS one document. The
+	// resident loop is a stream of cycles — a "document" would be ambiguous
+	// (one per cycle? the whole run?) — so it stays rejected there.
+	var doc *jsonDocument
 	if opts.asJSON {
-		return invocation.Usagef("watch: --json is not supported; watch streams NDJSON (use --ndjson)")
+		if opts.asNDJSON {
+			return invocation.Usagef("watch: --json and --ndjson are mutually exclusive")
+		}
+		if !opts.once {
+			return invocation.Usagef("watch: --json requires --once; without it watch is a stream of cycles, not one JSON document (use --ndjson for the envelope stream)")
+		}
+		doc = &jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}
 	}
 	// watch keeps the pre-auto-NDJSON decision table: the M10 pipe default
 	// change is declared for the data commands only, so watch's default stays
 	// the text rows on a TTY AND in a pipe — --ndjson selects the envelope
 	// stream. ModeHuman and ModeText share the row rendering, so one literal
-	// covers both non-NDJSON modes.
+	// covers both non-NDJSON modes. In --once --json mode the collector (doc)
+	// routes the records into the document instead of any stdout stream.
 	mode := pipeline.ModeHuman
 	if opts.asNDJSON {
 		mode = pipeline.ModeNDJSON
@@ -277,6 +311,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		keepOverflow:    opts.maxNewOverflow == overflowKeep,
 		maxPages:        maxPages,
 		mode:            mode,
+		collect:         doc,
 		filters:         opts.filters,
 	}
 
@@ -287,8 +322,13 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		}
 		if ctx.Err() != nil {
 			// Canceled mid-cycle (SIGINT): graceful exit wins over the
-			// failed-source summary.
+			// failed-source summary (and over a partial document).
 			return nil
+		}
+		if doc != nil {
+			if err := writeJSONDocument(s.Out, doc); err != nil {
+				return graceful(err)
+			}
 		}
 		if failed > 0 {
 			return fmt.Errorf("watch completed with %d of %d sources failed", failed, len(sources))
@@ -369,12 +409,16 @@ type cycleOptions struct {
 	keepOverflow bool
 	maxPages     int
 	mode         pipeline.Mode
-	filters      tweetfilter.Filters
+	// collect routes the cycle's records into a --once --json document
+	// instead of the stdout stream (nil in every other mode).
+	collect *jsonDocument
+	filters tweetfilter.Filters
 }
 
 // runCycle processes every source once, in the given order. It returns the
 // number of sources whose fetch failed. Per-source fetch failures never
-// abort the cycle — they are reported (error envelope in NDJSON mode, an
+// abort the cycle — they are reported (a {ref, code, message} entry in the
+// --once --json document, an error envelope in NDJSON mode, an
 // "error: <key>: <message>" stderr line otherwise) and the source's state is
 // left untouched. A returned error is fatal for the whole watch run: a
 // state-store failure or a non-EPIPE stdout write failure. EPIPE is returned
@@ -398,7 +442,7 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 				return failed, nil
 			}
 			failed++
-			if werr := reportSourceError(s, opts.mode, src, key, err); werr != nil {
+			if werr := reportSourceError(s, opts, src, key, err); werr != nil {
 				return failed, werr
 			}
 			continue
@@ -423,7 +467,7 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 		// returns before the Put, so the next round re-pushes this round's
 		// tweets — 宁重勿丢.
 		if len(res.Tweets) > 0 {
-			if werr := emitTweets(s, opts.mode, res.Tweets, key, instance, fetchedAt); werr != nil {
+			if werr := emitTweets(s, opts, res.Tweets, key, instance, fetchedAt); werr != nil {
 				return failed, werr
 			}
 		}
@@ -473,33 +517,65 @@ func firstPageIDs(fetched []nitter.Tweet) []string {
 	return seen.CapWatermark(ids)
 }
 
-// reportSourceError reports one source's fetch failure: an in-place error
-// envelope on the NDJSON stream (command "watch", stage "fetch", code = the
-// SDK error Kind of the failure — extracted with errors.As, so wrapped
-// *nitter.Error values classify too; "error" as the fallback for anything
-// not a classified SDK error — meta.input = the source key), or a plain
-// stderr line in the default modes. The source kind ("user"/"tag"/"list")
-// is never the code: it is already visible in meta.input. Stderr writes
-// ignore errors like everywhere else.
-func reportSourceError(s *invocation.Streams, mode pipeline.Mode, src watchengine.Source, key string, err error) error {
-	if mode == pipeline.ModeNDJSON {
-		code := "error"
-		var terr *nitter.Error
-		if errors.As(err, &terr) {
-			code = string(terr.Kind)
-		}
-		return pipeline.WriteErrorEnvelope(s.Out, opWatch, "fetch", code, key, err.Error())
+// reportSourceError reports one source's fetch failure: in --once --json
+// mode an {ref, code, message} entry appended to the document; an in-place
+// error envelope on the NDJSON stream (command "watch", stage "fetch",
+// code = the SDK error Kind of the failure — extracted with errors.As, so
+// wrapped *nitter.Error values classify too; "error" as the fallback for
+// anything not a classified SDK error — meta.input = the source key); or a
+// plain stderr line in the default modes. The source kind ("user"/"tag"/
+// "list") is never the code: it is already visible in ref / meta.input.
+// Stderr writes ignore errors like everywhere else.
+func reportSourceError(s *invocation.Streams, opts cycleOptions, src watchengine.Source, key string, err error) error {
+	if opts.collect != nil {
+		opts.collect.Errors = append(opts.collect.Errors, jsonErrorEntry{
+			Ref:     key,
+			Code:    errorCodeOf(err),
+			Message: err.Error(),
+		})
+		return nil
+	}
+	if opts.mode == pipeline.ModeNDJSON {
+		return pipeline.WriteErrorEnvelope(s.Out, opWatch, "fetch", errorCodeOf(err), key, err.Error())
 	}
 	fmt.Fprintf(s.Err, "error: %s: %s\n", key, err)
 	return nil
 }
 
-// emitTweets delivers one round's selected tweets: one nitter.pipeline/v1
-// tweet envelope each in NDJSON mode (meta.source = the source key,
-// meta.instance = the producing instance, meta.fetched_at = RFC3339 UTC), or
-// one TweetRow line each in the default modes.
-func emitTweets(s *invocation.Streams, mode pipeline.Mode, tweets []nitter.Tweet, key, instance, fetchedAt string) error {
-	if mode == pipeline.ModeNDJSON {
+// errorCodeOf classifies a fetch failure for machine output: the SDK error
+// Kind when the error is (or wraps) a *nitter.Error, "error" as the
+// fallback for anything unclassified.
+func errorCodeOf(err error) string {
+	code := "error"
+	var terr *nitter.Error
+	if errors.As(err, &terr) {
+		code = string(terr.Kind)
+	}
+	return code
+}
+
+// writeJSONDocument marshals the --once --json document as exactly one JSON
+// line (jsonx semantics: one trailing newline) and writes it.
+func writeJSONDocument(w io.Writer, doc *jsonDocument) error {
+	b, err := jsonx.MarshalLine(doc)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(b)
+	return err
+}
+
+// emitTweets delivers one round's selected tweets: in --once --json mode
+// they are appended to the document as bare Tweet objects; in NDJSON mode
+// one nitter.pipeline/v1 tweet envelope each (meta.source = the source key,
+// meta.instance = the producing instance, meta.fetched_at = RFC3339 UTC);
+// otherwise one TweetRow line each in the default modes.
+func emitTweets(s *invocation.Streams, opts cycleOptions, tweets []nitter.Tweet, key, instance, fetchedAt string) error {
+	if opts.collect != nil {
+		opts.collect.Tweets = append(opts.collect.Tweets, tweets...)
+		return nil
+	}
+	if opts.mode == pipeline.ModeNDJSON {
 		for _, tw := range tweets {
 			env := pipeline.Envelope{
 				Schema: pipeline.Schema,

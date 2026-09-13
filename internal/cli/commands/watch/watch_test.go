@@ -728,16 +728,133 @@ func TestWatchNegativeMaxNewIsUsageError(t *testing.T) {
 	}
 }
 
-// TestWatchJSONFlagRejected: watch is a stream — --json is a usage error
-// pointing at --ndjson.
-func TestWatchJSONFlagRejected(t *testing.T) {
+// TestWatchJSONRequiresOnce: the resident loop is a stream of cycles, not
+// one JSON document — --json without --once is a usage error naming the
+// --once requirement.
+func TestWatchJSONRequiresOnce(t *testing.T) {
 	tempHome(t)
-	code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", "--json")
+	code, _, errOut := runCLI(t, "watch", "user:NASA", "--json")
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
 	}
-	if !strings.Contains(errOut, "--ndjson") {
-		t.Errorf("stderr = %q, want guidance toward --ndjson", errOut)
+	if !strings.Contains(errOut, "--once") {
+		t.Errorf("stderr = %q, want it to name the --once requirement", errOut)
+	}
+}
+
+// TestWatchJSONAndNDJSONAreMutuallyExclusive: even in once mode the two
+// flags do not combine (repo-wide flag contract).
+func TestWatchJSONAndNDJSONAreMutuallyExclusive(t *testing.T) {
+	tempHome(t)
+	code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", "--json", "--ndjson")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "--json") || !strings.Contains(errOut, "--ndjson") {
+		t.Errorf("stderr = %q, want it to name both flags", errOut)
+	}
+}
+
+// TestWatchOnceJSONDocumentShape: `watch --once --json` prints ONE JSON
+// document {"tweets":[...],"errors":[...]} — the cycle's selected tweets as
+// bare Tweet objects and the per-source failures as {ref, code, message}
+// entries. The record-only first run yields both arrays empty.
+func TestWatchOnceJSONDocumentShape(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+	args := []string{"watch", "user:NASA", "--once", "--json", "--state-dir", stateDir}
+
+	code, out, errOut := runCLI(t, args...)
+	if code != 0 {
+		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("run 1: output is not one JSON document: %v\n%s", err, out)
+	}
+	if len(doc) != 2 {
+		t.Errorf("run 1: document keys = %v, want exactly tweets and errors", doc)
+	}
+	var tweets []map[string]any
+	if err := json.Unmarshal(doc["tweets"], &tweets); err != nil || tweets == nil || len(tweets) != 0 {
+		t.Errorf("run 1: tweets = %q (%v), want a literal empty array", doc["tweets"], err)
+	}
+	var errs []map[string]any
+	if err := json.Unmarshal(doc["errors"], &errs); err != nil || errs == nil || len(errs) != 0 {
+		t.Errorf("run 1: errors = %q (%v), want a literal empty array", doc["errors"], err)
+	}
+
+	// Run 2: one new tweet — the document carries it as a bare Tweet object
+	// (no envelope wrapper: no schema/kind keys).
+	fake.setAnswers(map[string]answer{
+		"/NASA/rss": {200, rssBody("103", "102", "101")},
+	})
+	code, out, errOut = runCLI(t, args...)
+	if code != 0 {
+		t.Fatalf("run 2: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	doc = nil
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("run 2: output is not one JSON document: %v\n%s", err, out)
+	}
+	if err := json.Unmarshal(doc["tweets"], &tweets); err != nil {
+		t.Fatalf("run 2: decode tweets: %v\n%s", err, out)
+	}
+	if len(tweets) != 1 || tweets[0]["id"] != "103" || tweets[0]["text"] != "rss body 103" {
+		t.Errorf("run 2: tweets = %v, want exactly the bare new tweet 103", tweets)
+	}
+	if _, ok := tweets[0]["schema"]; ok {
+		t.Errorf("run 2: tweets[0] carries a schema key — envelopes, not bare Tweet objects: %v", tweets[0])
+	}
+	if err := json.Unmarshal(doc["errors"], &errs); err != nil || len(errs) != 0 {
+		t.Errorf("run 2: errors = %q (%v), want an empty array", doc["errors"], err)
+	}
+	if strings.Contains(out, "nitter.pipeline/v1") {
+		t.Errorf("run 2: stdout = %q, want one plain document (no envelopes)", out)
+	}
+}
+
+// TestWatchOnceJSONReportsSourceErrors: a failed source becomes an errors
+// entry {ref, code, message} in the document while the healthy sources'
+// tweets still arrive; the run exits 1 (the failure summary is unchanged).
+func TestWatchOnceJSONReportsSourceErrors(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/Broken/rss": {500, "boom"},
+		"/Broken":     {500, "down"},
+		"/NASA/rss":   {200, rssBody("201", "202")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:Broken", "user:NASA", "--once", "--json",
+		"--include-existing", "--state-dir", stateDir)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	var doc struct {
+		Tweets []map[string]any `json:"tweets"`
+		Errors []struct {
+			Ref     string `json:"ref"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not one JSON document: %v\n%s", err, out)
+	}
+	if len(doc.Tweets) != 2 || doc.Tweets[0]["id"] != "201" || doc.Tweets[1]["id"] != "202" {
+		t.Errorf("tweets = %v, want the healthy source's 201 and 202", doc.Tweets)
+	}
+	if len(doc.Errors) != 1 {
+		t.Fatalf("errors = %v, want exactly the failed source", doc.Errors)
+	}
+	if doc.Errors[0].Ref != "user:Broken" || doc.Errors[0].Code != "upstream_unavailable" || doc.Errors[0].Message == "" {
+		t.Errorf("error entry = %+v, want ref user:Broken / code upstream_unavailable / a message", doc.Errors[0])
 	}
 }
 

@@ -110,7 +110,7 @@ esac
 
 check "user --help exits 0" 0 'Usage' -- ./nitter user --help
 check "watch without sources exits 2" 2 '' -- ./nitter watch --once --ndjson
-check "watch --json rejected (exit 2)" 2 '' -- ./nitter watch user:e2e --once --json
+check "watch --json without --once exits 2" 2 '' -- ./nitter watch user:e2e --json
 check "seen list on empty store" 0 '\(empty\)' -- ./nitter seen list
 check "seen clear without --confirm exits 2" 2 '' -- ./nitter seen clear
 
@@ -159,6 +159,37 @@ PYEOF
 		pass "watch offline error envelope"
 	else
 		fail "watch offline error envelope" "envelope schema validation failed"
+	fi
+fi
+
+# --once --json document: the same unreachable-instance fetch must produce
+# ONE JSON document — an empty tweets array plus one {ref, code, message}
+# entry for the failed source — and exit 1 (the failed-source summary is
+# unchanged).
+./nitter watch user:e2eoffline --once --json --state-dir "$SANDBOX/watch-state-json" \
+	>"$SANDBOX/watch.json" 2>"$SANDBOX/watch-json.err"
+rc=$?
+if [ "$rc" -ne 1 ]; then
+	fail "watch --once --json document" "exit $rc, want 1; stderr: $(tail -c 300 "$SANDBOX/watch-json.err" | tr '\n' ' ')"
+elif [ -z "$PY" ]; then
+	skip "watch --once --json document" "no python interpreter for JSON validation"
+else
+	if "$PY" - "$SANDBOX/watch.json" <<'PYEOF'
+import json, sys
+doc = json.loads(open(sys.argv[1], encoding="utf-8").read())
+assert set(doc) == {"tweets", "errors"}, doc
+assert doc["tweets"] == [], doc["tweets"]
+errs = doc["errors"]
+assert len(errs) == 1, errs
+e = errs[0]
+assert e["ref"] == "user:e2eoffline", e
+assert e["code"], e
+assert e["message"], e
+PYEOF
+	then
+		pass "watch --once --json document"
+	else
+		fail "watch --once --json document" "document schema validation failed"
 	fi
 fi
 

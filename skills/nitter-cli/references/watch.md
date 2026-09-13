@@ -71,14 +71,33 @@ valid anywhere (watch sources, `[[watch.sources]]`, `seen --source`).
   first-page `watermark_ids`, `updated_at`).
 - `--state-dir DIR` points watch at another directory (created if missing) —
   use it for tests or isolated deployments.
-- **`seen list`/`seen clear` have no `--state-dir`**: they always operate on
-  the default location. With a custom `--state-dir`, inspect
-  `<dir>/seen.json` directly (plain JSON).
+- `seen list`/`seen clear` accept the same `--state-dir DIR` and operate on
+  `<dir>/seen.json`; without the flag they use the default location.
 - Tweets are produced first, state persisted after: a delivery or state-write
   failure keeps the old state, so the next round re-pushes the same tweets
   (prefer duplicates over losses). A consumer closing the stdout pipe is a
   graceful exit 0; if the pipe breaks mid-state-write, the next round re-pushes.
 - A corrupt state file is a hard error (exit 1) — never a silent reset.
+
+## `--once --json`: one document per cycle
+
+With `--once` (and only then), `--json` replaces the text rows with ONE JSON
+document for the whole cycle:
+
+```json
+{"tweets":[{"id":"103","url":"…","text":"…","author":{…},"published_at":"…","media":null,"is_retweet":false}],"errors":[{"ref":"user:Broken","code":"upstream_unavailable","message":"…"}]}
+```
+
+- `tweets` holds the cycle's selected tweets as bare Tweet objects (the same
+  shape as the data commands' `--json` payloads) — on a record-only first run
+  it is a literal `[]`.
+- `errors` holds one `{ref, code, message}` entry per failed source (`ref` =
+  the source key, `code` = the SDK error kind, same classification as the
+  NDJSON error envelope). Healthy sources still deliver; the run still exits 1
+  when at least one entry is present.
+- Without `--once`, `--json` is a usage error (exit 2): the resident loop is a
+  stream of cycles, not one document — use `--ndjson`. `--json` and `--ndjson`
+  are mutually exclusive.
 
 ## Exit-code matrix (`--once`)
 
@@ -88,7 +107,7 @@ valid anywhere (watch sources, `[[watch.sources]]`, `seen --source`).
 | 0 | Consumer closed stdout early (EPIPE) | Possibly truncated stream; state may lag — next round re-pushes |
 | 0 | SIGINT/SIGTERM (also in loop mode) | Graceful shutdown; sources not yet run in the cycle are simply skipped |
 | 1 | At least one source failed | Failed sources produce `kind:"error"` envelopes on stdout (or `error: <key>: <message>` lines on stderr without `--ndjson`); healthy sources' tweets still stream; failed sources' state is untouched |
-| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`/`--max-pages`, invalid `--max-new-overflow`, `--json`, `--json --ndjson` together, invalid config values |
+| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`/`--max-pages`, invalid `--max-new-overflow`, `--json` without `--once`, `--json --ndjson` together, invalid config values |
 
 Loop mode: exit 1 only for unrecoverable errors (state-store failure,
 non-EPIPE write failure); SIGINT/SIGTERM exit 0.
@@ -98,8 +117,8 @@ non-EPIPE write failure); SIGINT/SIGTERM exit 0.
 - Watch setup is stateful configuration: agree on sources, cadence, and
   `--max-new` with the user before writing a scheduler entry.
 - Diagnose a suspicious watch run in this order: exit code → stderr lines /
-  error envelopes → `nitter seen list` (default location only) →
-  `nitter instances test` for instance health.
+  error envelopes → `nitter seen list --state-dir <dir>` (or the default
+  location without the flag) → `nitter instances test` for instance health.
 - To re-emit a source's history deliberately: clear its state
   (`nitter seen clear --source <key> --confirm`, consent required) or point
   watch at a fresh `--state-dir`, then run with `--include-existing`.

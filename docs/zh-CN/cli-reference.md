@@ -23,7 +23,7 @@
 | --- | --- |
 | `0` | 成功——包括空结果、消费端关闭 stdout 管道（EPIPE；Windows 上为尽力而为的检测）、`watch` 收到 SIGINT/SIGTERM 优雅关闭。 |
 | `1` | 运行时失败——抓取失败（所有实例都失败）、`watch --once` 有至少一个源失败、状态文件损坏、配置文件读取/解析失败、未知子命令。 |
-| `2` | 用法错误——flag/参数不合法、输入契约违规、`--json` 与 `--ndjson` 同给、`watch --json`、配置值不合法。SDK/网络错误绝不会被归类为用法错误。 |
+| `2` | 用法错误——flag/参数不合法、输入契约违规、`--json` 与 `--ndjson` 同给、不带 `--once` 的 `watch --json`、配置值不合法。SDK/网络错误绝不会被归类为用法错误。 |
 
 ## 输出模式
 
@@ -72,8 +72,10 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
   （退出码 1）。
 - `--limit` 限制推文条数（`0` = 全部）；不传时应用配置 `default_limit`
   （默认 20）。flag 传负数是用法错误。
-- `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。**`--max-pages
-  0` 表示「用默认值」，不是「不限」**；负数是用法错误。
+- `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。在 `user` 上
+  **显式传 `--max-pages 0` 表示不设上限**：HTML 回退路径会一直跟随 load-more
+  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 源天然单页，不受
+  影响。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是用法错误。
 - 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
   （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
 
@@ -87,7 +89,8 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
 网络动作前退出 2）。先尝试 RSS 源（`<HANDLE>/rss`）；失败或空结果时改为抓取
 HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 为
-`user:<HANDLE>`。
+`user:<HANDLE>`。`--max-pages 0` 让 HTML 回退路径无页数上限地翻页（直至上游
+穷尽）；见上方「共同抓取行为」。
 
 字段过滤在**抓取之后、输出之前**应用（三者可自由组合；`--media-type` 值不合法
 退出 2）：
@@ -363,7 +366,7 @@ instance_cooldown, proxy, log_level, log_format, download_path
 ```bash
 nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
   [--max-new-overflow drop|keep] [--max-pages N] [--include-existing] \
-  [--state-dir DIR] [--ndjson] [--no-reposts] [--media-only] \
+  [--state-dir DIR] [--ndjson] [--json] [--no-reposts] [--media-only] \
   [--media-type image|video|gif]
 ```
 
@@ -388,7 +391,7 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 | `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
 | `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
 | `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |
-| `--json` | — | **不支持**：watch 是推文与错误混合的流，不是单个 JSON 文档；恒为用法错误。 |
+| `--json` | — | 仅可与 `--once` 同用：打印**一个** JSON 文档 `{"tweets":[…裸 Tweet 对象…],"errors":[{"ref","code","message"}…]}`——本轮选出的推文与逐源抓取失败（两个数组为空时是字面量 `[]`；有源失败仍退出 1）。不带 `--once` 时是用法错误：常驻循环是逐轮的流，不是单个文档。 |
 | `--no-reposts` | 关 | 在**去重之前**丢弃纯转推（转推标记只存在于 HTML 解析路径）。 |
 | `--media-only` | 关 | 在**去重之前**丢弃不带媒体附件的推文。 |
 | `--media-type image\|video\|gif` | — | 在**去重之前**只保留携带至少一个该类型媒体条目的推文；其他值是用法错误。 |
@@ -418,15 +421,16 @@ SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 - 抓取失败的源收到就地错误报告（`--ndjson` 流上是错误信封；其他模式是 stderr 的
   `error: <key>: <message>` 行），其余源继续；该源状态保持不动。`--once` 只要有
   源失败即退出 1，全部成功退出 0。用法问题退出 2（来源字符串不合法、来源集为
-  空、`--interval < 1s`、flag 为负、`--max-new-overflow` 不合法、`--json`）。
+  空、`--interval < 1s`、flag 为负、`--max-new-overflow` 不合法、不带 `--once`
+  的 `--json`、`--json` 与 `--ndjson` 同给）。
 - 不带 `--once` 时命令持续循环，直到 SIGINT/SIGTERM（优雅退出 0）或不可恢复
   错误（状态存储失败、非 EPIPE 的 stdout 写失败 → 退出 1）。
 - stdout 管道被关闭（EPIPE）视为消费端挂断，两种模式下都退出 0。Windows 上该
   检测是尽力而为（管道断裂可能以 `ERROR_BROKEN_PIPE` 呈现）。
 
 **状态**按源存储：最多 300 条已见 ID（从新到旧），外加最近 20 个首页纯数字 ID
-作为扫描水位。用 `nitter seen list` 检视；注意 `seen` 没有 `--state-dir`——
-如果你用 `watch --state-dir <dir>`，请直接读取该目录下的 `seen.json`。
+作为扫描水位。用 `nitter seen list --state-dir <dir>` 检视（不带 flag 则查看
+默认位置）；`seen clear` 接受同一个 flag。
 
 示例——调度器消费 NDJSON 流（示意）：
 
@@ -445,15 +449,22 @@ nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow k
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
+`--once --json` 则把整轮输出为一个文档（示意）：
+
+```json
+{"tweets":[{"id":"2081668333762687236","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
+```
+
 ## nitter seen
 
 ```bash
-nitter seen list [--source SOURCE] [--json]
-nitter seen clear [--source SOURCE] --confirm
+nitter seen list [--source SOURCE] [--json] [--state-dir DIR]
+nitter seen clear [--source SOURCE] [--state-dir DIR] --confirm
 ```
 
-检视与清除 **默认位置** `~/.nitter-cli/state/seen.json` 的 watch 去重状态——
-`seen` 没有 `--state-dir`。
+检视与清除 watch 去重状态——**默认位置**为 `~/.nitter-cli/state/seen.json`，
+也可用 `<--state-dir>/seen.json`（即 `watch --state-dir` 使用的同一目录）。
+命令不创建任何东西：没有 `seen.json` 的状态目录就是空库。
 
 - `seen list` 按键排序，每源一行制表符分隔：
 

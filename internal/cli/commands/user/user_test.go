@@ -364,6 +364,56 @@ func TestUserLimitZeroBoundedByMaxPages(t *testing.T) {
 	}
 }
 
+// TestUserMaxPagesZeroIsUnbounded: an explicit --max-pages 0 lifts the page
+// cap — the HTML fallback follows the cursor chain until upstream exhaustion
+// (the last page carries no cursor). The chain is 7 pages, longer than the
+// built-in default of 5, so the two contracts are distinguishable. The
+// omitted flag still applies the config's max_pages.
+func TestUserMaxPagesZeroIsUnbounded(t *testing.T) {
+	answers := map[string]answer{
+		"/NASA/rss":       {500, "boom"},
+		"/NASA":           {200, htmlPage([]string{"201"}, "c1")},
+		"/NASA?cursor=c1": {200, htmlPage([]string{"202"}, "c2")},
+		"/NASA?cursor=c2": {200, htmlPage([]string{"203"}, "c3")},
+		"/NASA?cursor=c3": {200, htmlPage([]string{"204"}, "c4")},
+		"/NASA?cursor=c4": {200, htmlPage([]string{"205"}, "c5")},
+		"/NASA?cursor=c5": {200, htmlPage([]string{"206"}, "c6")},
+		"/NASA?cursor=c6": {200, htmlPage([]string{"207"}, "")},
+	}
+
+	home := tempHome(t)
+	fake := newFake(t, answers)
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "0", "--max-pages", "0")
+	if code != 0 {
+		t.Fatalf("--max-pages 0: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 7 {
+		t.Errorf("--max-pages 0: got %d rows, want 7 (the whole chain):\n%s", n, out)
+	}
+	htmlFetches := 0
+	for _, r := range fake.rec.requests() {
+		if r == "/NASA" || strings.HasPrefix(r, "/NASA?cursor=") {
+			htmlFetches++
+		}
+	}
+	if htmlFetches != 7 {
+		t.Errorf("--max-pages 0: html fetches = %d, want 7 (unbounded until the cursor ends)", htmlFetches)
+	}
+
+	// Omitted flag: the config's max_pages still caps (2 of the 7 pages).
+	home2 := tempHome(t)
+	fake2 := newFake(t, answers)
+	writeConfig(t, home2, fastTOML+"max_pages = 2\n[[instances]]\nurl = \""+fake2.addr+"\"\n")
+	code, out, errOut = runCLI(t, "user", "NASA", "--limit", "0")
+	if code != 0 {
+		t.Fatalf("omitted flag: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 2 {
+		t.Errorf("omitted flag: got %d rows, want 2 (config max_pages cap):\n%s", n, out)
+	}
+}
+
 func TestUserInvalidHandleIsUsageErrorBeforeNetwork(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{})
