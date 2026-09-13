@@ -139,8 +139,8 @@ var (
 		Latency:  0,
 	}
 
-	// Media resolution (additive M8 extension): field-name/type freeze via
-	// composite literals.
+	// Media resolution (additive M8 extension, cover_url additive M9): the
+	// field-name/type freeze via composite literals.
 	_ nitter.MediaVariant    = nitter.MediaVariant{URL: "", Bitrate: 0, ContentType: ""}
 	_ nitter.MediaResolution = nitter.MediaResolution{
 		Ref:             "",
@@ -148,6 +148,7 @@ var (
 		Kind:            "",
 		URL:             "",
 		FallbackURL:     "",
+		CoverURL:        "",
 		Label:           "",
 		Width:           0,
 		Height:          0,
@@ -242,5 +243,19 @@ func TestMediaResolutionJSONShapeIsTheDataContract(t *testing.T) {
 	wantZero := `{"ref":"","source":"","kind":"","url":""}`
 	if string(zero) != wantZero {
 		t.Errorf("zero MediaResolution JSON mismatch:\n got %s\nwant %s", zero, wantZero)
+	}
+
+	// cover_url (additive M9): a sparse field like its siblings — present
+	// with its key when filled, absent from the zero encoding above.
+	withCover, err := json.Marshal(nitter.MediaResolution{
+		Ref: "https://x.com/nasa/status/7", Source: "fx", Kind: "video", URL: "https://video.twimg.com/x.mp4",
+		CoverURL: "https://pbs.twimg.com/ext_tw_video_thumb/7/pu/img/pl.jpg",
+	})
+	if err != nil {
+		t.Fatalf("Marshal(MediaResolution with cover) = error %v", err)
+	}
+	wantCover := `{"ref":"https://x.com/nasa/status/7","source":"fx","kind":"video","url":"https://video.twimg.com/x.mp4","cover_url":"https://pbs.twimg.com/ext_tw_video_thumb/7/pu/img/pl.jpg"}`
+	if string(withCover) != wantCover {
+		t.Errorf("MediaResolution cover JSON mismatch:\n got %s\nwant %s", withCover, wantCover)
 	}
 }

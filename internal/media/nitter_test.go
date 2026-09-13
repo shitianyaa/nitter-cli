@@ -228,3 +228,20 @@ func TestResolveNitterWidthHeightCarried(t *testing.T) {
 	}
 	var _ nitter.MediaResolution = res[0]
 }
+
+func TestResolveNitterCoverIsBestEffortEmpty(t *testing.T) {
+	// The status page parse yields no video poster metadata, so the
+	// projection leaves CoverURL empty — the best-effort capture rule; a
+	// cover is never fabricated for the nitter strategy.
+	page := nitterStatusPage(`<a class="video-container" href="/video/EXVmp4.mp4">video</a>`)
+	r, _ := newTestResolver(map[string]fakeResp{
+		"https://nitter.internal:8080/nasa/status/" + id100: {body: []byte(page), status: 200},
+	})
+	res, err := r.ResolveNitter(context.Background(), mustRef(t, statusURL100), Options{NitterBase: "https://nitter.internal:8080"})
+	if err != nil {
+		t.Fatalf("ResolveNitter: %v", err)
+	}
+	if len(res) != 1 || res[0].Kind != "video" || res[0].CoverURL != "" {
+		t.Fatalf("res = %+v, want the video resolution with an empty CoverURL", res)
+	}
+}

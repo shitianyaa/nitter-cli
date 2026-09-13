@@ -21,7 +21,11 @@ package media
 // single max-dimension number it extracts (video quality caps are an
 // out-of-MVP feature), so MediaResolution.Width/Height stay zero instead of
 // fabricating pixel dimensions; the button labels already carry the
-// "720p"-style text for display, exactly as the plugin shows them.
+// "720p"-style text for display, exactly as the plugin shows them (and, since
+// M9, as the download selection's ranking key). A second M9 addition (ruling
+// R-M9-1): a video page's cover-image entry (下载图片 label or
+// amplify_video_thumb/ URL) is captured as the moving entries' CoverURL while
+// the entry itself stays a regular image resolution.
 
 import (
 	"context"
@@ -60,11 +64,39 @@ func (r *Resolver) ResolveXdown(ctx context.Context, ref StatusRef, opts Options
 		return nil, err
 	}
 	res := finalize(cands, normalizeQuality(opts.Quality))
+	applyXdownCover(res)
 	for i := range res {
 		res[i].Ref = ref.String()
 		res[i].Source = string(StrategyXdown)
 	}
 	return res, nil
+}
+
+// applyXdownCover captures the page's cover-image entry as the video/gif
+// entries' CoverURL. R-M9-1: the image entry itself stays a regular image
+// resolution (the shipped media command's output is unchanged apart from the
+// new field) — CoverURL is added in parallel, and the download selection's
+// video-wins rule ignores the duplicate. The cover is the first image entry
+// labeled 下载图片 (the page's cover button) or hosted under
+// amplify_video_thumb/; its final, quality-rewritten URL is what the moving
+// entries carry. Nothing is set when no such entry (or no moving media)
+// exists.
+func applyXdownCover(res []nitter.MediaResolution) {
+	cover := ""
+	for _, m := range res {
+		if m.Kind == kindImage && (strings.Contains(m.Label, "下载图片") || strings.Contains(m.URL, "amplify_video_thumb")) {
+			cover = m.URL
+			break
+		}
+	}
+	if cover == "" {
+		return
+	}
+	for i := range res {
+		if res[i].Kind == kindVideo || res[i].Kind == kindGif {
+			res[i].CoverURL = cover
+		}
+	}
 }
 
 // xdownHeaders is the header set the plugin's ajaxSearch POST carries:

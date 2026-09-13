@@ -6,10 +6,14 @@ package media
 // variants[] list is ranked by bitrate. GIFs are detected through the
 // "tweet_video_thumb" marker riding in the raw video JSON (it appears as a
 // variant content type — and poster path — on GIF posts) or a gif video
-// type. Port of the plugin's _media_from_syndication.
+// type. Port of the plugin's _media_from_syndication. The M9 cover
+// enrichment reads the video object's poster field (verified live
+// 2026-09-13) as the cover, with the legacy tweet_video_thumb link scan as
+// the fallback, and durationMs as the duration.
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/shitianyaa/nitter-cli/sdk"
@@ -42,11 +46,14 @@ type syndVariant struct {
 }
 
 // syndVideo is the video object's decoded shape; the raw JSON is kept for
-// the gif marker scan.
+// the gif marker scan. Poster is the video cover image (verified live
+// 2026-09-13); DurationMs is the video duration in milliseconds.
 type syndVideo struct {
-	Variants  []json.RawMessage `json:"variants"`
-	VideoType string            `json:"video_type"`
-	Type      string            `json:"type"`
+	Variants   []json.RawMessage `json:"variants"`
+	VideoType  string            `json:"video_type"`
+	Type       string            `json:"type"`
+	Poster     string            `json:"poster"`
+	DurationMs float64           `json:"durationMs"`
 }
 
 // parseSyndication extracts media candidates from a tweet-result payload:
@@ -92,11 +99,33 @@ func parseSyndication(body []byte) ([]mediaCandidate, error) {
 		return cands, nil
 	}
 	cands = append(cands, mediaCandidate{
-		Kind:     syndicationKind(payload.Video, video),
-		Variants: variants,
+		Kind:            syndicationKind(payload.Video, video),
+		CoverURL:        syndicationCover(payload.Video, video),
+		DurationSeconds: video.DurationMs / 1000,
+		Variants:        variants,
 	})
 	return cands, nil
 }
+
+// syndicationCover picks the video entry's cover: the video object's poster
+// field first (verified live 2026-09-13), then — for legacy payloads without
+// a poster — the first tweet_video_thumb link riding anywhere in the raw
+// video JSON (the same string match the gif detection scans, position
+// independent). "" when neither is an https link (the no-plain-http rule
+// applies to covers too).
+func syndicationCover(rawVideo json.RawMessage, video syndVideo) string {
+	if u := httpsOrEmpty(video.Poster); u != "" {
+		return u
+	}
+	if m := syndThumbURLRe.FindString(string(rawVideo)); m != "" {
+		return httpsOrEmpty(m)
+	}
+	return ""
+}
+
+// syndThumbURLRe matches an https tweet_video_thumb URL inside the raw video
+// JSON; the URL ends at the first quote, escape or whitespace.
+var syndThumbURLRe = regexp.MustCompile(`https://[^"\\\s]+tweet_video_thumb[^"\\\s]*`)
 
 // syndicationKind applies the gif markers: "tweet_video_thumb" anywhere in
 // the raw video JSON (variant content type or poster path of a GIF post),

@@ -163,3 +163,50 @@ func TestParseFxMalformed(t *testing.T) {
 		}
 	}
 }
+
+// TestParseFxCoverAndDuration: the moving-media items' thumbnail_url becomes
+// the candidate cover and the item-level duration (seconds) rides along; a
+// photo never carries a cover.
+func TestParseFxCoverAndDuration(t *testing.T) {
+	cands, err := parseFx(readFixture(t, "fx_status.json"))
+	if err != nil {
+		t.Fatalf("parseFx: %v", err)
+	}
+	if cands[0].CoverURL != "" || cands[0].DurationSeconds != 0 {
+		t.Errorf("photo candidate = %+v, want no cover, no duration", cands[0])
+	}
+	if cands[1].CoverURL != "https://pbs.twimg.com/ext_tw_video_thumb/100/pu/img/pl.jpg" {
+		t.Errorf("video candidate CoverURL = %q, want the item thumbnail_url", cands[1].CoverURL)
+	}
+	if cands[1].DurationSeconds != 12.5 {
+		t.Errorf("video candidate DurationSeconds = %v, want the item-level 12.5", cands[1].DurationSeconds)
+	}
+	if cands[2].CoverURL != "https://pbs.twimg.com/tweet_video_thumb/Gz-d.jpg" {
+		t.Errorf("gif candidate CoverURL = %q, want the item thumbnail_url", cands[2].CoverURL)
+	}
+}
+
+// TestParseFxCoverGates: a plain-http thumbnail yields no cover (the
+// no-plain-http rule applies) and a video item without a thumbnail leaves it
+// empty — nothing is fabricated; a missing duration stays zero.
+func TestParseFxCoverGates(t *testing.T) {
+	body := []byte(`{
+	  "tweet": {"text": "x", "media": {"all": [
+	    {"type": "video", "url": "https://video.twimg.com/a.mp4", "thumbnail_url": "http://pbs.twimg.com/a.jpg", "duration": 3},
+	    {"type": "video", "url": "https://video.twimg.com/b.mp4"}
+	  ]}}
+	}`)
+	cands, err := parseFx(body)
+	if err != nil {
+		t.Fatalf("parseFx: %v", err)
+	}
+	if len(cands) != 2 {
+		t.Fatalf("candidates = %d, want 2", len(cands))
+	}
+	if cands[0].CoverURL != "" || cands[0].DurationSeconds != 3 {
+		t.Errorf("plain-http thumbnail candidate = %+v, want empty cover with duration kept", cands[0])
+	}
+	if cands[1].CoverURL != "" || cands[1].DurationSeconds != 0 {
+		t.Errorf("thumbnail-less candidate = %+v, want no cover, zero duration", cands[1])
+	}
+}

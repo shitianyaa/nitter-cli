@@ -55,7 +55,9 @@ func xdownTestToken(t *testing.T, payload string) string {
 // extraction from the label clock and the token payload, the pbs quality
 // rewrite on the image direct link, and the skipped unidentifiable entry.
 // Resolution extraction is deliberately absent (R-M8-5): Width/Height stay
-// zero — the "720p"-style text lives in the label, as in the plugin.
+// zero — the "720p"-style text lives in the label, as in the plugin. The
+// 下载图片 entry is additionally captured as the moving entries' CoverURL
+// (R-M9-1: the entry itself stays a regular image resolution).
 func TestResolveXdownFixturePage(t *testing.T) {
 	r, fake := newTestResolver(nil)
 	fake.postRoutes = map[string]fakeResp{
@@ -65,26 +67,30 @@ func TestResolveXdownFixturePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveXdown: %v", err)
 	}
+	cover := "https://pbs.twimg.com/media/Gx1abc.jpg?name=orig"
 	want := []nitter.MediaResolution{
 		{
 			Ref: statusURL100, Source: "xdown", Kind: "video",
 			URL:             "https://video.twimg.com/ext_tw_video/2070000000000000100/pu/vid/720x1280/a1.mp4",
 			Label:           "下载 MP4 720p (1:23)",
 			DurationSeconds: 83,
+			CoverURL:        cover,
 		},
 		{
 			Ref: statusURL100, Source: "xdown", Kind: "video",
-			URL:   "https://video.twimg.com/ext_tw_video/2070000000000000100/pu/vid/1080x1920/b1.mp4",
-			Label: "下载 MP4 1080p",
+			URL:      "https://video.twimg.com/ext_tw_video/2070000000000000100/pu/vid/1080x1920/b1.mp4",
+			Label:    "下载 MP4 1080p",
+			CoverURL: cover,
 		},
 		{
 			Ref: statusURL100, Source: "xdown", Kind: "gif",
-			URL:   "https://video.twimg.com/tweet_video/c1.gif",
-			Label: "下载 GIF 动图",
+			URL:      "https://video.twimg.com/tweet_video/c1.gif",
+			Label:    "下载 GIF 动图",
+			CoverURL: cover,
 		},
 		{
 			Ref: statusURL100, Source: "xdown", Kind: "image",
-			URL:         "https://pbs.twimg.com/media/Gx1abc.jpg?name=orig",
+			URL:         cover,
 			Label:       "下载图片",
 			FallbackURL: "https://xdown.app/proxy/img?token=" + fixtureImageToken,
 		},
@@ -94,6 +100,7 @@ func TestResolveXdownFixturePage(t *testing.T) {
 			Label:           "下载 MP4",
 			DurationSeconds: 95,
 			FallbackURL:     "https://xdown.app/download?token=" + fixtureVideoToken,
+			CoverURL:        cover,
 		},
 	}
 	if len(res) != len(want) {
@@ -444,5 +451,75 @@ func TestResolveStatusUsesXdownAfterFxEmpty(t *testing.T) {
 	}
 	if len(fake.calls) != 1 || len(fake.postCalls) != 1 {
 		t.Errorf("requests = %d GET / %d POST, want one of each (vx/syndication never reached)", len(fake.calls), len(fake.postCalls))
+	}
+}
+
+// TestResolveXdownCapturesCoverURL: a video page's 下载图片 entry is captured as
+// every video/gif entry's CoverURL — its final (quality-rewritten) URL —
+// while the entry itself stays a regular image resolution (R-M9-1: added in
+// parallel, nothing removed or reshaped).
+func TestResolveXdownCapturesCoverURL(t *testing.T) {
+	tok := xdownTestToken(t, `{"url":"https://pbs.twimg.com/amplify_video_thumb/2070000000000000100/pu/img/pl.jpg?name=small","filename":"pl.jpg"}`)
+	html := `<a href="https://video.twimg.com/ext_tw_video/1/pu/vid/3840x2160/a.mp4" class="tw-button-dl">下载 MP4 (3840p)</a>` +
+		`<a href="https://video.twimg.com/ext_tw_video/1/pu/vid/1920x1080/b.mp4" class="tw-button-dl">下载 MP4 (1920p)</a>` +
+		`<a href="/proxy/img?token=` + tok + `" class="abutton">下载图片</a>`
+	r, fake := newTestResolver(nil)
+	fake.postRoutes = map[string]fakeResp{xdownSearchRoute: {body: xdownOK(t, html), status: 200}}
+	res, err := r.ResolveXdown(context.Background(), mustRef(t, statusURL100), Options{})
+	if err != nil {
+		t.Fatalf("ResolveXdown: %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("resolutions = %d (%+v), want 3 (two videos, the kept cover image)", len(res), res)
+	}
+	// The amplify thumb is not a pbs /media/ link, so the quality rewrite
+	// leaves it verbatim (the same URL the image entry carries).
+	cover := "https://pbs.twimg.com/amplify_video_thumb/2070000000000000100/pu/img/pl.jpg?name=small"
+	if res[2].Kind != "image" || res[2].URL != cover || res[2].Label != "下载图片" {
+		t.Errorf("image entry = %+v, want the kept cover entry with its direct link rewritten to name=orig", res[2])
+	}
+	for i := 0; i < 2; i++ {
+		if res[i].Kind != "video" || res[i].CoverURL != cover {
+			t.Errorf("res[%d] = %+v, want a video entry carrying CoverURL %q", i, res[i], cover)
+		}
+	}
+}
+
+// TestResolveXdownAmplifyThumbCoverWithoutImageLabel: a video page whose
+// image entry rides under amplify_video_thumb/ without a 下载图片 label still
+// feeds the cover — the URL marker is the second acceptance shape.
+func TestResolveXdownAmplifyThumbCoverWithoutImageLabel(t *testing.T) {
+	html := `<a href="https://video.twimg.com/v.mp4" class="tw-button-dl">下载 MP4</a>` +
+		`<a href="https://pbs.twimg.com/amplify_video_thumb/1/pu/img/p.jpg" class="tw-button-dl">封面</a>`
+	r, fake := newTestResolver(nil)
+	fake.postRoutes = map[string]fakeResp{xdownSearchRoute: {body: xdownOK(t, html), status: 200}}
+	res, err := r.ResolveXdown(context.Background(), mustRef(t, statusURL100), Options{})
+	if err != nil {
+		t.Fatalf("ResolveXdown: %v", err)
+	}
+	if len(res) != 2 || res[0].CoverURL != "https://pbs.twimg.com/amplify_video_thumb/1/pu/img/p.jpg" || res[1].Kind != "image" {
+		t.Fatalf("resolutions = %+v, want the video carrying the amplify thumb as CoverURL and the image entry kept", res)
+	}
+}
+
+// TestResolveXdownNoCoverEntryLeavesCoverEmpty: a page without any cover
+// image entry (or an image-only page) leaves every CoverURL empty — nothing
+// is fabricated.
+func TestResolveXdownNoCoverEntryLeavesCoverEmpty(t *testing.T) {
+	videoOnly := `<a href="https://video.twimg.com/a.mp4" class="tw-button-dl">下载 MP4</a>`
+	r, fake := newTestResolver(nil)
+	fake.postRoutes = map[string]fakeResp{xdownSearchRoute: {body: xdownOK(t, videoOnly), status: 200}}
+	res, err := r.ResolveXdown(context.Background(), mustRef(t, statusURL100), Options{})
+	if err != nil {
+		t.Fatalf("ResolveXdown: %v", err)
+	}
+	if len(res) != 1 || res[0].CoverURL != "" {
+		t.Fatalf("resolutions = %+v, want one video entry with no cover", res)
+	}
+
+	imageOnly := `<a href="https://pbs.twimg.com/media/G.jpg" class="tw-button-dl">下载图片</a>`
+	fake.postRoutes = map[string]fakeResp{xdownSearchRoute: {body: xdownOK(t, imageOnly), status: 200}}
+	if res, err = r.ResolveXdown(context.Background(), mustRef(t, statusURL100), Options{}); err != nil || len(res) != 1 || res[0].CoverURL != "" {
+		t.Errorf("image-only page = (%+v, %v), want one image entry with no cover", res, err)
 	}
 }

@@ -4,7 +4,9 @@ package media
 // JSON envelope whose tweet object (or, as a fallback, the payload top level)
 // carries media.all[] — photo/video/gif entries, the video ones with a
 // variants list (or a Twitter-API-shaped video_info.variants block) ranked by
-// bitrate. Parsing is a faithful port of the plugin's _media_from_fxtwitter.
+// bitrate. Parsing is a faithful port of the plugin's _media_from_fxtwitter;
+// the M9 cover enrichment reads what the payload already carries (the moving
+// items' thumbnail_url as CoverURL, the item-level duration in seconds).
 
 import (
 	"encoding/json"
@@ -47,13 +49,16 @@ type fxVideoInfo struct {
 }
 
 // fxMediaItem is one entry of media.all[]; a missing type defaults to photo
-// (plugin semantics), so Kind is derived per item, not here.
+// (plugin semantics), so Kind is derived per item, not here. Duration is the
+// item-level video duration in seconds the fx payload carries (verified live
+// 2026-09-13); ThumbnailURL doubles as the moving entries' cover link.
 type fxMediaItem struct {
 	Type         string            `json:"type"`
 	URL          string            `json:"url"`
 	ThumbnailURL string            `json:"thumbnail_url"`
 	Width        int               `json:"width"`
 	Height       int               `json:"height"`
+	Duration     float64           `json:"duration"`
 	Variants     []json.RawMessage `json:"variants"`
 	VideoInfo    *fxVideoInfo      `json:"video_info"`
 }
@@ -120,11 +125,13 @@ func fxCandidates(items []json.RawMessage) []mediaCandidate {
 				variants = item.VideoInfo.Variants
 			}
 			cands = append(cands, mediaCandidate{
-				Kind:     kind,
-				URL:      url,
-				Variants: fxVariants(variants),
-				Width:    item.Width,
-				Height:   item.Height,
+				Kind:            kind,
+				URL:             url,
+				CoverURL:        httpsOrEmpty(item.ThumbnailURL),
+				DurationSeconds: item.Duration,
+				Variants:        fxVariants(variants),
+				Width:           item.Width,
+				Height:          item.Height,
 			})
 			continue
 		}

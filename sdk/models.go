@@ -129,6 +129,11 @@ type MediaResolution struct {
 	// reduced a video's main URL below it, or (for xdown) the proxy link
 	// standing in for a direct one.
 	FallbackURL string `json:"fallback_url,omitempty"`
+	// CoverURL is the poster/thumbnail link of a video or GIF entry (fx's
+	// thumbnail_url, syndication's video.poster, the xdown cover-image
+	// entry); empty for images and whenever the source carries no cover. It
+	// is an https link or empty (the no-plain-http rule applies).
+	CoverURL string `json:"cover_url,omitempty"`
 	// Label is the source's own label for the entry (e.g. an xdown download
 	// button caption); empty when the source has none.
 	Label string `json:"label,omitempty"`

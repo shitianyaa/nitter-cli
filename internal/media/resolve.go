@@ -37,6 +37,20 @@
 // reported "empty" and the next strategy is tried; only when all strategies
 // fail does ResolveStatus return an aggregate error naming each strategy and
 // a short redacted reason.
+//
+// Cover extraction (plan M9): the moving-media entries carry their source's
+// poster link as CoverURL — fx's item thumbnail_url, syndication's
+// video.poster (the legacy tweet_video_thumb string match as fallback) and
+// the xdown page's cover-image entry (which itself stays a regular image
+// resolution, ruling R-M9-1). The nitter page parse carries no poster
+// metadata, so that strategy's CoverURL stays empty. Covers are https links
+// or empty; nothing is fabricated.
+//
+// Selection (selection.go) is the pure decision layer behind the M9 download
+// command: PlanDownload converges a status's moving media to one ranked file
+// (the same quality tiers, with xdown label p-numbers as ranking keys),
+// builds the fallback chain, plans image tweets in order and applies the
+// --kind pre-filter, playlists never becoming download candidates.
 package media
 
 import (
@@ -239,6 +253,10 @@ type mediaCandidate struct {
 	// FallbackURL is a source-provided alternative link for the same media
 	// (the xdown snapcdn proxy standing in for an extracted direct link).
 	FallbackURL string
+	// CoverURL is the poster/thumbnail link the source carries for a video
+	// or gif entry (fx's thumbnail_url, syndication's video.poster); empty
+	// for images and when the source has none. https-gated by the parsers.
+	CoverURL string
 	// DurationSeconds is a duration the source itself reported for the entry
 	// (xdown token payload keys or label clock text); 0 when unknown.
 	DurationSeconds float64
@@ -398,6 +416,7 @@ func project(c mediaCandidate, quality string) (nitter.MediaResolution, bool) {
 		Kind:            c.Kind,
 		Label:           c.Label,
 		FallbackURL:     c.FallbackURL,
+		CoverURL:        c.CoverURL,
 		DurationSeconds: c.DurationSeconds,
 		Width:           c.Width,
 		Height:          c.Height,
@@ -450,6 +469,15 @@ func httpsVariants(variants []nitter.MediaVariant) []nitter.MediaVariant {
 func isHTTPS(u string) bool {
 	parsed, err := url.Parse(u)
 	return err == nil && parsed.Scheme == "https" && parsed.Host != ""
+}
+
+// httpsOrEmpty returns u when it is an absolute https URL, "" otherwise —
+// the gate for cover links (a plain-http cover is dropped, never projected).
+func httpsOrEmpty(u string) string {
+	if isHTTPS(u) {
+		return u
+	}
+	return ""
 }
 
 // selectVariant picks the variant the quality tier asks for:
