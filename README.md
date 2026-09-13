@@ -70,7 +70,7 @@ Requires Go 1.27+:
 
 ```bash
 sh scripts/build.sh          # produces ./nitter
-./nitter --version           # nitter version 0.6.0 (or a dev line)
+./nitter --version           # nitter version 0.6.1 (or a dev line)
 ```
 
 ### Install with an AI agent
@@ -87,7 +87,10 @@ Also install the `nitter-cli` Skill that matches the same stable release tag (ne
 ## 60-second quick start
 
 nitter-cli ships without instances: **you point it at a Nitter instance you
-control**. Nothing is fetched until you configure one.
+control**. Nothing is fetched until you configure one. Don't have one? Deploy
+your own with Docker — see the [upstream wiki](https://github.com/zedeus/nitter/wiki)
+or the community [self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
+an AI agent can follow the skill's [deploy reference](skills/nitter-cli/references/deploy.md).
 
 ```bash
 # 0. Configure your instance — `nitter config path` prints the config file

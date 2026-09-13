@@ -6,3 +6,4 @@
 
 # Planning documents stay local only (SDD specs/plans, ledgers)
 docs/superpowers/
+/.codegraph/

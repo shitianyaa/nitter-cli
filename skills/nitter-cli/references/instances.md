@@ -37,6 +37,14 @@ their health. Command semantics are governed by the installed binary's
   analogously overrides the proxy (flag > config `proxy` > environment
   `HTTPS_PROXY`/`ALL_PROXY`; schemes `http`, `https`, `socks5`, `socks5h`).
 
+## No instance yet?
+
+If the user has none, do not improvise: ask whether to deploy one and
+follow [deploy.md](deploy.md). When they say they have one but cannot name
+the URL, deploy.md's "Finding an existing instance" section is the search
+order (ask → docker/systemctl traces → verify with `instances test` before
+any config edit).
+
 ## Probing health
 
 ```bash

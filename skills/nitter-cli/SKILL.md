@@ -1,13 +1,13 @@
 ---
 slug: nitter-cli
-version: 0.6.0
+version: 0.6.1
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
 homepage: https://github.com/shitianyaa/nitter-cli
 tags: [nitter, cli, agent]
 name: nitter-cli
-description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
+description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、部署或自建 Nitter 实例、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
 ---
 
 # nitter-cli Operator
@@ -20,16 +20,20 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.6.0`). If the binary is
+  `nitter version <v>` (for example `nitter version 0.6.1`). If the binary is
   missing or not executable, state the blocker. Install only when the user
   explicitly asked for installation; then read
   [references/install.md](references/install.md) and follow its approved
   sources. Otherwise do not install or guess installation steps.
 - Instances come from the user's config (`nitter config path` prints the
   location, typically `~/.nitter-cli/config.toml`). When no instance is
-  configured, ask the user for their own Nitter instance address and have them
-  add an `[[instances]]` table (or run with `--instance URL`); **never fill in a
-  public instance** (nitter.net and friends) on your own.
+  configured, ask the user whether they run their own Nitter instance:
+  yes → find and verify its URL
+  ([references/deploy.md](references/deploy.md), "Finding an existing
+  instance"); no → offer the Docker deployment from
+  [references/deploy.md](references/deploy.md) on an explicit yes. In either
+  case **never fill in a public instance** (nitter.net and friends) on your
+  own.
 - Check exit codes before interpreting output: 0 = success, 1 = runtime
   failure, 2 = usage error.
 
@@ -355,6 +359,7 @@ references/download.md).
 | Install or upgrade the `nitter` binary, or install the matching Skill | [references/install.md](references/install.md) |
 | Fetch public tweets (timelines, search, lists, single statuses) | the quick reference in this file; on errors [references/troubleshooting.md](references/troubleshooting.md) |
 | Configure instances (incl. basic auth), override one command, diagnose instance health | [references/instances.md](references/instances.md) |
+| The user has no Nitter instance (deploy with Docker, default localhost) or its URL is unknown | [references/deploy.md](references/deploy.md) |
 | Resolve media links (strategies, trust boundary, quality, probe, delivery) | [references/media.md](references/media.md) |
 | Write media to disk (download, templates, `--on-exists`, stdin pipelines) | [references/download.md](references/download.md) |
 | Schedule monitoring (`watch` cycles, dedup, `--max-new` and the overflow policy, state dirs) | [references/watch.md](references/watch.md) |

@@ -63,7 +63,7 @@ sha256sum -c checksums.txt --ignore-missing   # 或等价工具
 
 ```bash
 sh scripts/build.sh          # 生成 ./nitter
-./nitter --version           # nitter version 0.6.0（或 dev 版本行）
+./nitter --version           # nitter version 0.6.1（或 dev 版本行）
 ```
 
 ### 让 AI Agent 安装
@@ -80,7 +80,10 @@ sh scripts/build.sh          # 生成 ./nitter
 ## 60 秒快速上手
 
 nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**。未配置实例前
-不会发起任何抓取。
+不会发起任何抓取。还没有实例？用 Docker 自建一个——参见
+[上游 wiki](https://github.com/zedeus/nitter/wiki) 或社区
+[自建指南](https://github.com/sekai-soft/guide-nitter-self-hosting)；
+AI agent 可按 skill 的 [deploy 参考](skills/nitter-cli/references/deploy.md)执行。
 
 ```bash
 # 0. 配置你的实例——`nitter config path` 打印配置文件路径（首次真实命令会
