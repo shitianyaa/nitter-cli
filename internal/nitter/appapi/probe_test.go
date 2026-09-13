@@ -58,10 +58,23 @@ func (r *recorder) requests() []string {
 
 func newFakeNitter(t *testing.T, routes ...route) (*httptest.Server, *recorder) {
 	t.Helper()
+	return newSlowFakeNitter(t, 0, routes...)
+}
+
+// newSlowFakeNitter is newFakeNitter with every route answering after delay.
+// It exists for the latency-asserting test: Windows resolves time.Now to
+// ~0.5ms, so an un-slept loopback roundtrip can quantize to exactly 0 on fast
+// CI hardware; a server-side delay keeps the measured latency deterministically
+// above the clock granularity.
+func newSlowFakeNitter(t *testing.T, delay time.Duration, routes ...route) (*httptest.Server, *recorder) {
+	t.Helper()
 	rec := &recorder{}
 	mux := http.NewServeMux()
 	for _, rt := range routes {
 		mux.HandleFunc(rt.path, func(w http.ResponseWriter, req *http.Request) {
+			if delay > 0 {
+				time.Sleep(delay)
+			}
 			rec.add(req.URL.RequestURI())
 			w.WriteHeader(rt.status)
 			_, _ = io.WriteString(w, rt.body)
@@ -85,7 +98,11 @@ func newProbeClient(t *testing.T) *appapi.Client {
 }
 
 func TestTestInstanceAllProbesOK(t *testing.T) {
-	srv, rec := newFakeNitter(t,
+	// The latency assertion below needs a roundtrip measurably above the OS
+	// clock granularity, so the fake instance answers ~2ms late (~4 ticks of
+	// the ~0.5ms Windows monotonic clock) without weakening the > 0 contract.
+	const probeDelay = 2 * time.Millisecond
+	srv, rec := newSlowFakeNitter(t, probeDelay,
 		route{"/NASA/rss", 200, rssFeedBody},
 		route{"/NASA", 200, timelineBody},
 		route{"/search", 200, timelineBody},
