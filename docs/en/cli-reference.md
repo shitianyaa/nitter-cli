@@ -29,8 +29,10 @@ help. An unknown subcommand exits 1 (not 2).
 ## Output modes
 
 All data commands resolve their output mode the same way: `--ndjson` or `--json`
-wins; without flags a TTY gets the human rendering and a pipe gets the same
-text rendering (the two are identical tab-separated lines; no ANSI colors).
+wins; without flags a TTY gets the human rendering and a non-TTY stdout (pipe or
+redirect) gets NDJSON — the 0.6.0 pipe default (`nitter.pipeline/v1` envelopes,
+one line per record). `watch` keeps its text rendering in pipes; use `--ndjson`
+for its envelope stream.
 
 - **Human / text**: one row per record; an empty result prints nothing on stdout
   and the `(empty)` hint on **stderr**. Row shape for tweet lists:

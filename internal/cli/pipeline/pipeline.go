@@ -27,8 +27,9 @@ type Mode int
 const (
 	// ModeHuman is the interactive table rendering (default on a TTY).
 	ModeHuman Mode = iota
-	// ModeText is the script-friendly rendering (default off a TTY); for
-	// table-shaped commands it equals the human table.
+	// ModeText is the script-friendly text rendering. ResolveOutputMode no
+	// longer resolves it (the pipe default became ModeNDJSON in M10), but it
+	// stays a valid mode value for direct batch callers.
 	ModeText
 	// ModeJSON is the whole-result JSON document (--json).
 	ModeJSON
@@ -53,8 +54,15 @@ const (
 
 // ResolveOutputMode resolves the output mode from the --ndjson/--json flags
 // and the stdout TTY state. The flags are mutually exclusive (returned as a
-// *invocation.UsageError, so exit 2); an explicit flag wins; without flags a
-// TTY gets ModeHuman and a non-TTY gets ModeText.
+// *invocation.UsageError, so exit 2); an explicit flag always wins; without
+// flags the decision is the M10 pipe default: a TTY gets ModeHuman (the human
+// text table, unchanged), while a non-TTY stdout — a pipe or a redirect —
+// gets ModeNDJSON, so piped pipelines receive nitter.pipeline/v1 envelopes
+// without any flag (the declared 0.6.0 behavior change; watch opts out at
+// its call site).
+//
+// ModeText is no longer resolved here; it remains a valid mode value for
+// direct batch callers that render the text rows themselves.
 func ResolveOutputMode(ndjson, json bool, outIsTTY bool) (Mode, error) {
 	switch {
 	case ndjson && json:
@@ -66,7 +74,7 @@ func ResolveOutputMode(ndjson, json bool, outIsTTY bool) (Mode, error) {
 	case outIsTTY:
 		return ModeHuman, nil
 	default:
-		return ModeText, nil
+		return ModeNDJSON, nil
 	}
 }
 

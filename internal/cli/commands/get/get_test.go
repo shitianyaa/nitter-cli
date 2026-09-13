@@ -126,7 +126,40 @@ func statusPage(user, id string) string {
 		`</div></div>`
 }
 
-func TestGetBareIDOutputsRow(t *testing.T) {
+// parseEnvelopes splits the stdout into NDJSON envelope lines (the piped
+// default since M10) and decodes each into a generic object.
+func parseEnvelopes(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	if out == "" {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	envs := make([]map[string]any, 0, len(lines))
+	for i, line := range lines {
+		var env map[string]any
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON envelope: %v\n%s", i+1, err, line)
+		}
+		envs = append(envs, env)
+	}
+	return envs
+}
+
+// dataOf returns the envelope's data object.
+func dataOf(t *testing.T, env map[string]any) map[string]any {
+	t.Helper()
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope carries no data object: %v", env)
+	}
+	return data
+}
+
+// TestGetPipeDefaultEmitsNDJSONEnvelope pins the M10 pipe default: with
+// stdout not a TTY and no output flag given, `get` emits exactly ONE
+// nitter.pipeline/v1 tweet envelope — no flag needed (a TTY keeps the human
+// row; see the internal TTY test).
+func TestGetPipeDefaultEmitsNDJSONEnvelope(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/status/101": {200, statusPage("nasa", "101")},
@@ -137,12 +170,20 @@ func TestGetBareIDOutputsRow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 1 {
-		t.Fatalf("got %d lines, want exactly one row (the tweet, no media listing):\n%s", len(lines), out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 {
+		t.Fatalf("got %d envelopes, want exactly one (the tweet, no media listing):\n%s", len(envs), out)
 	}
-	if !strings.HasPrefix(lines[0], "101\t2026-07-20 14:11\t@nasa\tget body 101") {
-		t.Errorf("row = %q, want the ID/date/handle/text projection", lines[0])
+	env := envs[0]
+	if env["schema"] != "nitter.pipeline/v1" || env["kind"] != "tweet" || env["id"] != "101" {
+		t.Errorf("envelope = %v, want kind tweet / id 101", env)
+	}
+	if data := dataOf(t, env); data["id"] != "101" || data["text"] != "get body 101" {
+		t.Errorf("data = %v, want the tweet payload", data)
+	}
+	meta, ok := env["meta"].(map[string]any)
+	if !ok || meta["source"] != "status:101" || meta["instance"] != fake.addr {
+		t.Errorf("meta = %v, want source/instance provenance", env["meta"])
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/status/101"}) {
 		t.Errorf("requests = %v, want the single user-less fetch", got)
@@ -160,8 +201,9 @@ func TestGetURLRefUsesUserRoute(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched row", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/nasa/status/101"}) {
 		t.Errorf("requests = %v, want the user route only", got)
@@ -180,8 +222,9 @@ func TestGetURLRef404FallsBackToUserless(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched row", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/nasa/status/101", "/status/101"}) {
 		t.Errorf("requests = %v, want the user route then the user-less fallback", got)
@@ -272,8 +315,9 @@ func TestGetStdinRef(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched row", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 
 	// CRLF line endings are stripped, and URL refs work from stdin too.
@@ -281,8 +325,9 @@ func TestGetStdinRef(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched row", out)
+	envs = parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 }
 
@@ -316,8 +361,9 @@ func TestGetEmptyStdinLineWithArgUsesArg(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched row", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 }
 
@@ -409,7 +455,8 @@ func TestGetInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched tweet", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
+		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
 }

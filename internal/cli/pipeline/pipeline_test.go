@@ -22,9 +22,12 @@ func TestResolveOutputMode(t *testing.T) {
 			t.Fatalf("err = %v, want *invocation.UsageError (exit 2)", err)
 		}
 	})
-	t.Run("explicit --ndjson wins over TTY", func(t *testing.T) {
+	t.Run("explicit --ndjson wins over TTY and pipe", func(t *testing.T) {
 		if mode, err := pipeline.ResolveOutputMode(true, false, true); err != nil || mode != pipeline.ModeNDJSON {
 			t.Fatalf("mode/err = %v/%v, want ModeNDJSON/nil", mode, err)
+		}
+		if mode, err := pipeline.ResolveOutputMode(true, false, false); err != nil || mode != pipeline.ModeNDJSON {
+			t.Fatalf("mode/err = %v/%v, want ModeNDJSON/nil (non-TTY)", mode, err)
 		}
 	})
 	t.Run("explicit --json wins over TTY", func(t *testing.T) {
@@ -40,9 +43,9 @@ func TestResolveOutputMode(t *testing.T) {
 			t.Fatalf("mode/err = %v/%v, want ModeHuman/nil", mode, err)
 		}
 	})
-	t.Run("non-TTY defaults to text", func(t *testing.T) {
-		if mode, err := pipeline.ResolveOutputMode(false, false, false); err != nil || mode != pipeline.ModeText {
-			t.Fatalf("mode/err = %v/%v, want ModeText/nil", mode, err)
+	t.Run("non-TTY defaults to NDJSON (M10 pipe default)", func(t *testing.T) {
+		if mode, err := pipeline.ResolveOutputMode(false, false, false); err != nil || mode != pipeline.ModeNDJSON {
+			t.Fatalf("mode/err = %v/%v, want ModeNDJSON/nil", mode, err)
 		}
 	})
 }

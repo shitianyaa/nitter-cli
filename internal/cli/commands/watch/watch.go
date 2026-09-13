@@ -202,9 +202,14 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	if opts.asJSON {
 		return invocation.Usagef("watch: --json is not supported; watch streams NDJSON (use --ndjson)")
 	}
-	mode, err := pipeline.ResolveOutputMode(opts.asNDJSON, false, s.OutIsTTY)
-	if err != nil {
-		return err
+	// watch keeps the pre-auto-NDJSON decision table: the M10 pipe default
+	// change is declared for the data commands only, so watch's default stays
+	// the text rows on a TTY AND in a pipe — --ndjson selects the envelope
+	// stream. ModeHuman and ModeText share the row rendering, so one literal
+	// covers both non-NDJSON modes.
+	mode := pipeline.ModeHuman
+	if opts.asNDJSON {
+		mode = pipeline.ModeNDJSON
 	}
 	interval, err := parseInterval(opts.interval)
 	if err != nil {

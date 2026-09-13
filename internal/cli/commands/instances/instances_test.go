@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -107,22 +106,52 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-// instanceLines returns the output lines after the header, split into cells.
-func instanceLines(t *testing.T, out string) [][]string {
+// instanceRecords parses the NDJSON envelope stream (the piped default since
+// M10) into the per-instance data payloads, validating the envelope shape.
+func instanceRecords(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 1 || lines[0] != "url\trss\tuser_html\tsearch\tlist\tlatency" {
-		t.Fatalf("output must start with the header line, got %q", out)
+	if len(lines) == 0 || lines[0] == "" {
+		t.Fatalf("no instance_report envelopes in %q", out)
 	}
-	lines = lines[1:]
-	if len(lines) == 0 {
-		t.Fatalf("no instance lines in %q", out)
+	var records []map[string]any
+	for i, line := range lines {
+		var env struct {
+			Schema string         `json:"schema"`
+			Kind   string         `json:"kind"`
+			ID     string         `json:"id"`
+			Data   map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON envelope: %v\n%s", i+1, err, line)
+		}
+		if env.Schema != "nitter.pipeline/v1" || env.Kind != "instance_report" {
+			t.Fatalf("line %d = %s, want an nitter.pipeline/v1 instance_report envelope", i+1, line)
+		}
+		if url, _ := env.Data["url"].(string); url == "" || env.ID != url {
+			t.Fatalf("line %d id = %q, want the instance data.url", i+1, env.ID)
+		}
+		records = append(records, env.Data)
 	}
-	var parsed [][]string
-	for _, line := range lines {
-		parsed = append(parsed, strings.Split(line, "\t"))
+	return records
+}
+
+// probeOf returns one probe object from an instance report payload.
+func probeOf(t *testing.T, data map[string]any, key string) map[string]any {
+	t.Helper()
+	p, ok := data[key].(map[string]any)
+	if !ok {
+		t.Fatalf("data is missing the %s probe: %v", key, data)
 	}
-	return parsed
+	return p
+}
+
+// notProbed reports whether a probe object is the zero probe (the "-" cell
+// of the human table: the probe did not run).
+func notProbed(p map[string]any) bool {
+	ok, _ := p["ok"].(bool)
+	status, _ := p["status"].(float64)
+	return !ok && status == 0
 }
 
 func TestInstancesTestProbesConfiguredInstance(t *testing.T) {
@@ -134,22 +163,25 @@ func TestInstancesTestProbesConfiguredInstance(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	lines := instanceLines(t, out)
-	if len(lines) != 1 {
-		t.Fatalf("got %d instance lines, want 1", len(lines))
+	records := instanceRecords(t, out)
+	if len(records) != 1 {
+		t.Fatalf("got %d instance records, want 1", len(records))
 	}
-	cells := lines[0]
-	if cells[0] != srv.URL {
-		t.Errorf("url cell = %q, want %q", cells[0], srv.URL)
+	data := records[0]
+	if data["url"] != srv.URL {
+		t.Errorf("url = %v, want %q", data["url"], srv.URL)
 	}
-	if cells[1] != "ok" || cells[2] != "ok" {
-		t.Errorf("rss/user_html cells = %q/%q, want ok/ok", cells[1], cells[2])
+	if rss := probeOf(t, data, "rss"); rss["ok"] != true || rss["status"] != float64(200) {
+		t.Errorf("rss = %v, want ok/status 200", rss)
 	}
-	if cells[3] != "-" || cells[4] != "-" {
-		t.Errorf("search/list cells = %q/%q, want -/- (probes disabled)", cells[3], cells[4])
+	if userHTML := probeOf(t, data, "user_html"); userHTML["ok"] != true {
+		t.Errorf("user_html = %v, want ok", userHTML)
 	}
-	if !regexp.MustCompile(latencyCell).MatchString(cells[5]) {
-		t.Errorf("latency cell = %q, want a duration like 42ms", cells[5])
+	if !notProbed(probeOf(t, data, "search")) || !notProbed(probeOf(t, data, "list")) {
+		t.Errorf("search/list = %v/%v, want the zero probes (not probed)", data["search"], data["list"])
+	}
+	if latency, ok := data["latency"].(float64); !ok || latency < 0 {
+		t.Errorf("latency = %v, want a non-negative number", data["latency"])
 	}
 }
 
@@ -163,13 +195,14 @@ func TestInstancesTestURLParameterOverridesConfig(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	lines := instanceLines(t, out)
-	if len(lines) != 1 || lines[0][0] != srv.URL || lines[0][1] != "ok" {
-		t.Fatalf("lines = %v, want exactly the probed URL with rss ok", lines)
+	records := instanceRecords(t, out)
+	if len(records) != 1 || records[0]["url"] != srv.URL || probeOf(t, records[0], "rss")["ok"] != true {
+		t.Fatalf("records = %v, want exactly the probed URL with rss ok", records)
 	}
-	if strings.Contains(out, "http://127.0.0.1:1\t") {
-		// Match the exact configured URL token: a bare "127.0.0.1:1" check
-		// also matches the ephemeral fake-server URL (e.g. 127.0.0.1:1183).
+	if strings.Contains(out, "\"http://127.0.0.1:1\"") {
+		// Match the exact configured URL token (quote-delimited in the JSON
+		// envelope): a bare "127.0.0.1:1" check would also match the
+		// ephemeral fake-server URL (e.g. 127.0.0.1:1183).
 		t.Errorf("output = %q, want the configured instance ignored", out)
 	}
 }
@@ -252,9 +285,9 @@ func TestInstancesTestFullFlagEnablesSearchProbe(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	cells := instanceLines(t, out)[0]
-	if cells[3] != "fail(404)" {
-		t.Errorf("search cell = %q, want fail(404)", cells[3])
+	search := probeOf(t, instanceRecords(t, out)[0], "search")
+	if search["ok"] != false || search["status"] != float64(404) {
+		t.Errorf("search = %v, want failed/404", search)
 	}
 
 	code, out, _ = runCLI(t, "instances", "test", "--full", "--json")
@@ -265,7 +298,7 @@ func TestInstancesTestFullFlagEnablesSearchProbe(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
-	search, _ := obj["search"].(map[string]any)
+	search, _ = obj["search"].(map[string]any)
 	if search == nil || search["ok"] != false || search["status"] != float64(404) {
 		t.Errorf("json search = %v, want failed/404", obj["search"])
 	}
@@ -280,9 +313,8 @@ func TestInstancesTestListIDFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	cells := instanceLines(t, out)[0]
-	if cells[4] != "ok" {
-		t.Errorf("list cell = %q, want ok", cells[4])
+	if list := probeOf(t, instanceRecords(t, out)[0], "list"); list["ok"] != true {
+		t.Errorf("list = %v, want ok", list)
 	}
 }
 
@@ -295,9 +327,9 @@ func TestInstancesTestUserFlag(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	cells := instanceLines(t, out)[0]
-	if cells[1] != "ok" || cells[2] != "ok" {
-		t.Errorf("rss/user_html cells = %q/%q, want ok/ok for the overridden user", cells[1], cells[2])
+	data := instanceRecords(t, out)[0]
+	if probeOf(t, data, "rss")["ok"] != true || probeOf(t, data, "user_html")["ok"] != true {
+		t.Errorf("rss/user_html = %v/%v, want ok/ok for the overridden user", data["rss"], data["user_html"])
 	}
 	for _, want := range []string{"/otheruser/rss", "/otheruser"} {
 		found := false
@@ -342,12 +374,15 @@ func TestInstancesTestAllProbesFailStillExitZero(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 even when every probe fails (stderr %q)", code, errOut)
 	}
-	cells := instanceLines(t, out)[0]
-	if !strings.HasPrefix(cells[1], "fail(") || !strings.HasPrefix(cells[2], "fail(") {
-		t.Errorf("rss/user_html cells = %q/%q, want fail(...) cells", cells[1], cells[2])
+	data := instanceRecords(t, out)[0]
+	for _, key := range []string{"rss", "user_html"} {
+		p := probeOf(t, data, key)
+		if p["ok"] != false || p["status"] != float64(0) || p["err"] == "" {
+			t.Errorf("%s = %v, want failed with a short err and status 0", key, p)
+		}
 	}
-	if cells[3] != "-" || cells[4] != "-" {
-		t.Errorf("search/list cells = %q/%q, want -/-", cells[3], cells[4])
+	if !notProbed(probeOf(t, data, "search")) || !notProbed(probeOf(t, data, "list")) {
+		t.Errorf("search/list = %v/%v, want the zero probes", data["search"], data["list"])
 	}
 
 	code, out, _ = runCLI(t, "instances", "test", "--json")
@@ -404,9 +439,9 @@ func TestInstancesTestInstanceFlagOverridesConfig(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	cells := instanceLines(t, out)[0]
-	if cells[0] != srv.URL || cells[1] != "ok" {
-		t.Fatalf("cells = %v, want the --instance override probed with rss ok", cells)
+	data := instanceRecords(t, out)[0]
+	if data["url"] != srv.URL || probeOf(t, data, "rss")["ok"] != true {
+		t.Fatalf("record = %v, want the --instance override probed with rss ok", data)
 	}
 }
 

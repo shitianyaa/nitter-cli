@@ -127,7 +127,40 @@ func listPage(ids []string, cursor string) string {
 	return b.String()
 }
 
-func TestListOutputsRows(t *testing.T) {
+// parseEnvelopes splits the stdout into NDJSON envelope lines (the piped
+// default since M10) and decodes each into a generic object.
+func parseEnvelopes(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	if out == "" {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	envs := make([]map[string]any, 0, len(lines))
+	for i, line := range lines {
+		var env map[string]any
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON envelope: %v\n%s", i+1, err, line)
+		}
+		envs = append(envs, env)
+	}
+	return envs
+}
+
+// dataOf returns the envelope's data object.
+func dataOf(t *testing.T, env map[string]any) map[string]any {
+	t.Helper()
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope carries no data object: %v", env)
+	}
+	return data
+}
+
+// TestListPipeDefaultEmitsNDJSONEnvelopes pins the M10 pipe default: with
+// stdout not a TTY and no output flag given, the list timeline emits one
+// nitter.pipeline/v1 tweet envelope per tweet — no flag needed (a TTY keeps
+// the human rows; see the internal TTY test).
+func TestListPipeDefaultEmitsNDJSONEnvelopes(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/i/lists/12345": {200, listPage([]string{"401", "402"}, "")},
@@ -138,12 +171,23 @@ func TestListOutputsRows(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("got %d lines, want one row per tweet:\n%s", len(lines), out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 2 {
+		t.Fatalf("got %d envelopes, want one per tweet:\n%s", len(envs), out)
 	}
-	if !strings.HasPrefix(lines[0], "401\t2026-07-21 08:00\t@nasa\tlist body 401") {
-		t.Errorf("row 0 = %q, want the ID/date/handle/text projection", lines[0])
+	for i, wantID := range []string{"401", "402"} {
+		env := envs[i]
+		if env["schema"] != "nitter.pipeline/v1" || env["kind"] != "tweet" || env["id"] != wantID {
+			t.Errorf("envelope %d = %v, want kind tweet / id %s", i+1, env, wantID)
+		}
+		data := dataOf(t, env)
+		if data["id"] != wantID || data["text"] != "list body "+wantID {
+			t.Errorf("envelope %d data = %v, want the tweet payload", i+1, data)
+		}
+		meta, ok := env["meta"].(map[string]any)
+		if !ok || meta["source"] != "list:12345" || meta["instance"] != fake.addr {
+			t.Errorf("envelope %d meta = %v, want source/instance provenance", i+1, env["meta"])
+		}
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/i/lists/12345"}) {
 		t.Errorf("requests = %v, want the single list fetch", got)
@@ -197,7 +241,10 @@ func TestListInvalidIDIsUsageErrorBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestListEmptyResultPrintsHintAndExitsZero(t *testing.T) {
+// TestListEmptyPipeDefaultEmitsNothing: under the piped NDJSON default an
+// empty result prints NOTHING on stdout or stderr (the "(empty)" hint is the
+// TTY default's; see the internal TTY test).
+func TestListEmptyPipeDefaultEmitsNothing(t *testing.T) {
 	// A genuinely empty page is a success, not an error — but an empty list
 	// may also mean the list is new and not yet ingested (indistinguishable
 	// server-side); the help documents that, the command must not invent an
@@ -215,8 +262,8 @@ func TestListEmptyResultPrintsHintAndExitsZero(t *testing.T) {
 	if out != "" {
 		t.Errorf("stdout = %q, want nothing", out)
 	}
-	if strings.TrimSpace(errOut) != "(empty)" {
-		t.Errorf("stderr = %q, want the (empty) hint", errOut)
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing in the NDJSON default", errOut)
 	}
 }
 
@@ -349,8 +396,12 @@ func TestListInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "401\t") {
-		t.Fatalf("output = %q, want the fetched tweet", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 {
+		t.Fatalf("got %d envelopes, want 1:\n%s", len(envs), out)
+	}
+	if data := dataOf(t, envs[0]); data["id"] != "401" {
+		t.Fatalf("data = %v, want the fetched tweet", envs[0])
 	}
 }
 

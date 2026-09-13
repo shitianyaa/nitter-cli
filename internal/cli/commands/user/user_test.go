@@ -154,7 +154,40 @@ const photoRSS = `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.
 	`<media:content url="https://pbs.twimg.com/media/Fxxx1.jpg?name=small" medium="image"/>` +
 	`</item></channel></rss>`
 
-func TestUserRSSPathOutputsRows(t *testing.T) {
+// parseEnvelopes splits the stdout into NDJSON envelope lines (the piped
+// default since M10) and decodes each into a generic object.
+func parseEnvelopes(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	if out == "" {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	envs := make([]map[string]any, 0, len(lines))
+	for i, line := range lines {
+		var env map[string]any
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("line %d is not one JSON envelope: %v\n%s", i+1, err, line)
+		}
+		envs = append(envs, env)
+	}
+	return envs
+}
+
+// dataOf returns the envelope's data object.
+func dataOf(t *testing.T, env map[string]any) map[string]any {
+	t.Helper()
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope carries no data object: %v", env)
+	}
+	return data
+}
+
+// TestUserPipeDefaultEmitsNDJSONEnvelopes pins the M10 pipe default: with
+// stdout not a TTY and no output flag given, the RSS path emits one
+// nitter.pipeline/v1 tweet envelope per tweet — no flag needed (a TTY keeps
+// the human rows; see the internal TTY test).
+func TestUserPipeDefaultEmitsNDJSONEnvelopes(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/NASA/rss": {200, rssBody("101", "102")},
@@ -166,15 +199,23 @@ func TestUserRSSPathOutputsRows(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("got %d lines, want one row per tweet:\n%s", len(lines), out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 2 {
+		t.Fatalf("got %d envelopes, want one per tweet:\n%s", len(envs), out)
 	}
-	if !strings.HasPrefix(lines[0], "101\t2026-07-05 09:09\t@NASA\trss body 101") {
-		t.Errorf("row 0 = %q, want the ID/date/handle/text projection", lines[0])
-	}
-	if !strings.HasPrefix(lines[1], "102\t2026-07-05 09:09\t@NASA\trss body 102") {
-		t.Errorf("row 1 = %q", lines[1])
+	for i, wantID := range []string{"101", "102"} {
+		env := envs[i]
+		if env["schema"] != "nitter.pipeline/v1" || env["kind"] != "tweet" || env["id"] != wantID {
+			t.Errorf("envelope %d = %v, want kind tweet / id %s", i+1, env, wantID)
+		}
+		data := dataOf(t, env)
+		if data["id"] != wantID || data["text"] != "rss body "+wantID {
+			t.Errorf("envelope %d data = %v, want the tweet payload", i+1, data)
+		}
+		meta, ok := env["meta"].(map[string]any)
+		if !ok || meta["source"] != "user:NASA" || meta["instance"] != fake.addr {
+			t.Errorf("envelope %d meta = %v, want source/instance provenance", i+1, env["meta"])
+		}
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss"}) {
 		t.Errorf("requests = %v, want only the RSS fetch", got)
@@ -234,8 +275,12 @@ func TestUserRSSFailureFallsBackToHTML(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.Contains(out, "201\t2026-07-05 09:09\t@NASA\thtml body 201") {
-		t.Fatalf("output = %q, want the HTML-fallback tweet", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 {
+		t.Fatalf("got %d envelopes, want 1:\n%s", len(envs), out)
+	}
+	if data := dataOf(t, envs[0]); data["id"] != "201" || data["text"] != "html body 201" {
+		t.Fatalf("data = %v, want the HTML-fallback tweet", envs[0])
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss", "/NASA"}) {
 		t.Errorf("requests = %v, want the RSS attempt then the HTML fallback", got)
@@ -256,8 +301,12 @@ func TestUserEmptyRSSTriggersHTMLFallback(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.Contains(out, "201\t") {
-		t.Fatalf("output = %q, want the HTML-fallback tweet", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 {
+		t.Fatalf("got %d envelopes, want 1:\n%s", len(envs), out)
+	}
+	if data := dataOf(t, envs[0]); data["id"] != "201" {
+		t.Fatalf("data = %v, want the HTML-fallback tweet", envs[0])
 	}
 	if got := fake.rec.requests(); !slices.Equal(got, []string{"/NASA/rss", "/NASA"}) {
 		t.Errorf("requests = %v, want the RSS attempt then the HTML fallback", got)
@@ -443,7 +492,10 @@ func TestUserNDJSONEnvelopes(t *testing.T) {
 	}
 }
 
-func TestUserEmptyHumanModePrintsHintToStderr(t *testing.T) {
+// TestUserEmptyPipeDefaultEmitsNothing: under the piped NDJSON default an
+// empty timeline prints NOTHING — no stdout envelopes, no stderr hint (the
+// "(empty)" hint is the TTY default's; see the internal TTY test).
+func TestUserEmptyPipeDefaultEmitsNothing(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/NASA/rss": {200, rssBody()},
@@ -458,8 +510,8 @@ func TestUserEmptyHumanModePrintsHintToStderr(t *testing.T) {
 	if out != "" {
 		t.Errorf("stdout = %q, want nothing", out)
 	}
-	if strings.TrimSpace(errOut) != "(empty)" {
-		t.Errorf("stderr = %q, want the (empty) hint", errOut)
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing in the NDJSON default", errOut)
 	}
 }
 
@@ -473,8 +525,12 @@ func TestUserInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, "101\t") {
-		t.Fatalf("output = %q, want the fetched tweet", out)
+	envs := parseEnvelopes(t, out)
+	if len(envs) != 1 {
+		t.Fatalf("got %d envelopes, want 1:\n%s", len(envs), out)
+	}
+	if data := dataOf(t, envs[0]); data["id"] != "101" {
+		t.Fatalf("data = %v, want the fetched tweet", envs[0])
 	}
 }
 

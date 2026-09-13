@@ -14,6 +14,7 @@ package download_test
 // capabilities; the command package itself stays behind the R11 boundary.
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,6 +29,8 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/download"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
@@ -189,7 +192,48 @@ func wantSHA(body string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func TestDownloadSingleVideoWritesFileAndRow(t *testing.T) {
+// downloadEnvelope decodes one nitter.pipeline/v1 download envelope line.
+func downloadEnvelope(t *testing.T, line string) (schema, kind, id string, data struct {
+	Ref    string `json:"ref"`
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+	URL    string `json:"url"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
+}, metaInput string) {
+	t.Helper()
+	var env struct {
+		Schema string `json:"schema"`
+		Kind   string `json:"kind"`
+		ID     string `json:"id"`
+		Data   struct {
+			Ref    string `json:"ref"`
+			Path   string `json:"path"`
+			Kind   string `json:"kind"`
+			Source string `json:"source"`
+			URL    string `json:"url"`
+			Bytes  int64  `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"data"`
+		Meta *struct {
+			Input string `json:"input"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(line), &env); err != nil {
+		t.Fatalf("line is not JSON: %v\n%s", err, line)
+	}
+	if env.Meta != nil {
+		metaInput = env.Meta.Input
+	}
+	return env.Schema, env.Kind, env.ID, env.Data, metaInput
+}
+
+// TestDownloadPipeDefaultEmitsNDJSONEnvelope pins the M10 pipe default: with
+// stdout not a TTY and no output flag given, the downloaded file is reported
+// as one nitter.pipeline/v1 download envelope — no flag needed (a TTY keeps
+// the tab row; see the internal TTY test).
+func TestDownloadPipeDefaultEmitsNDJSONEnvelope(t *testing.T) {
 	home := tempHome(t)
 	video := "fake-mp4-bytes"
 	fake := newFakeBackend(t, map[string]answer{
@@ -203,10 +247,23 @@ func TestDownloadSingleVideoWritesFileAndRow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("got %d lines, want exactly one envelope:\n%s", len(lines), out)
+	}
+	schema, kind, id, data, metaInput := downloadEnvelope(t, lines[0])
+	if schema != "nitter.pipeline/v1" || kind != "download" {
+		t.Errorf("schema/kind = %q/%q, want nitter.pipeline/v1/download", schema, kind)
+	}
 	wantPath := filepath.Join(outDir, id100+"-1.mp4")
-	wantRow := strings.Join([]string{ref100, wantPath, "14", "video", "nitter"}, "\t")
-	if out != wantRow+"\n" {
-		t.Errorf("stdout = %q, want %q", out, wantRow+"\n")
+	if id != wantPath || data.Path != wantPath {
+		t.Errorf("id/path = %q/%q, want %q", id, data.Path, wantPath)
+	}
+	if data.Ref != ref100 || data.Bytes != int64(len(video)) || data.Kind != "video" || data.Source != "nitter" {
+		t.Errorf("data = %+v, want the streamed video record", data)
+	}
+	if metaInput != ref100 {
+		t.Errorf("meta.input = %q, want the raw ref", metaInput)
 	}
 	if got, err := os.ReadFile(wantPath); err != nil || string(got) != video {
 		t.Errorf("file = %q (%v), want the streamed bytes at %s", got, err, wantPath)
@@ -235,13 +292,16 @@ func TestDownloadFourImagesWritesFourFiles(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 4 {
-		t.Fatalf("got %d rows, want 4:\n%s", len(lines), out)
+		t.Fatalf("got %d envelopes, want 4:\n%s", len(lines), out)
 	}
 	for i := range []string{"AAA1", "AAA2", "AAA3", "AAA4"} {
 		wantPath := filepath.Join(outDir, fmt.Sprintf("%s-%d.jpg", id100, i+1))
-		wantRow := strings.Join([]string{ref100, wantPath, fmt.Sprint(len(images[i])), "image", "nitter"}, "\t")
-		if lines[i] != wantRow {
-			t.Errorf("row %d = %q, want %q", i, lines[i], wantRow)
+		_, kind, id, data, _ := downloadEnvelope(t, lines[i])
+		if kind != "download" || id != wantPath {
+			t.Errorf("envelope %d id = %q/%q, want the download record at %s", i+1, kind, id, wantPath)
+		}
+		if data.Bytes != int64(len(images[i])) {
+			t.Errorf("envelope %d bytes = %d, want %d", i+1, data.Bytes, len(images[i]))
 		}
 		if got, err := os.ReadFile(wantPath); err != nil || string(got) != images[i] {
 			t.Errorf("file %s = %q (%v), want %q", wantPath, got, err, images[i])
@@ -347,42 +407,67 @@ func TestDownloadOnExistsModes(t *testing.T) {
 	outDir := t.TempDir()
 	final := filepath.Join(outDir, id100+"-1.mp4")
 
-	// First run downloads video-content-1.
+	// First run downloads video-content-1 (piped NDJSON default envelope).
 	code, out, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
 	if code != 0 {
 		t.Fatalf("run 1: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	_, kind, _, data, _ := downloadEnvelope(t, strings.TrimSpace(out))
+	if kind != "download" || data.Bytes != 15 {
+		t.Fatalf("run 1: envelope = %s, want the download record", strings.TrimSpace(out))
 	}
 	first, err := os.ReadFile(final)
 	if err != nil || string(first) != "video-content-1" {
 		t.Fatalf("run 1: file = %q (%v), want the first body", first, err)
 	}
 
-	// refuse (the default): the second run reports the entry as an error and
-	// the batch continues — exit 1, no re-download, file untouched.
+	// refuse (the default): the second run reports the entry as an in-place
+	// error envelope and the batch continues — exit 1, no re-download, file
+	// untouched.
 	code, out, errOut = runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
 	if code != 1 {
 		t.Fatalf("run 2 (refuse): exit = %d, want 1 (stderr %q)", code, errOut)
 	}
-	if out != "" {
-		t.Errorf("run 2 (refuse): stdout = %q, want nothing", out)
+	var refuse struct {
+		Kind string `json:"kind"`
+		Data struct {
+			Command string `json:"command"`
+			Stage   string `json:"stage"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"data"`
+		Meta *struct {
+			Input string `json:"input"`
+		} `json:"meta"`
 	}
-	if !strings.Contains(errOut, "already exists") || !strings.Contains(errOut, ref100) {
-		t.Errorf("run 2 (refuse): stderr = %q, want the in-place existence error", errOut)
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &refuse); err != nil {
+		t.Fatalf("run 2 (refuse): stdout is not one envelope: %v\n%s", err, out)
+	}
+	if refuse.Kind != "error" || refuse.Data.Command != "download" || refuse.Data.Stage != "download" || refuse.Data.Code != "local_state_error" {
+		t.Errorf("run 2 (refuse): envelope = %s, want the download-stage existence error", strings.TrimSpace(out))
+	}
+	if !strings.Contains(refuse.Data.Message, "already exists") {
+		t.Errorf("run 2 (refuse): message = %q, want the existence problem", refuse.Data.Message)
+	}
+	if refuse.Meta == nil || refuse.Meta.Input != ref100 {
+		t.Errorf("run 2 (refuse): meta.input = %+v, want the raw ref", refuse.Meta)
+	}
+	if !strings.Contains(errOut, "download completed with 1 of 1 refs failed") {
+		t.Errorf("run 2 (refuse): stderr = %q, want the batch summary", errOut)
 	}
 	if got, _ := os.ReadFile(final); string(got) != "video-content-1" {
 		t.Errorf("run 2 (refuse): file = %q, want it untouched", got)
 	}
 
-	// skip: the existing file is kept and reported — row with the on-disk
-	// size, no failure, no re-download.
+	// skip: the existing file is kept and reported — envelope with the
+	// on-disk size, no failure, no re-download.
 	code, out, errOut = runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir, "--on-exists", "skip")
 	if code != 0 {
 		t.Fatalf("run 3 (skip): exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	wantPath := filepath.Join(outDir, id100+"-1.mp4")
-	wantRow := strings.Join([]string{ref100, wantPath + " (skipped)", "15", "video", "nitter"}, "\t")
-	if out != wantRow+"\n" {
-		t.Errorf("run 3 (skip): stdout = %q, want %q", out, wantRow+"\n")
+	_, kind, id, data, _ := downloadEnvelope(t, strings.TrimSpace(out))
+	if kind != "download" || id != final || data.Path != final || data.Bytes != 15 {
+		t.Errorf("run 3 (skip): envelope = %s, want the skip record with the on-disk size", strings.TrimSpace(out))
 	}
 	if got, _ := os.ReadFile(final); string(got) != "video-content-1" {
 		t.Errorf("run 3 (skip): file = %q, want it untouched", got)
@@ -393,9 +478,9 @@ func TestDownloadOnExistsModes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run 4 (overwrite): exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	wantRow = strings.Join([]string{ref100, wantPath, "15", "video", "nitter"}, "\t")
-	if out != wantRow+"\n" {
-		t.Errorf("run 4 (overwrite): stdout = %q, want %q", out, wantRow+"\n")
+	_, kind, _, data, _ = downloadEnvelope(t, strings.TrimSpace(out))
+	if kind != "download" || data.Bytes != 15 || data.SHA256 != wantSHA("video-content-2") {
+		t.Errorf("run 4 (overwrite): envelope = %s, want the re-downloaded record", strings.TrimSpace(out))
 	}
 	if got, _ := os.ReadFile(final); string(got) != "video-content-2" {
 		t.Errorf("run 4 (overwrite): file = %q, want the re-downloaded body", got)
@@ -419,7 +504,7 @@ func TestDownloadOnExistsModes(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &env); err != nil {
 		t.Fatalf("run 5: line is not JSON: %v\n%s", err, out)
 	}
-	if env.Kind != "download" || env.ID != wantPath || env.Data.Path != wantPath || env.Data.Bytes != 15 {
+	if env.Kind != "download" || env.ID != final || env.Data.Path != final || env.Data.Bytes != 15 {
 		t.Errorf("run 5: envelope = %s, want the skip row with the on-disk size", strings.TrimSpace(out))
 	}
 	if strings.Contains(out, "sha256") {
@@ -783,5 +868,44 @@ func TestDownloadEPipeIsGracefulExitZero(t *testing.T) {
 		strings.NewReader(""), epipeWriter{}, &errOut)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (EPIPE on stdout is a clean stop; stderr %q)", code, errOut.String())
+	}
+}
+
+// TestDownloadTTYDefaultStaysTextRows pins the TTY half of the M10 pipe
+// default: on a TTY (OutIsTTY true) the no-flag default is STILL the
+// tab-separated row — the envelope stream is the pipe default only. The
+// command is built over explicit streams because cli.Run probes real files
+// only and can never fake a TTY.
+func TestDownloadTTYDefaultStaysTextRows(t *testing.T) {
+	home := tempHome(t)
+	video := "tty-video-bytes"
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: video},
+	})
+	writeConfig(t, home, instanceConfig(fake.addr))
+	outDir := t.TempDir()
+
+	var out, errOut strings.Builder
+	s := &invocation.Streams{
+		In:          strings.NewReader(""),
+		Out:         &out,
+		Err:         &errOut,
+		OutIsTTY:    true,
+		CTX:         context.Background(),
+		RootOptions: &invocation.RootOptions{},
+	}
+	cmd := download.New(s)
+	cmd.SetArgs([]string{ref100, "--strategy", "nitter", "--output", outDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute = %v, want nil", err)
+	}
+	wantPath := filepath.Join(outDir, id100+"-1.mp4")
+	wantRow := strings.Join([]string{ref100, wantPath, fmt.Sprint(len(video)), "video", "nitter"}, "\t")
+	if out.String() != wantRow+"\n" {
+		t.Errorf("stdout = %q, want %q", out.String(), wantRow+"\n")
+	}
+	if got, err := os.ReadFile(wantPath); err != nil || string(got) != video {
+		t.Errorf("file = %q (%v), want the streamed bytes at %s", got, err, wantPath)
 	}
 }

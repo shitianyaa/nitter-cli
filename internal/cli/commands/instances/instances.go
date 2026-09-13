@@ -150,7 +150,17 @@ input, 1 wiring failures.`,
 
 			switch mode {
 			case pipeline.ModeNDJSON:
-				return writeNDJSON(s.Out, reports)
+				err := writeNDJSON(s.Out, reports)
+				if pipeline.IsBrokenPipe(err) {
+					// The reader hung up mid-stream (head/tail on a pipe):
+					// the report was delivered as far as it could be — the
+					// pixiv sigpipe policy treats the hangup as a clean stop
+					// (exit 0), matching the other data commands' NDJSON
+					// paths (the pipe default makes this path the common
+					// one now).
+					return nil
+				}
+				return err
 			case pipeline.ModeJSON:
 				return writeJSON(s.Out, reports)
 			default:

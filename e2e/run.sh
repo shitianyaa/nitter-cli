@@ -163,15 +163,16 @@ PYEOF
 fi
 
 # instances test against the same unreachable instance: the report is the
-# product (exit 0) and the NDJSON stream carries an instance_report envelope
-# whose RSS probe failed.
-./nitter instances test http://127.0.0.1:1 --ndjson \
+# product (exit 0). Since M10 the piped default is NDJSON — stdout is a file
+# here (no --ndjson flag given), so the stream must carry an
+# nitter.pipeline/v1 instance_report envelope whose RSS probe failed.
+./nitter instances test http://127.0.0.1:1 \
 	>"$SANDBOX/instances.ndjson" 2>"$SANDBOX/instances.err"
 rc=$?
 if [ "$rc" -ne 0 ]; then
-	fail "instances test offline envelope" "exit $rc, want 0; stderr: $(tail -c 300 "$SANDBOX/instances.err" | tr '\n' ' ')"
+	fail "instances test offline piped-default envelope" "exit $rc, want 0; stderr: $(tail -c 300 "$SANDBOX/instances.err" | tr '\n' ' ')"
 elif [ -z "$PY" ]; then
-	skip "instances test offline envelope" "no python interpreter for JSON validation"
+	skip "instances test offline piped-default envelope" "no python interpreter for JSON validation"
 else
 	if "$PY" - "$SANDBOX/instances.ndjson" <<'PYEOF'
 import json, sys
@@ -185,9 +186,9 @@ for line in lines:
     assert e["data"]["rss"]["ok"] is False, e
 PYEOF
 	then
-		pass "instances test offline envelope"
+		pass "instances test offline piped-default envelope"
 	else
-		fail "instances test offline envelope" "envelope schema validation failed"
+		fail "instances test offline piped-default envelope" "envelope schema validation failed"
 	fi
 fi
 

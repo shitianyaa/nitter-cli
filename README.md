@@ -27,7 +27,8 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   list capabilities of each configured instance with one report line each.
 - **Three output modes for every data command**: human-readable tab-separated rows,
   whole-result `--json`, and one-envelope-per-record `--ndjson`
-  (`nitter.pipeline/v1`).
+  (`nitter.pipeline/v1`) — and NDJSON is the automatic default whenever stdout
+  is a pipe rather than a terminal.
 - **Manage its own configuration and state**: `config path/get/set/unset` for the
   ten scalar keys, `seen list/clear` for the watch dedup state.
 - **Check for updates**: `update --check` compares the installed version against
@@ -145,14 +146,23 @@ your own network-layer access control instead.
 
 ## Output modes
 
-Every data command (`user`, `search`, `list`, `get`, `instances test`, `seen list`,
-`watch`) resolves its output mode the same way:
+Every data command (`user`, `search`, `list`, `get`, `media`, `download`,
+`instances test`) resolves its output mode the same way:
 
 | Mode | How | Shape |
 | --- | --- | --- |
-| Human / text | default (same rendering on a TTY and in a pipe) | one tab-separated row per record; empty result prints `(empty)` on **stderr** |
+| Human / text | default on a **TTY** | one tab-separated row per record; empty result prints `(empty)` on **stderr** |
+| NDJSON | **default when stdout is not a TTY** (pipe or redirect, no flag needed); explicitly via `--ndjson` | one `nitter.pipeline/v1` envelope per record, one line each |
 | JSON | `--json` | one JSON object when exactly one record, a JSON array otherwise, `[]` when empty |
-| NDJSON | `--ndjson` | one `nitter.pipeline/v1` envelope per record, one line each |
+
+**Piped stdout defaults to NDJSON (0.6.0 behavior change).** When stdout is a
+pipe or a file and neither `--json` nor `--ndjson` is given, the data commands
+emit `nitter.pipeline/v1` envelopes instead of text — so
+`nitter search "..." | nitter download` works without flags (each envelope's
+`data.url` feeds the downloader's stdin envelope mode). Explicit flags always
+win, and on a TTY the default stays the human table — interactive users see
+no change. `watch` keeps its text default in pipes (pass `--ndjson` for its
+envelope stream); `config`, `seen` and `update` are unchanged.
 
 Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 

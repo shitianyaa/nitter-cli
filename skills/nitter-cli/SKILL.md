@@ -77,10 +77,15 @@ the user is fine sharing (see trap 16).
 
 ## Output and piping
 
-- For humans: the default tab-separated text (same on a TTY and in a pipe).
-- For programs: `--ndjson` — one `nitter.pipeline/v1` envelope per line, kind
-  `tweet` or `error` (plus `instance_report` for `instances test --ndjson`,
-  `media` for `media --ndjson`, `download` for `download --ndjson`).
+- For humans on a TTY: the default tab-separated text.
+- For programs: when stdout is NOT a TTY (a pipe or a redirect) the data
+  commands (`user` `search` `list` `get` `media` `download` `instances test`)
+  emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
+  needed; `--ndjson` selects the same stream explicitly (also on a TTY).
+  Envelope kinds: `tweet` or `error` (plus `instance_report` for
+  `instances test`, `media` for `media`, `download` for `download`).
+  `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
+  stream. `seen list`, `config`, `update` are unchanged.
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
@@ -95,8 +100,9 @@ the user is fine sharing (see trap 16).
   positional value and stdin is not a TTY: `get` (one ref), `media` (one ref
   per non-empty line), `download` (refs one per non-empty line, or — when the
   first non-whitespace byte is `{` — strict `nitter.pipeline/v1` tweet
-  envelopes whose `data.url` becomes the ref, so `watch --ndjson` output feeds
-  it directly), `config set KEY` (the value, one line — this keeps
+  envelopes whose `data.url` becomes the ref, so any piped data command
+  (auto-NDJSON) and `watch --ndjson` feed it directly, no flags needed),
+  `config set KEY` (the value, one line — this keeps
   secrets such as a credential-bearing `proxy` URL out of argv). Passing the
   value both as an argument and on stdin is an ambiguity error (exit 2).
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,

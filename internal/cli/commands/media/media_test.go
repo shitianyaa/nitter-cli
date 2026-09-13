@@ -401,7 +401,12 @@ func TestMediaBatchPartialFailureEmitsErrorEnvelopeAndExitsOne(t *testing.T) {
 	}
 }
 
-func TestMediaBatchHumanModeReportsErrorsOnStderr(t *testing.T) {
+// TestMediaBatchPipeDefaultStreamsEnvelopes pins the M10 pipe default: with
+// stdout not a TTY and no output flag given, the batch streams per-ref
+// envelopes (the media record, then the in-place error envelope for the
+// failed ref) while the summary stays on stderr. The text-mode rendering of
+// this scenario is the TTY default's — see the internal TTY test.
+func TestMediaBatchPipeDefaultStreamsEnvelopes(t *testing.T) {
 	home := tempHome(t)
 	refB := "https://x.com/nasa/status/2070000000000000200"
 	fake := newFakeBackend(t, map[string]answer{
@@ -415,8 +420,47 @@ func TestMediaBatchHumanModeReportsErrorsOnStderr(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
 	}
-	if !strings.HasPrefix(out, ref100+"\tfx\tvideo\thttps://video.twimg.com/x.mp4") {
-		t.Errorf("stdout = %q, want the tab row", out)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d envelope lines, want 2 (media then error):\n%s", len(lines), out)
+	}
+	var mediaEnv struct {
+		Schema string `json:"schema"`
+		Kind   string `json:"kind"`
+		ID     string `json:"id"`
+		Data   struct {
+			Source string `json:"source"`
+			URL    string `json:"url"`
+		} `json:"data"`
+		Meta *struct {
+			Input string `json:"input"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &mediaEnv); err != nil {
+		t.Fatalf("line 1 is not JSON: %v", err)
+	}
+	if mediaEnv.Schema != "nitter.pipeline/v1" || mediaEnv.Kind != "media" || mediaEnv.Data.Source != "fx" || !strings.HasSuffix(mediaEnv.ID, ".mp4") {
+		t.Errorf("line 1 = %s, want the fx media envelope", lines[0])
+	}
+	if mediaEnv.Meta == nil || mediaEnv.Meta.Input != ref100 {
+		t.Errorf("meta.input = %+v, want the raw ref", mediaEnv.Meta)
+	}
+	var errEnv struct {
+		Kind string `json:"kind"`
+		Data struct {
+			Command string `json:"command"`
+			Stage   string `json:"stage"`
+			Code    string `json:"code"`
+		} `json:"data"`
+		Meta *struct {
+			Input string `json:"input"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &errEnv); err != nil {
+		t.Fatalf("line 2 is not JSON: %v", err)
+	}
+	if errEnv.Kind != "error" || errEnv.Data.Command != "media" || errEnv.Data.Stage != "resolve" {
+		t.Errorf("line 2 = %s, want the media resolve error envelope", lines[1])
 	}
 	if !strings.Contains(errOut, "media completed with 1 of 2 refs failed") {
 		t.Errorf("stderr = %q, want the batch summary", errOut)

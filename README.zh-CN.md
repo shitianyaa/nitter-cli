@@ -24,7 +24,8 @@ timer、Hermes）驱动、以 NDJSON 消费而设计。
 - **诊断实例**：`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 / List
   能力，每个实例一行报告。
 - **三种输出模式**（所有数据命令统一）：人类可读的制表符行、整结果 `--json`、
-  逐记录 `--ndjson`（`nitter.pipeline/v1` 信封）。
+  逐记录 `--ndjson`（`nitter.pipeline/v1` 信封）——且 stdout 是管道而非终端时
+  自动默认 NDJSON。
 - **管理自身配置与状态**：`config path/get/set/unset` 管理十个标量键，
   `seen list/clear` 管理 watch 去重状态。
 - **检查更新**：`update --check` 将当前版本与 GitHub 最新发布版比较
@@ -134,14 +135,21 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 ## 输出模式
 
-所有数据命令（`user`、`search`、`list`、`get`、`instances test`、`seen list`、
-`watch`）用同一套规则解析输出模式：
+数据命令（`user`、`search`、`list`、`get`、`media`、`download`、
+`instances test`）用同一套规则解析输出模式：
 
 | 模式 | 触发方式 | 形态 |
 | --- | --- | --- |
-| 人类 / text | 默认（TTY 与管道下渲染相同） | 每条记录一行制表符分隔；空结果在 **stderr** 打印 `(empty)` |
+| 人类 / text | **TTY** 下的默认 | 每条记录一行制表符分隔；空结果在 **stderr** 打印 `(empty)` |
+| NDJSON | **stdout 非 TTY 时（管道/重定向）为默认**，无需 flag；也可显式 `--ndjson` | 每条记录一个 `nitter.pipeline/v1` 信封，一行一条 |
 | JSON | `--json` | 恰好一条记录时是单个 JSON 对象，否则是 JSON 数组，空结果是 `[]` |
-| NDJSON | `--ndjson` | 每条记录一个 `nitter.pipeline/v1` 信封，一行一条 |
+
+**stdout 为管道时默认输出 NDJSON（0.6.0 行为变更）。** stdout 是管道或文件、
+且未显式给出 `--json`/`--ndjson` 时，数据命令输出 `nitter.pipeline/v1` 信封
+而非文本——因此 `nitter search "..." | nitter download` 无需任何 flag 即可
+直连（信封的 `data.url` 供下载命令的 stdin 信封模式使用）。显式 flag 永远
+优先；TTY 下默认仍是人类表格——交互用户零变化。`watch` 在管道下保持文本
+默认（信封流请传 `--ndjson`）；`config`、`seen`、`update` 不变。
 
 推文信封示例（示意；`data` 为 SDK 的 `Tweet` 模型）：
 

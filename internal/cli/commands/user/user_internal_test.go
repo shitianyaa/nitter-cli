@@ -77,3 +77,77 @@ func TestRunOtherWriteErrorsSurface(t *testing.T) {
 type failingWriter struct{ err error }
 
 func (w failingWriter) Write(p []byte) (int, error) { return 0, w.err }
+
+// TestUserTTYDefaultStaysTextRows pins the other half of the M10 pipe
+// default: on a TTY (OutIsTTY true) the no-flag default is STILL the human
+// text rows — one tab-separated row per tweet, and an empty timeline gets
+// the "(empty)" hint on stderr. Zero change for interactive users.
+func TestUserTTYDefaultStaysTextRows(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	var out, errOut swallowWriter
+	s := &invocation.Streams{
+		Out:         &out,
+		Err:         &errOut,
+		OutIsTTY:    true,
+		CTX:         context.Background(),
+		RootOptions: &invocation.RootOptions{Instance: fake.addr},
+	}
+	cmd := user.New(s)
+	cmd.SetArgs([]string{"NASA"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute = %v, want nil", err)
+	}
+	lines := strings.Split(strings.TrimRight(out.buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want one text row per tweet:\n%s", len(lines), out.buf.String())
+	}
+	if !strings.HasPrefix(lines[0], "101\t2026-07-05 09:09\t@NASA\trss body 101") {
+		t.Errorf("row 0 = %q, want the ID/date/handle/text projection", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "102\t2026-07-05 09:09\t@NASA\trss body 102") {
+		t.Errorf("row 1 = %q, want the ID/date/handle/text projection", lines[1])
+	}
+}
+
+// TestUserTTYEmptyResultPrintsHint pins the TTY-side empty result: the
+// "(empty)" hint on stderr, nothing on stdout (the piped NDJSON default is
+// fully silent; see user_test.go).
+func TestUserTTYEmptyResultPrintsHint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody()},
+		"/NASA":     {200, htmlPage(nil, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	var out, errOut swallowWriter
+	s := &invocation.Streams{
+		Out:         &out,
+		Err:         &errOut,
+		OutIsTTY:    true,
+		CTX:         context.Background(),
+		RootOptions: &invocation.RootOptions{Instance: fake.addr},
+	}
+	cmd := user.New(s)
+	cmd.SetArgs([]string{"NASA"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute = %v, want nil", err)
+	}
+	if out.buf.String() != "" {
+		t.Errorf("stdout = %q, want nothing", out.buf.String())
+	}
+	if strings.TrimSpace(errOut.buf.String()) != "(empty)" {
+		t.Errorf("stderr = %q, want the (empty) hint", errOut.buf.String())
+	}
+}

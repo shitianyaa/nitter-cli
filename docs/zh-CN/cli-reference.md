@@ -28,8 +28,9 @@
 ## 输出模式
 
 所有数据命令用同一套规则解析输出模式：`--ndjson` 或 `--json` 优先；不带 flag
-时 TTY 得到人类渲染、管道得到相同的 text 渲染（二者都是同一套制表符行，无
-ANSI 颜色）。
+时 TTY 得到人类渲染、stdout 非 TTY（管道/重定向）得到 NDJSON——0.6.0 起的
+管道默认（`nitter.pipeline/v1` 信封，每条记录一行）。`watch` 在管道下保持
+text 渲染；信封流请传 `--ndjson`。
 
 - **人类 / text**：每条记录一行；空结果在 stdout 不打印任何内容、在 **stderr**
   打印 `(empty)` 提示。推文列表的行形态：
