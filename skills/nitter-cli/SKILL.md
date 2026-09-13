@@ -1,11 +1,11 @@
 ---
 slug: nitter-cli
-version: 0.5.0
+version: 0.6.0
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
 homepage: https://github.com/shitianyaa/nitter-cli
-tags: [nitter, nitter, cli, agent]
+tags: [nitter, cli, agent]
 name: nitter-cli
 description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
 ---
@@ -20,9 +20,11 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.5.0`). If the binary is
-  missing or not executable, state the blocker; do not guess installation steps
-  unless the user explicitly asks for install help.
+  `nitter version <v>` (for example `nitter version 0.6.0`). If the binary is
+  missing or not executable, state the blocker. Install only when the user
+  explicitly asked for installation; then read
+  [references/install.md](references/install.md) and follow its approved
+  sources. Otherwise do not install or guess installation steps.
 - Instances come from the user's config (`nitter config path` prints the
   location, typically `~/.nitter-cli/config.toml`). When no instance is
   configured, ask the user for their own Nitter instance address and have them
@@ -35,14 +37,18 @@ safety boundaries, and semantics traps.
 
 1. Never echo instance credentials (`username`/`password`) from `config.toml`
    into commentary, logs, or code blocks, and do not read the file to "help
-   debug".
+   debug". Inspect configuration through the CLI instead: `nitter config path`
+   and `nitter config get <key>` (instances are not readable this way — by
+   design; diagnose them with `instances test`, see
+   [references/instances.md](references/instances.md)).
 2. State changes (`seen clear`, `config set`, `config unset`) need consent for
    each individual command; authorization never carries across commands.
 3. Do not invent flags; when semantics are unclear, run
    `nitter <command> --help` first.
 4. `--json`/`--ndjson` only describe successful output. Check the exit code
    before parsing; stderr is never JSON. Never present a failure as an "empty
-   result".
+   result" — on a non-zero exit, report the stderr error and follow
+   [references/troubleshooting.md](references/troubleshooting.md).
 5. `watch` is stateful: by default the first run of a source only initializes
    dedup state and emits nothing (history is never pushed). To emit history,
    the user must explicitly opt in with `--include-existing`.
@@ -59,6 +65,17 @@ safety boundaries, and semantics traps.
    exact refs to the user before each invocation; consent never carries over.
    The default `--on-exists refuse` never replaces an existing file — only
    pass `overwrite` or `skip` when the user asked for that.
+9. Never overclaim completeness. RSS yields about 20 tweets per fetch, so a
+   user-timeline result is one page, never "the timeline": when fewer tweets
+   came back than the user may have expected, say exactly what was fetched
+   (e.g. "the most recent 8 tweets available via RSS") and never tell the user
+   "the latest 20 tweets are complete". `--limit N` is a cap on output, not
+   proof that N exist or that nothing older remains (see also trap 2).
+10. No ritual probes. Do not run `instances test` before every command — it
+    costs the instance real requests. Probe only when an instance-health
+    decision actually needs it (setup, diagnosing failures, comparing
+    candidates); for everything else the fetch's own classified error tells
+    you what is wrong (see [references/troubleshooting.md](references/troubleshooting.md)).
 
 ## Command tiers
 
@@ -85,6 +102,8 @@ the user is fine sharing (see trap 16).
   commands (`user` `search` `list` `get` `media` `download` `instances test`)
   emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
   needed; `--ndjson` selects the same stream explicitly (also on a TTY).
+  An empty result in a pipe prints nothing at all — no `(empty)` hint; do not
+  read silence as failure, check the exit code.
   Envelope kinds: `tweet` or `error` (plus `instance_report` for
   `instances test`, `media` for `media`, `download` for `download`).
   `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
@@ -158,6 +177,8 @@ nitter media <ref> --probe --json                         # + duration/size (ext
 
 nitter download <ref> --output D:/media --ndjson          # resolve + write media files to disk (dir created on demand)
 nitter download <ref> --kind cover                        # only the video's cover image (<id>-cover.<ext>)
+nitter download <ref> --quality low --output D:/media      # quality defaults to high — say 'low'/'medium' when a smaller file is wanted
+nitter download <ref> --filename-template "{kind}-{id}{ext}"         # per-call filename template (config filename_template is the default; covers ignore it; no path separators — subdirectories come from directory_template)
 nitter download <ref> --strategy nitter                   # resolve + download both stay on the user's own instance
 nitter download <ref> --on-exists skip                    # keep existing files: row marked (skipped), on-disk size, no sha256
 nitter watch user:NASA --once --ndjson | nitter download --ndjson   # feed the watch stream straight into downloads (Disk write: consent)
@@ -180,7 +201,8 @@ nitter seen clear --source user:NASA --confirm          # state change: consent 
 nitter seen clear --confirm                             # clear ALL sources: consent each time
 
 nitter update --check                                   # read-only release comparison
-nitter update --check --json                            # {current, latest, outdated, url}
+nitter update --check --json                            # {current, latest, outdated, prerelease, release_url}
+nitter update --check --prerelease                      # admit prereleases into the "latest" pick (only with --check)
 ```
 
 ## Config keys
@@ -268,7 +290,13 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     location (`~/.nitter-cli/state`).
 14. **Instances are trust boundaries**: only the user's own instances belong in
     config; the CLI follows media/redirect URLs an instance returns, so the
-    network around the instance must isolate internal services.
+    network around the instance must isolate internal services. Instance
+    basic auth (an `[[instances]]` entry with **both** `username` and
+    `password`) is host-scoped inside the transport: those credentials ride
+    only requests addressed to their own instance and never reach the
+    third-party media resolvers; an incomplete pair is treated as
+    unconfigured, and a `--instance URL` override carries no credentials
+    (use the config entry for a credentialed instance).
 15. **Field filters run before dedup in watch**: `--no-reposts`, `--media-only`
     and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`)
     apply right after the fetch, before selection/dedup — filtered tweets are
@@ -296,6 +324,12 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     guidance: references/media.md. To have the CLI write the files to disk
     itself (video-wins selection, `--on-exists`, the `watch` pipeline), see
     references/download.md.
+18. **`download`/`media` default to `--quality high`** — the highest-bitrate
+    video variant and the original image tier. When the user asks for a
+    smaller file, pass `--quality low` or `medium` explicitly (the default
+    will not); state the chosen quality when it matters, and use `--probe`
+    for real sizes. Every variant stays in `variants` either way, so a
+    consumer can still pick another tier from `media` output.
 
 ## Media delivery for agents
 
@@ -305,8 +339,10 @@ has `nitter download` — a Disk write command: agree on the target directory
 and the exact refs with the user before each invocation (full details:
 references/download.md).
 
-- Resolved URLs are direct https links — fetch them with a plain GET (curl,
-  wget, or the host's HTTP client); no cookies or sign-in involved.
+- Resolved URLs are direct links — fetch them with a plain GET (curl, wget,
+  or the host's HTTP client); no cookies or sign-in involved. fx/vx/
+  syndication/xdown serve https; the `nitter` strategy may serve plain
+  http:// links from the user's own instance.
 - If the main URL fails, retry `fallback_url`, then the other `variants`.
 - Deliver downloaded files through the host attachment API; if the host
   cannot attach files, share the resolved URL only and never claim the
@@ -314,17 +350,12 @@ references/download.md).
 
 ## Routing
 
-- [references/instances.md](references/instances.md) — configuring instances
-  and diagnosing their health.
-- [references/watch.md](references/watch.md) — scheduling and dedup details:
-  `--once` cron mode, first-run record-only, `--max-new` rule and the
-  `--max-new-overflow` policy, tag form, `--state-dir`, exit-code matrix.
-- [references/media.md](references/media.md) — media resolution: ref and
-  batch semantics, the strategy chain and its trust boundary, quality and
-  probe, output shapes, download and delivery.
-- [references/download.md](references/download.md) — writing media to disk:
-  pre-download checklist, video-wins selection, filenames and extensions,
-  `--on-exists` semantics, the stdin pipeline from `watch`, reporting and
-  exit codes.
-- [references/troubleshooting.md](references/troubleshooting.md) — common error
-  table and fixes.
+| Task | Read |
+| --- | --- |
+| Install or upgrade the `nitter` binary, or install the matching Skill | [references/install.md](references/install.md) |
+| Fetch public tweets (timelines, search, lists, single statuses) | the quick reference in this file; on errors [references/troubleshooting.md](references/troubleshooting.md) |
+| Configure instances (incl. basic auth), override one command, diagnose instance health | [references/instances.md](references/instances.md) |
+| Resolve media links (strategies, trust boundary, quality, probe, delivery) | [references/media.md](references/media.md) |
+| Write media to disk (download, templates, `--on-exists`, stdin pipelines) | [references/download.md](references/download.md) |
+| Schedule monitoring (`watch` cycles, dedup, `--max-new` and the overflow policy, state dirs) | [references/watch.md](references/watch.md) |
+| Errors: failure messages, exit codes, and fixes | [references/troubleshooting.md](references/troubleshooting.md) |

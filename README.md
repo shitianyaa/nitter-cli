@@ -4,102 +4,163 @@
 
 `nitter` is an unofficial command-line client for **public tweets**, served through
 **Nitter instances you run yourself**. It fetches user timelines, search results,
-list timelines and single statuses, and it can watch sources continuously and emit
-only genuinely new tweets against a persistent dedup state — designed to be driven
-by a scheduler (cron, systemd timers, Hermes) and consumed as NDJSON.
+list timelines and single statuses, watches sources with persistent dedup state,
+and downloads media — a flexible CLI built for agents and schedulers (cron,
+systemd timers, Hermes), consumed as NDJSON.
 
 It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 `nitter`) with a stable, additive-only data model.
 
-## What it can do
+## Why nitter-cli?
 
-- **Fetch public tweets** through your own Nitter instances: `user` (RSS first,
-  HTML user page as fallback), `search`, `list`, and single statuses via `get`.
-- **Watch sources continuously**: `watch` polls `user:`/`tag:`/`list:` sources,
-  deduplicates against `~/.nitter-cli/state/seen.json` and emits only new tweets.
-  `--once` runs exactly one cycle — the recommended scheduler form.
-- **Download media to disk**: `download` resolves each status ref through the
-  `media` strategy chain and writes the planned files to `--output DIR` or the
-  `download_path` config key — a video status converges to its ONE best file
-  (bitrate-ranked, with the other candidates as fallbacks), an image-only status
-  to every image, and `--kind cover` fetches just the video's cover image.
-- **Diagnose instances**: `instances test` probes RSS / user timeline / search /
-  list capabilities of each configured instance with one report line each.
-- **Three output modes for every data command**: human-readable tab-separated rows,
-  whole-result `--json`, and one-envelope-per-record `--ndjson`
-  (`nitter.pipeline/v1`) — and NDJSON is the automatic default whenever stdout
-  is a pipe rather than a terminal.
-- **Manage its own configuration and state**: `config path/get/set/unset` for the
-  twelve scalar keys, `seen list/clear` for the watch dedup state.
-- **Check for updates**: `update --check` compares the installed version against
-  the latest GitHub release (strict semver, `--json` for machines). It performs
-  no self-install.
-- **Rotate and cool down instances**: instances are tried in config order; an
-  instance that fails (HTTP 429, network error) cools down (default 60s) while the
-  next one is tried. No success weighting — the config order is the policy.
+- **Flexible instance policy** — point it at any Nitter instance you control:
+  configure a rotation set (`[[instances]]`, tried strictly in config order,
+  failed entries cool down), override per command with `--instance`, and
+  optionally authenticate with host-scoped basic auth (`username` **and**
+  `password` set). Credentials can only ever ride requests addressed to their
+  own instance — third-party endpoints never see them.
+- **Public-tweet retrieval** — `user` (RSS first, HTML user page as fallback),
+  `search`, `list`, and single statuses via `get`, through your own instances
+  only. No bundled instances, no login, no bypassing of access controls.
+- **Composable pipelines** — data commands emit `nitter.pipeline/v1` NDJSON
+  automatically whenever stdout is a pipe, so
+  `nitter search "..." | nitter download` needs no flags; `--json` extracts
+  whole documents and explicit flags always win.
+- **Scheduler-ready watch** — `watch --once` runs exactly one deduplicated
+  cycle against persistent state and exits; the `--max-new-overflow keep`
+  policy re-emits burst overflow on later cycles instead of losing it (宁重勿丢).
+- **Media downloads with templates** — a video status converges to its ONE best
+  file (bitrate-ranked, remaining candidates as fallbacks), an image-only
+  status to every image, `--kind cover` to just the cover; `filename_template`
+  / `directory_template` config keys (plus `--filename-template`) name and
+  place files via `{id}` `{seq}` `{user}` `{kind}` `{ext}` placeholders.
+- **Observable instances** — `instances test` probes RSS / user timeline /
+  search / list capabilities with one report line each; the report is the
+  product.
+- **Manageable state** — `config path/get/set/unset` for the twelve scalar
+  keys, `seen list/clear [--state-dir]` for the watch dedup state; atomic
+  writes, a corrupt state file is a hard error (never a silent reset).
+- **Honest update checks** — `update --check [--prerelease] [--json]` compares
+  against the latest GitHub release by strict semver and performs no
+  self-install.
+- **Public Go SDK** — typed models whose JSON keys never disappear, a narrow
+  `Transport` boundary, and redacted errors; the CLI's commands consume the
+  same surface.
 
-## Quick start
+## Install
+
+### Release archive (recommended)
+
+Download the archive for your platform from
+[GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases), then
+verify it against the `checksums.txt` attached to the **same release**:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing   # or an equivalent tool
+```
+
+Extract the `nitter` binary into a per-user directory that is on your `PATH`.
+There is no installer script; the archive is the whole product.
+
+### Source build
+
+Requires Go 1.27+:
+
+```bash
+sh scripts/build.sh          # produces ./nitter
+./nitter --version           # nitter version 0.6.0 (or a dev line)
+```
+
+### Install with an AI agent
+
+Copy this single prompt into Codex, Claude Code, Cursor, or another local AI
+agent with terminal access:
+
+```text
+Install the latest stable nitter-cli from https://github.com/shitianyaa/nitter-cli for this machine: download only an official GitHub Release archive for the detected OS and architecture from the repository's Releases page, verify its SHA-256 against the checksums.txt attached to that same release before replacing anything, install the `nitter` binary into a per-user directory without administrator or root privileges, add that directory to the current user's PATH only if `nitter` is not already reachable (state every PATH change), ask before installing any missing prerequisite, never read or output ~/.nitter-cli/config.toml or any Nitter credentials during installation, verify with `nitter --version`, and report the installed version, the binary path, and every file and PATH change.
+
+Also install the `nitter-cli` Skill that matches the same stable release tag (never main): download the full skills/nitter-cli/ directory from that tag's git tree into the agent skills directory the user confirms. Do not guess the skills path and do not follow the main branch for skill content.
+```
+
+## 60-second quick start
 
 nitter-cli ships without instances: **you point it at a Nitter instance you
 control**. Nothing is fetched until you configure one.
 
-1. **Install** — two routes:
+```bash
+# 0. Configure your instance — `nitter config path` prints the config file
+#    (created with commented examples on the first real command); add:
+#      [[instances]]
+#      url = "http://nitter.internal:8080"
+#      # username = ""        # optional basic auth — sent only when BOTH are set
+#      # password = ""
+nitter config path
 
-   a. **Download a release binary** (recommended): pick the archive for your
-   platform from
-   [GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases) and
-   verify it against the attached `checksums.txt`.
+# Diagnose the instance: capability probes, one line each (rss / user_html /
+# search / list / latency; cells are ok, fail(<reason>) or -)
+nitter instances test
+nitter instances test http://nitter.internal:8080 --full
 
-   b. **Build from source** (Go 1.27+):
+# Fetch a timeline as JSON for Hermes or any agent
+nitter user NASA --limit 10 --json
 
-   ```bash
-   sh scripts/build.sh          # produces ./nitter
-   ./nitter --version          # nitter version 0.5.0 (or a dev line)
-   ```
+# Piped output needs no flags — data commands emit NDJSON on their own,
+# so the stream feeds the downloader directly
+nitter search "#AI" --limit 20 | nitter download --output ./media
 
-2. **Configure your instance** — edit `~/.nitter-cli/config.toml` (the path is
-   printed by `nitter config path`; the file with commented examples is created
-   on the first real command):
+# Download a video at the lowest quality tier
+nitter download https://x.com/NASA/status/2081668333762687236 --quality low
 
-   ```toml
-   [[instances]]
-   url = "http://nitter.internal:8080"   # <your-instance>: your own Nitter URL
-   # username = ""                       # optional basic-auth credentials
-   # password = ""                       # (carried but unused in the MVP transport)
-   ```
+# Fetch only the video's cover image
+nitter download https://x.com/NASA/status/2081668333762687236 --kind cover
 
-3. **Test the instance** (no live fetch of your data yet, just capability probes):
+# Set up a deduplicated watch from your scheduler: one cycle per run,
+# new tweets only, state persists between runs
+*/10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>>/tmp/nitter-watch.err
+```
 
-   ```bash
-   nitter instances test                # probes every [[instances]] entry
-   nitter instances test http://nitter.internal:8080 --full
-   ```
+Run `nitter --help` or open the [complete CLI reference](docs/en/cli-reference.md)
+for every command, flag, configuration key, and update behavior.
 
-   Example output (cells are `ok`, `fail(<reason>)` or `-`):
+## Choose your interface
 
-   ```text
-   url	rss	user_html	search	list	latency
-   http://nitter.internal:8080	ok	ok	ok	-	212ms
-   ```
+### CLI
 
-4. **Fetch something** (examples — output depends on your instance and the data):
+Use the human table interactively; `--json` for whole documents, `--ndjson`
+for record streams — or just pipe: a non-TTY stdout is the NDJSON default.
 
-   ```bash
-   nitter user NASA --limit 5
-   nitter search "#nitter" --limit 10
-   nitter get https://x.com/NASA/status/2081668333762687236
-   ```
+```bash
+nitter user NASA --limit 10                      # tab-separated rows on a TTY
+nitter user NASA --limit 10 --json               # one object / an array
+nitter user NASA --limit 10 --ndjson             # one nitter.pipeline/v1 envelope per tweet
+nitter search "#AI" --limit 20 | nitter download # auto-NDJSON, no flags needed
+```
 
-5. **Watch sources from your scheduler** — one cycle per invocation, new tweets
-   only, state persists between runs:
+### Go SDK
 
-   ```bash
-   # crontab: every 10 minutes, NDJSON stream into your consumer
-   */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>/tmp/nitter-watch.err
-   ```
+The public SDK is the package `github.com/shitianyaa/nitter-cli/sdk`
+(package name `nitter`) — the same surface the CLI consumes. It composes a
+`Client` from a rotation set, a narrow `Transport` interface, and an instance
+cooldown; data models (`Tweet`, `Page[T]`, …) marshal unconditionally (no
+`omitempty` on data fields) under an additive-only stability contract, and
+errors are redacted (no credentials, no query strings, no headers/bodies).
 
-   Sources can also live in config under `[[watch.sources]]`; run
-   `nitter watch --once --ndjson` with no arguments to use them.
+```go
+import "github.com/shitianyaa/nitter-cli/sdk"
+
+client, err := nitter.New(
+    nitter.WithInstances([]nitter.Instance{
+        {URL: "http://nitter.internal:8080"},
+    }),
+    nitter.WithHTTPClient(transport), // implements Transport
+    nitter.WithCooldown(30 * time.Second),
+)
+```
+
+`nitter.Instance` carries the optional basic-auth pair of an instance; the
+redaction contract keeps it out of every error and log. The
+[SDK guide](docs/en/sdk.md) documents the stability contract, models,
+pagination, and error kinds.
 
 ## Configuration
 
@@ -142,9 +203,16 @@ password = ""
 id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```
 
-Note: instance credentials are carried in the config but the MVP transport does
-not wire them in — probes and fetches run unauthenticated. Put the instance behind
-your own network-layer access control instead.
+Note: when an `[[instances]]` entry sets **both** `username` and `password`,
+requests to that instance carry HTTP basic auth. The credential policy is
+host-scoped inside the transport — a credential is only ever attached to a
+request addressed to its own configured instance, so the third-party media
+endpoints (`media`/`download` resolvers such as fx/vx/syndication/xdown and
+twimg) can never receive it; credentials also never enter errors, logs, or
+responses. An incomplete pair (only one half set) is treated as unconfigured.
+A one-off `--instance URL` override is a plain URL and carries **no**
+credentials — for a credentialed instance, use the config entry. Put instances
+you cannot credential behind your own network-layer access control instead.
 
 ## Output modes
 
@@ -163,8 +231,9 @@ emit `nitter.pipeline/v1` envelopes instead of text — so
 `nitter search "..." | nitter download` works without flags (each envelope's
 `data.url` feeds the downloader's stdin envelope mode). Explicit flags always
 win, and on a TTY the default stays the human table — interactive users see
-no change. `watch` keeps its text default in pipes (pass `--ndjson` for its
-envelope stream); `config`, `seen` and `update` are unchanged.
+no change. An empty result in a pipe is fully silent (no `(empty)` hint on
+stdout or stderr). `watch` keeps its text default in pipes (pass `--ndjson`
+for its envelope stream); `config`, `seen` and `update` are unchanged.
 
 Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 
@@ -215,7 +284,8 @@ only describe successful output; **stderr is never JSON**.
 - **Per-source failures never abort a cycle**: the failed source gets an in-place
   error report (error envelope in `--ndjson`), its state is left untouched, other
   sources continue. `watch --once` exits 1 when at least one source failed, 0 when
-  all succeeded.
+  all succeeded. `watch --once --json` prints one document
+  `{"tweets":[...],"errors":[{ref,code,message}...]}` for that cycle.
 - **A closed stdout pipe is a graceful exit 0** (the consumer hung up, e.g.
   `head`). Tweets already delivered are still followed by the state write when the
   pipe survives; if the write itself is cut short, the next round re-pushes the
@@ -257,12 +327,14 @@ state file is a hard error (exit 1), never a silent reset.
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
-instance set for this invocation only. `--proxy` analogously overrides the proxy
+instance set for this invocation only — note that this override carries no basic
+auth credentials. `--proxy` analogously overrides the proxy
 (flag > config > environment).
 
 **Can I get media URLs?**
 Yes — `media` entries in the `Tweet` model (visible via `--json`/`--ndjson`)
-carry direct image/video links as the instance served them.
+carry direct image/video links as the instance served them. `nitter download`
+writes them to disk, and `nitter media` resolves links without downloading.
 
 ## Disclaimer
 

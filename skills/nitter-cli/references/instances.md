@@ -15,18 +15,25 @@ their health. Command semantics are governed by the installed binary's
   ```toml
   [[instances]]
   url = "http://nitter.internal:8080"   # required
-  username = ""                          # optional basic auth
+  username = ""                          # optional basic auth — sent only when BOTH are set
   password = ""                          # optional basic auth
   ```
 
 - Order matters: instances are tried strictly in config order (no success
   weighting), and an entry that fails enters cooldown (default 60s,
   `instance_cooldown`) before the next one is tried.
-- Credentials are carried in the config but the MVP transport does not wire
-  them in — probes and fetches run unauthenticated. Prefer network-layer access
-  control around the instance.
+- Basic auth: when an entry sets **both** `username` and `password`, requests
+  to that instance (probes and fetches alike) carry HTTP basic auth. The
+  credential policy is host-scoped inside the transport — a credential is
+  only ever attached to a request addressed to its own configured instance,
+  so the third-party media resolvers (fx/vx/syndication/xdown, twimg) can
+  never receive it, and it never enters errors or logs. An incomplete pair
+  (only one half set) is treated as unconfigured. If you cannot credential
+  the instance, put network-layer access control around it instead.
 - One-off override: `nitter --instance URL <command>` replaces the whole
-  configured set with that single URL for this invocation. `--proxy URL`
+  configured set with that single URL for this invocation — it is a plain
+  URL and carries **no** credentials, so a credentialed instance must be
+  used through its config entry. `--proxy URL`
   analogously overrides the proxy (flag > config `proxy` > environment
   `HTTPS_PROXY`/`ALL_PROXY`; schemes `http`, `https`, `socks5`, `socks5h`).
 

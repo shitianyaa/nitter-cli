@@ -3,95 +3,153 @@
 [English](README.md) · [简体中文](README.zh-CN.md) · [文档导航](docs/index.zh-CN.md)
 
 `nitter` 是一个非官方的**公开推文**命令行客户端，数据来自**你自己部署的 Nitter
-实例**。它可以抓取用户时间线、搜索结果、List 时间线和单条推文，也能持续监视
-多个来源、对照持久化去重状态只推送真正的新推文——为调度器（cron、systemd
-timer、Hermes）驱动、以 NDJSON 消费而设计。
+实例**。它抓取用户时间线、搜索结果、List 时间线和单条推文，支持带持久化去重
+状态的持续监视与媒体下载——一个为 agent 与调度器（cron、systemd timer、
+Hermes）打造的灵活 CLI，以 NDJSON 消费。
 
 它同时是一个公开 Go SDK（`github.com/shitianyaa/nitter-cli/sdk`，package
 `nitter`），数据模型稳定、只增不改。
 
-## 能做什么
+## 为什么选择 nitter-cli？
 
-- **抓取公开推文**（经你自己的 Nitter 实例）：`user`（RSS 优先，失败或空结果时
-  回退 HTML 用户页）、`search`、`list`，以及用 `get` 抓单条推文。
-- **持续监视来源**：`watch` 轮询 `user:`/`tag:`/`list:` 源，对照
-  `~/.nitter-cli/state/seen.json` 去重，只输出新推文。`--once` 单轮即退——
-  这是推荐的调度器形态。
-- **把媒体下载到磁盘**：`download` 用 `media` 的策略链解析每条 status ref，
-  把计划好的文件写入 `--output DIR` 或 `download_path` 配置键——带视频的推文
-  只收敛为一个最佳文件（按码率排序，其余候选作回退），纯图推文下载全部
-  图片，`--kind cover` 只取视频封面图。
-- **诊断实例**：`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 / List
-  能力，每个实例一行报告。
-- **三种输出模式**（所有数据命令统一）：人类可读的制表符行、整结果 `--json`、
-  逐记录 `--ndjson`（`nitter.pipeline/v1` 信封）——且 stdout 是管道而非终端时
-  自动默认 NDJSON。
-- **管理自身配置与状态**：`config path/get/set/unset` 管理十二个标量键，
-  `seen list/clear` 管理 watch 去重状态。
-- **检查更新**：`update --check` 将当前版本与 GitHub 最新发布版比较
-  （严格 semver，支持 `--json`）。不做自替换安装。
-- **实例轮换与冷却**：按配置顺序轮换实例；发生 429/网络错误的实例进入冷却
-  （默认 60s），期间改试下一个。不做成功率加权——配置顺序就是策略。
+- **灵活的实例策略**——指向任何一个你自主控制的 Nitter 实例：配置轮换集
+  （`[[instances]]`，严格按配置顺序轮换，失败实例进入冷却），单次用
+  `--instance` 覆盖，并可用主机级 basic auth 认证（`username` **和**
+  `password` 同时设置）。凭证只会附着在发往其所属实例的请求上——第三方
+  端点永远看不到它们。
+- **公开推文检索**——`user`（RSS 优先，失败或空结果时回退 HTML 用户页）、
+  `search`、`list`，以及用 `get` 抓单条推文，全部只经你自己的实例。不内置
+  实例、不登录、不绕过访问控制。
+- **可组合的管道**——stdout 是管道时，数据命令自动输出 `nitter.pipeline/v1`
+  NDJSON，`nitter search "..." | nitter download` 无需任何 flag；`--json`
+  提取完整文档，显式 flag 永远优先。
+- **为调度器而生的 watch**——`watch --once` 对照持久化状态执行恰好一轮去重
+  后退出；`--max-new-overflow keep` 策略让突发超限的推文在后续各轮重新推送，
+  而不是被丢弃（宁重勿丢）。
+- **带模板的媒体下载**——带视频的推文收敛为一个最佳文件（按码率排序，其余
+  候选作回退），纯图推文下载全部图片，`--kind cover` 只取封面；
+  `filename_template` / `directory_template` 配置键（外加
+  `--filename-template`）通过 `{id}` `{seq}` `{user}` `{kind}` `{ext}` 占位符
+  命名并放置文件。
+- **可观测的实例**——`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 /
+  List 能力，每个实例一行报告；报告本身就是产品。
+- **可管理的状态**——`config path/get/set/unset` 管理十二个标量键，
+  `seen list/clear [--state-dir]` 管理 watch 去重状态；写入全部原子化，状态
+  文件损坏是硬错误（绝不静默重置）。
+- **诚实的更新检查**——`update --check [--prerelease] [--json]` 按严格 semver
+  与 GitHub 最新发布版比较，不做自替换安装。
+- **公开 Go SDK**——JSON 键永不消失的类型化模型、狭窄的 `Transport` 边界、
+  脱敏的错误；CLI 命令消费的就是同一套接口。
 
-## 快速上手
+## 安装
+
+### Release 压缩包（推荐）
+
+从 [GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases)
+下载对应平台的压缩包，并对照**同一发布版**附带的 `checksums.txt` 校验：
+
+```bash
+sha256sum -c checksums.txt --ignore-missing   # 或等价工具
+```
+
+把 `nitter` 二进制解压到一个已在 `PATH` 上的用户级目录。本项目没有安装脚本；
+压缩包就是全部产品。
+
+### 源码构建
+
+需要 Go 1.27+：
+
+```bash
+sh scripts/build.sh          # 生成 ./nitter
+./nitter --version           # nitter version 0.6.0（或 dev 版本行）
+```
+
+### 让 AI Agent 安装
+
+把下面这一段 prompt 复制给能够操作本机终端的 Codex、Claude Code、Cursor 或
+其他 AI Agent：
+
+```text
+请为这台机器安装 https://github.com/shitianyaa/nitter-cli 的最新 stable 版本：只从仓库 Releases 页下载与检测到的操作系统、架构对应的官方 GitHub Release 压缩包，替换任何文件之前先对照该发布版附带的 checksums.txt 完成 SHA-256 校验，把 `nitter` 二进制安装到无需管理员或 root 权限的用户级目录，仅当 `nitter` 尚不可达时才把该目录加入当前用户的 PATH（报告每一处 PATH 变更），缺少任何前置工具时先征求同意，安装过程中绝不读取或输出 ~/.nitter-cli/config.toml 或任何 Nitter 凭证，最后运行 `nitter --version` 验证，并报告安装版本、二进制路径以及全部文件和 PATH 变更。
+
+同时安装与该 stable 发布 tag 完全一致的 `nitter-cli` Skill（不要跟随 main）：把该 tag 的 git 树下完整的 skills/nitter-cli/ 目录安装到用户确认的 Agent skills 目录。不要猜测 skills 路径，也不要用 main 上的 skill 内容。
+```
+
+## 60 秒快速上手
 
 nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**。未配置实例前
 不会发起任何抓取。
 
-1. **安装**——两条路线：
+```bash
+# 0. 配置你的实例——`nitter config path` 打印配置文件路径（首次真实命令会
+#    生成带注释示例的文件），加入：
+#      [[instances]]
+#      url = "http://nitter.internal:8080"
+#      # username = ""        # 可选 basic auth——两者都设置才会发送
+#      # password = ""
+nitter config path
 
-   a. **下载发布版二进制**（推荐）：从
-   [GitHub Releases](https://github.com/shitianyaa/nitter-cli/releases)
-   选择对应平台的压缩包，并对照附带的 `checksums.txt` 校验。
+# 诊断实例：能力探测，每实例一行（rss / user_html / search / list / latency；
+# 单元格为 ok、fail(<原因>) 或 -）
+nitter instances test
+nitter instances test http://nitter.internal:8080 --full
 
-   b. **从源码构建**（Go 1.27+）：
+# 抓取时间线，输出 JSON 给 Hermes 或任意 agent
+nitter user NASA --limit 10 --json
 
-   ```bash
-   sh scripts/build.sh          # 生成 ./nitter
-   ./nitter --version          # nitter version 0.5.0（或 dev 版本行）
-   ```
+# 管道输出无需 flag——数据命令自动输出 NDJSON，流可直接喂给下载命令
+nitter search "#AI" --limit 20 | nitter download --output ./media
 
-2. **配置实例**——编辑 `~/.nitter-cli/config.toml`（路径可用 `nitter config
-   path` 查看；首次真实命令会生成带注释示例的基线文件）：
+# 以最低画质档下载视频
+nitter download https://x.com/NASA/status/2081668333762687236 --quality low
 
-   ```toml
-   [[instances]]
-   url = "http://nitter.internal:8080"   # <your-instance>：你自己的 Nitter 地址
-   # username = ""                       # 可选 basic-auth 凭证
-   # password = ""                       # （MVP 传输层暂未使用）
-   ```
+# 只取视频封面图
+nitter download https://x.com/NASA/status/2081668333762687236 --kind cover
 
-3. **测试实例**（只探测能力，不抓你的数据）：
+# 交给调度器做去重监视：每次调用一轮，只出新推文，状态跨次运行持久保存
+*/10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>>/tmp/nitter-watch.err
+```
 
-   ```bash
-   nitter instances test                # 探测全部 [[instances]]
-   nitter instances test http://nitter.internal:8080 --full
-   ```
+运行 `nitter --help` 或打开[完整 CLI 参考](docs/zh-CN/cli-reference.md)，
+查看每条命令、flag、配置键与更新行为。
 
-   输出示例（单元格为 `ok`、`fail(<原因>)` 或 `-`）：
+## 选择你的接口
 
-   ```text
-   url	rss	user_html	search	list	latency
-   http://nitter.internal:8080	ok	ok	ok	-	212ms
-   ```
+### CLI
 
-4. **抓点数据**（示例——实际输出取决于你的实例与数据）：
+交互时用人类表格；`--json` 输出完整文档，`--ndjson` 输出记录流——或者直接
+接管道：非 TTY 的 stdout 默认就是 NDJSON。
 
-   ```bash
-   nitter user NASA --limit 5
-   nitter search "#nitter" --limit 10
-   nitter get https://x.com/NASA/status/2081668333762687236
-   ```
+```bash
+nitter user NASA --limit 10                      # TTY 下输出制表符行
+nitter user NASA --limit 10 --json               # 单对象 / 数组
+nitter user NASA --limit 10 --ndjson             # 每条推文一个 nitter.pipeline/v1 信封
+nitter search "#AI" --limit 20 | nitter download # 自动 NDJSON，无需 flag
+```
 
-5. **交给调度器监视**——每次调用单轮，只出新推文，状态跨次运行持久保存：
+### Go SDK
 
-   ```bash
-   # crontab：每 10 分钟一轮，NDJSON 流写入你的消费端
-   */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>/tmp/nitter-watch.err
-   ```
+公开 SDK 是包 `github.com/shitianyaa/nitter-cli/sdk`（package 名 `nitter`）
+——CLI 消费的就是同一套接口。它由轮换实例集、狭窄的 `Transport` 接口和实例
+冷却时长组合出 `Client`；数据模型（`Tweet`、`Page[T]` 等）无条件序列化
+（数据字段不用 `omitempty`），遵循只增不改的稳定性契约，错误经过脱敏
+（无凭证、无查询串、无请求头/响应体）。
 
-   来源也可以写在配置的 `[[watch.sources]]` 里；不带参数运行
-   `nitter watch --once --ndjson` 即使用它们。
+```go
+import "github.com/shitianyaa/nitter-cli/sdk"
+
+client, err := nitter.New(
+    nitter.WithInstances([]nitter.Instance{
+        {URL: "http://nitter.internal:8080"},
+    }),
+    nitter.WithHTTPClient(transport), // 实现 Transport 接口
+    nitter.WithCooldown(30 * time.Second),
+)
+```
+
+`nitter.Instance` 携带实例的可选 basic-auth 凭证对；脱敏契约保证它不出现在
+任何错误与日志中。[SDK 指南](docs/zh-CN/sdk.md)记录了稳定性契约、模型、
+分页与错误类型。
 
 ## 配置
 
@@ -132,8 +190,13 @@ password = ""
 id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```
 
-注意：实例凭证会随配置携带，但 MVP 传输层尚未接入——探测与抓取均以未认证方式
-进行。请改为在网络层为实例加访问控制。
+注意：当 `[[instances]]` 条目**同时**设置 `username` 与 `password` 时，发往该
+实例的请求会携带 HTTP basic auth。凭证策略在传输层内按主机限定——凭证只会
+附着在发往其所属实例的请求上，第三方媒体端点（`media`/`download` 的解析器，
+如 fx/vx/syndication/xdown 与 twimg）永远收不到它；凭证也不会进入错误、日志
+或响应。只设置一半的凭证对视为未配置。单次的 `--instance URL` 覆盖是纯 URL，
+**不携带**凭证——需要认证的实例请使用配置条目。无法配置凭证的实例，请在网络
+层为其加访问控制。
 
 ## 输出模式
 
@@ -150,7 +213,8 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 且未显式给出 `--json`/`--ndjson` 时，数据命令输出 `nitter.pipeline/v1` 信封
 而非文本——因此 `nitter search "..." | nitter download` 无需任何 flag 即可
 直连（信封的 `data.url` 供下载命令的 stdin 信封模式使用）。显式 flag 永远
-优先；TTY 下默认仍是人类表格——交互用户零变化。`watch` 在管道下保持文本
+优先；TTY 下默认仍是人类表格——交互用户零变化。管道下的空结果完全静默
+（stdout 与 stderr 都不打印 `(empty)` 提示）。`watch` 在管道下保持文本
 默认（信封流请传 `--ndjson`）；`config`、`seen`、`update` 不变。
 
 推文信封示例（示意；`data` 为 SDK 的 `Tweet` 模型）：
@@ -195,7 +259,8 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   **不是合法写法**。
 - **单源失败不中断整轮**：失败源收到就地错误报告（`--ndjson` 下为错误信封），
   其状态保持不动，其余源继续。`watch --once` 只要有源失败即退出 1，全部成功
-  才退出 0。
+  才退出 0。`watch --once --json` 为该轮打印一个文档
+  `{"tweets":[...],"errors":[{ref,code,message}...]}`。
 - **stdout 管道被关闭按优雅退出 0 处理**（消费端挂断，例如 `head`）。已交付的
   推文之后照常落盘；若落盘本身被截断，下一轮会重推同一批推文（宁重勿丢）。
   Windows 上管道断裂可能以不同 errno（`ERROR_BROKEN_PIPE`）出现，EPIPE → 0 的
@@ -204,7 +269,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   `~/.nitter-cli/state/seen.json`，或传 `--state-dir <dir>` 时作用于
   `<dir>/seen.json`——与 `watch --state-dir` 使用同一个目录。
 
-## FAQ
+## 常见问题
 
 **为什么 watch 第一次运行什么都不推？**
 设计如此：第一轮先建立去重基线，让流从「现在」开始。确实要历史时，用
@@ -231,11 +296,12 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 **只想对一条命令换实例怎么办？**
 `nitter --instance http://nitter.internal:8080 user NASA` 只在本次调用中替换
-整个实例集。`--proxy` 同理（flag > 配置 > 环境变量）。
+整个实例集——注意该覆盖不携带 basic auth 凭证。`--proxy` 同理（flag > 配置 >
+环境变量）。
 
 **能拿到媒体链接吗？**
 能——`Tweet` 模型的 `media` 字段（`--json`/`--ndjson` 可见）携带实例返回的
-图片/视频直链。
+图片/视频直链。`nitter download` 直接落盘，`nitter media` 只解析链接不下载。
 
 ## 免责声明
 
