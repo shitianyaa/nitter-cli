@@ -1,12 +1,14 @@
 package httpx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -935,5 +937,479 @@ func TestGetMetaErrorYieldsNils(t *testing.T) {
 	}
 	if body != nil || status != 0 || header != nil {
 		t.Errorf("got (%v, %d, %v), want nil body/status/headers on error", body, status, header)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Download: the streaming GET (the media downloader's path). Same
+// pacing/retry/429/classification contract as Get, but the body streams to
+// the caller's writer, is NOT bounded by MaxBodyBytes, and only 200/206
+// succeed (a redirect page must never become the downloaded file).
+// ---------------------------------------------------------------------------
+
+func TestDownloadStreamsBodyAndVerifiesContentLength(t *testing.T) {
+	big := strings.Repeat("x", 64<<10)
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 200, body: big, headers: map[string]string{"Content-Length": strconv.Itoa(len(big))}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4",
+		&buf, map[string]string{"User-Agent": "nitter-cli-test"})
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != int64(len(big)) {
+		t.Errorf("written = %d, want %d", written, len(big))
+	}
+	if buf.Len() != len(big) {
+		t.Errorf("streamed %d bytes, want %d", buf.Len(), len(big))
+	}
+	if env.doer.calls != 1 {
+		t.Errorf("calls = %d, want 1", env.doer.calls)
+	}
+	if len(env.sleep.recorded()) != 0 {
+		t.Errorf("sleeps = %v, want none", env.sleep.recorded())
+	}
+	req := env.doer.requests[0]
+	if req.Method != fhttp.MethodGet {
+		t.Errorf("method = %q, want GET", req.Method)
+	}
+	if got := req.Header.Get("User-Agent"); got != "nitter-cli-test" {
+		t.Errorf("User-Agent = %q, want the map value", got)
+	}
+}
+
+// TestDownloadIgnoresMaxBodyBytesThatCapsGet pins the two-paths review point:
+// one body over the cap fails the buffered Get (KindMalformed) and streams
+// fine through Download — the cap governs buffered reads only.
+func TestDownloadIgnoresMaxBodyBytesThatCapsGet(t *testing.T) {
+	env := newTestClient(t, Options{MaxBodyBytes: 4, MinInterval: -1, RetryAttempts: -1},
+		step{status: 200, body: "0123456789", headers: map[string]string{"Content-Length": "10"}},
+		step{status: 200, body: "0123456789", headers: map[string]string{"Content-Length": "10"}})
+
+	_, _, err := env.c.Get(context.Background(), "https://cdn.test/a.mp4", nil)
+	if te := kindOf(t, err); te.Kind != nitter.KindMalformed {
+		t.Errorf("Get Kind = %v, want %v (the cap must keep governing buffered reads)", te.Kind, nitter.KindMalformed)
+	}
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/a.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 10 || buf.Len() != 10 {
+		t.Errorf("Download = (%d, %d bytes streamed), want (10, 10): the cap must not clip a streamed download", written, buf.Len())
+	}
+}
+
+func TestDownloadWithoutContentLengthSucceeds(t *testing.T) {
+	// No Content-Length declared (chunked): nothing to verify, body trusted.
+	env := newTestClient(t, Options{MinInterval: -1}, step{status: 200, body: "chunked-body"})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 12 || buf.String() != "chunked-body" {
+		t.Errorf("Download = (%d, %q), want (12, chunked-body)", written, buf.String())
+	}
+}
+
+func TestDownload206VerifiesAgainstContentRangeTotal(t *testing.T) {
+	// A full-size 206: Content-Range total == received size, and the
+	// range-size Content-Length must not be the expectation.
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 206, body: "0123456789",
+			headers: map[string]string{"Content-Range": "bytes 0-9/10", "Content-Length": "10"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 10 || buf.Len() != 10 {
+		t.Errorf("Download = (%d, %d bytes streamed), want (10, 10)", written, buf.Len())
+	}
+}
+
+func TestDownload206FallsBackToContentLengthWithoutTotal(t *testing.T) {
+	// Star-sized total ("bytes 0-4/*"): only the Content-Length is knowable.
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 206, body: "01234",
+			headers: map[string]string{"Content-Range": "bytes 0-4/*", "Content-Length": "5"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 5 || buf.Len() != 5 {
+		t.Errorf("Download = (%d, %d bytes streamed), want (5, 5)", written, buf.Len())
+	}
+}
+
+// TestDownload206TruncatedAgainstTotalIsMalformed pins the defensive 206
+// tolerance: the expectation is the Content-Range TOTAL (twimg answers ranged
+// requests with 206 and a range-size Content-Length), so a body shorter than
+// the total is a truncated download, not a success.
+func TestDownload206TruncatedAgainstTotalIsMalformed(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 206, body: "head-bytes",
+			headers: map[string]string{"Content-Range": "bytes 0-1048575/24690112", "Content-Length": "1048576"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err == nil {
+		t.Fatalf("Download = (%d, nil), want a size-mismatch failure", written)
+	}
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindMalformed)
+	}
+	if !strings.Contains(err.Error(), "24690112") {
+		t.Errorf("error %q must state the expected total (not the range-size Content-Length)", err)
+	}
+	if written != 10 || buf.Len() != 10 {
+		t.Errorf("written = %d, streamed = %d, want the 10 delivered bytes", written, buf.Len())
+	}
+	if env.doer.calls != 1 {
+		t.Errorf("calls = %d, want 1 (a size mismatch is terminal, bytes already handed to w)", env.doer.calls)
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+func TestDownloadContentLengthMismatchIsMalformed(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 200, body: "short", headers: map[string]string{"Content-Length": "11"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err == nil {
+		t.Fatalf("Download = (%d, nil), want a size-mismatch failure", written)
+	}
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindMalformed {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindMalformed)
+	}
+	if written != 5 || buf.Len() != 5 {
+		t.Errorf("written = %d, streamed = %d, want the 5 delivered bytes", written, buf.Len())
+	}
+	if env.doer.calls != 1 {
+		t.Errorf("calls = %d, want 1 (no retry once bytes reached w)", env.doer.calls)
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+// TestDownloadClassifiesNonStreamingStatuses: only 200/206 stream. Every
+// other status is a classified error with nothing written and the body
+// closed — 3xx in particular must not ride Get's "2xx/3xx succeed" rule.
+func TestDownloadClassifiesNonStreamingStatuses(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		wantKind nitter.Kind
+	}{
+		{"204 other 2xx", 204, nitter.KindUnavailable},
+		{"302 redirect not followed", 302, nitter.KindUnavailable},
+		{"404 not found", 404, nitter.KindNotFound},
+		{"401 challenge", 401, nitter.KindChallenge},
+		{"403 challenge", 403, nitter.KindChallenge},
+		{"409 other 4xx", 409, nitter.KindUnavailable},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: -1}, step{status: tc.status, body: "nope"})
+
+			var buf bytes.Buffer
+			written, err := env.c.Download(context.Background(), "https://cdn.test/x.mp4", &buf, nil)
+			te := kindOf(t, err)
+			if te.Kind != tc.wantKind {
+				t.Errorf("Kind = %v, want %v", te.Kind, tc.wantKind)
+			}
+			if written != 0 || buf.Len() != 0 {
+				t.Errorf("written = %d, streamed = %d, want nothing written on a non-2xx", written, buf.Len())
+			}
+			if env.doer.calls != 1 {
+				t.Errorf("calls = %d, want 1", env.doer.calls)
+			}
+			if n := env.doer.unclosed(); n != 0 {
+				t.Errorf("%d response body(s) left unclosed", n)
+			}
+		})
+	}
+}
+
+func TestDownload429HonorsRetryAfterOnce(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 429, headers: map[string]string{"Retry-After": "2"}},
+		step{status: 200, body: "recovered", headers: map[string]string{"Content-Length": "9"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 9 || buf.String() != "recovered" {
+		t.Errorf("Download = (%d, %q), want (9, recovered)", written, buf.String())
+	}
+	if env.doer.calls != 2 {
+		t.Errorf("calls = %d, want 2 (one Retry-After retry)", env.doer.calls)
+	}
+	if got := env.sleep.recorded(); !equalDurations(got, []time.Duration{2 * time.Second}) {
+		t.Errorf("sleeps = %v, want exactly [2s]", got)
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+func TestDownload429AgainIsRateLimited(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1},
+		step{status: 429, headers: map[string]string{"Retry-After": "2"}},
+		step{status: 429, headers: map[string]string{"Retry-After": "5"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindRateLimited {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindRateLimited)
+	}
+	if te.RetryAfter == nil || *te.RetryAfter != 5*time.Second {
+		t.Errorf("RetryAfter = %v, want 5s from the final response", te.RetryAfter)
+	}
+	if written != 0 || buf.Len() != 0 {
+		t.Errorf("written = %d, streamed = %d, want nothing written", written, buf.Len())
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+func TestDownloadRetries5xxThenSucceeds(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: 2, RetryDelay: 10 * time.Millisecond},
+		step{status: 500, body: "boom"},
+		step{status: 503, body: "unavailable"},
+		step{status: 200, body: "ok", headers: map[string]string{"Content-Length": "2"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 2 || buf.String() != "ok" {
+		t.Errorf("Download = (%d, %q), want (2, ok)", written, buf.String())
+	}
+	if env.doer.calls != 3 {
+		t.Errorf("calls = %d, want 3 (two retries)", env.doer.calls)
+	}
+	if got := env.sleep.recorded(); !equalDurations(got, []time.Duration{10 * time.Millisecond, 20 * time.Millisecond}) {
+		t.Errorf("backoff sleeps = %v, want linear growth", got)
+	}
+}
+
+func TestDownload5xxExhaustedRetriesIsUnavailable(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: 1, RetryDelay: time.Millisecond},
+		step{status: 500}, step{status: 500})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error %q must carry the status code", err)
+	}
+	if written != 0 || buf.Len() != 0 {
+		t.Errorf("written = %d, streamed = %d, want nothing written", written, buf.Len())
+	}
+	if env.doer.calls != 2 {
+		t.Errorf("calls = %d, want 2", env.doer.calls)
+	}
+	if n := env.doer.unclosed(); n != 0 {
+		t.Errorf("%d response body(s) left unclosed", n)
+	}
+}
+
+func TestDownloadRetriesNetworkErrorsThenSucceeds(t *testing.T) {
+	boom := errors.New("dial tcp: connection refused")
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: 1, RetryDelay: time.Millisecond},
+		step{err: boom},
+		step{status: 200, body: "ok", headers: map[string]string{"Content-Length": "2"}})
+
+	var buf bytes.Buffer
+	written, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if written != 2 || buf.String() != "ok" {
+		t.Errorf("Download = (%d, %q), want (2, ok)", written, buf.String())
+	}
+	if env.doer.calls != 2 {
+		t.Errorf("calls = %d, want 2", env.doer.calls)
+	}
+}
+
+// TestDownloadRedactsURLFromTransportError pins the sdk redaction contract on
+// the streaming path's network-exhaustion branch.
+func TestDownloadRedactsURLFromTransportError(t *testing.T) {
+	boom := errors.New("dial tcp: refused")
+	leak := &url.Error{Op: "Get", URL: "https://cdn.test/video.mp4?token=secret", Err: boom}
+	env := newTestClient(t, Options{MinInterval: -1, RetryAttempts: 1, RetryDelay: time.Millisecond},
+		step{err: leak}, step{err: leak})
+
+	var buf bytes.Buffer
+	_, err := env.c.Download(context.Background(), "https://cdn.test/video.mp4", &buf, nil)
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "token=secret") || strings.Contains(msg, "cdn.test") {
+		t.Errorf("error %q leaks the request URL", msg)
+	}
+	if !strings.Contains(msg, "dial tcp: refused") {
+		t.Errorf("root cause text must survive sanitization, got %q", msg)
+	}
+}
+
+func TestDownloadInvalidURLIsInvalidArg(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1}, step{status: 200, body: "never"})
+
+	var buf bytes.Buffer
+	_, err := env.c.Download(context.Background(), "http://exa mple.test/x?token=secret", &buf, nil)
+	te := kindOf(t, err)
+	if te.Kind != nitter.KindInvalidArg {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindInvalidArg)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "token=secret") || strings.Contains(msg, "exa mple") {
+		t.Errorf("error %q leaks the raw URL", msg)
+	}
+	if env.doer.calls != 0 {
+		t.Errorf("calls = %d, want 0", env.doer.calls)
+	}
+}
+
+func TestDownloadWithCancelledContextFailsFast(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: -1}, step{status: 200, body: "never"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var buf bytes.Buffer
+	_, err := env.c.Download(ctx, "https://cdn.test/x.mp4", &buf, nil)
+	if err == nil {
+		t.Fatal("Download: nil error, want cancellation")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("error %q must mention the context cancellation", err)
+	}
+	if env.doer.calls != 0 {
+		t.Errorf("calls = %d, want 0 (nothing sent)", env.doer.calls)
+	}
+}
+
+// midStreamDoer serves one 200 response whose body delivers 10 bytes and then
+// blocks until the REQUEST context is done — the shape of a CDN streaming a
+// large file while the caller cancels. The `entered` channel hands control
+// back to the test exactly when the stream starts blocking.
+type midStreamDoer struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+type midStreamBody struct {
+	ctx     context.Context
+	entered chan struct{}
+	once    *sync.Once
+	read    bool
+}
+
+func (b *midStreamBody) Read(p []byte) (int, error) {
+	if !b.read {
+		b.read = true
+		return copy(p, "0123456789"), nil
+	}
+	b.once.Do(func() { close(b.entered) })
+	<-b.ctx.Done()
+	// Real transports wrap body-read failures in *url.Error carrying the
+	// full request URL — the exact leak shape the redaction contract bans.
+	return 0, &url.Error{Op: "Get", URL: "https://cdn.test/video.mp4?token=secret", Err: b.ctx.Err()}
+}
+
+func (b *midStreamBody) Close() error { return nil }
+
+func (d *midStreamDoer) Do(req *fhttp.Request) (*fhttp.Response, error) {
+	return &fhttp.Response{
+		StatusCode: fhttp.StatusOK,
+		Header:     fhttp.Header{"Content-Length": []string{"100"}},
+		Body:       &midStreamBody{ctx: req.Context(), entered: d.entered, once: &d.once},
+	}, nil
+}
+
+// TestDownloadAbortsMidStreamOnContextCancel pins the cancel-mid-stream
+// contract: the stream stops at the cancellation, the written count reports
+// the bytes that did reach w, the error stays redacted and classified, and
+// the response body does not leak.
+func TestDownloadAbortsMidStreamOnContextCancel(t *testing.T) {
+	d := &midStreamDoer{entered: make(chan struct{})}
+	c, err := New(Options{RetryAttempts: -1, MinInterval: -1, doer: d})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		written int64
+		err     error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		var buf bytes.Buffer
+		w, err := c.Download(ctx, "https://cdn.test/video.mp4", &buf, nil)
+		resCh <- result{w, err}
+	}()
+	<-d.entered // the stream has delivered its first bytes and now blocks
+	cancel()
+	res := <-resCh
+
+	if res.err == nil {
+		t.Fatal("Download: nil error, want the mid-stream cancellation")
+	}
+	if !strings.Contains(res.err.Error(), "context canceled") {
+		t.Errorf("error %q must mention the context cancellation", res.err)
+	}
+	if strings.Contains(res.err.Error(), "token=secret") || strings.Contains(res.err.Error(), "cdn.test") {
+		t.Errorf("error %q leaks the request URL", res.err)
+	}
+	if te := kindOf(t, res.err); te.Kind != nitter.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", te.Kind, nitter.KindUnavailable)
+	}
+	if res.written != 10 {
+		t.Errorf("written = %d, want the 10 bytes delivered before the cancel", res.written)
+	}
+}
+
+func TestDownloadParticipatesInPacing(t *testing.T) {
+	env := newTestClient(t, Options{MinInterval: time.Second},
+		step{status: 200, body: "a"}, step{status: 200, body: "b"})
+
+	if _, err := env.c.Download(context.Background(), "https://cdn.test/a.mp4", &bytes.Buffer{}, nil); err != nil {
+		t.Fatalf("first Download: %v", err)
+	}
+	if _, err := env.c.Download(context.Background(), "https://cdn.test/b.mp4", &bytes.Buffer{}, nil); err != nil {
+		t.Fatalf("second Download: %v", err)
+	}
+	if got := env.sleep.recorded(); !equalDurations(got, []time.Duration{time.Second}) {
+		t.Errorf("sleeps = %v, want [1s] pacing wait before the second Download", got)
+	}
+	if d := env.doer.starts[1].Sub(env.doer.starts[0]); d < time.Second {
+		t.Errorf("second request started %v after the first, want >= MinInterval (1s)", d)
 	}
 }

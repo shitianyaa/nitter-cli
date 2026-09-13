@@ -41,6 +41,11 @@ const (
 	opGet  = "httpx.Get"
 	opPost = "httpx.Post"
 	opNew  = "httpx.New"
+	// opDownload stamps the streaming GET's errors. Note the pacing and
+	// wait helpers predate it and classify their aborts with opGet (as they
+	// already did for Post); Download inherits that cosmetic quirk rather
+	// than altering the shared helpers' behavior.
+	opDownload = "httpx.Download"
 )
 
 const (
@@ -264,6 +269,198 @@ func (c *Client) GetMeta(ctx context.Context, url string, headers map[string]str
 	return c.send(ctx, opGet, fhttp.MethodGet, url, nil, headers)
 }
 
+// Download performs a full GET against url and streams the response body to
+// w as it arrives — the media downloader's path for files too large to hold
+// in memory. It shares Get's pacing, retry, 429 and classification contract
+// (pacing/wait aborts surface with the pipeline's op httpx.Get, as they
+// already did for Post) with four deliberate differences:
+//
+//   - The body is NOT bounded by MaxBodyBytes: that cap bounds the buffered
+//     Get/Post/GetMeta reads. The two paths must never be confused — a
+//     streamed download may legitimately exceed the cap.
+//   - Only 200 (and, defensively, 206) stream. Every other status is a
+//     classified error with nothing written and the body closed. 3xx in
+//     particular does NOT ride Get's "2xx/3xx succeed" rule: this transport
+//     does not follow redirects, and a redirect page must never become the
+//     downloaded file.
+//   - The declared size is verified whenever the response declares one: a
+//     200's Content-Length; a 206's Content-Range total (twimg answers
+//     ranged requests with 206 and a Content-Length equal to the RANGE
+//     size, so only the Content-Range total states how much a complete body
+//     carries), falling back to Content-Length when the total is absent or
+//     star-sized. A mismatch fails as KindMalformed. No header (or an
+//     unparseable one) declares nothing, so there is nothing to verify
+//     against and the received bytes are trusted.
+//   - Mid-stream failures are terminal and never retried: bytes already
+//     handed to w cannot be recalled, so a retry could only duplicate them.
+//
+// Context cancellation stops the stream (the request-bound body read fails
+// with the context error, redacted like any transport error). On success
+// written is the total stream size; on error it reports how many bytes
+// reached w before the failure — they cannot be recalled.
+func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers map[string]string) (written int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "request not sent: %w", err)
+	}
+	if err := c.pace(ctx); err != nil {
+		return 0, err
+	}
+
+	// retryAfterUsed guards the single 429 wait-and-retry, exactly like send.
+	retryAfterUsed := false
+	for attempt := 0; ; attempt++ {
+		req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, url, nil)
+		if err != nil {
+			// Parse failures carry the raw URL in their message — sanitize
+			// before wrapping (sdk redaction contract).
+			return 0, nitter.Errorf(nitter.KindInvalidArg, opDownload, "build request: %w", sanitizeTransportErr(err))
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		// Unlike doOnce, the body is NOT read here — it streams below.
+		resp, err := c.doer.Do(req)
+		if err != nil {
+			if attempt < c.retryAttempts {
+				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
+					return 0, werr
+				}
+				continue
+			}
+			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload,
+				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
+		}
+
+		status := resp.StatusCode
+		switch {
+		case status == fhttp.StatusOK || status == fhttp.StatusPartialContent:
+			return streamResponseBody(resp, w, status)
+
+		case status == fhttp.StatusTooManyRequests:
+			// Headers stay readable after the body is closed.
+			if cerr := closeBody(resp); cerr != nil {
+				return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
+			}
+			delay, terr := c.tooManyRequests(opDownload, resp, retryAfterUsed)
+			if terr != nil {
+				return 0, terr
+			}
+			retryAfterUsed = true
+			if werr := c.wait(ctx, delay, "retry-after"); werr != nil {
+				return 0, werr
+			}
+			continue
+
+		case status == fhttp.StatusNotFound:
+			closeBody(resp)
+			return 0, nitter.Errorf(nitter.KindNotFound, opDownload, "instance returned HTTP 404")
+
+		case status == fhttp.StatusUnauthorized || status == fhttp.StatusForbidden:
+			closeBody(resp)
+			return 0, nitter.Errorf(nitter.KindChallenge, opDownload, "instance returned HTTP %d", status)
+
+		case status >= 400 && status < 500:
+			closeBody(resp)
+			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
+
+		case status >= 500:
+			closeBody(resp)
+			if attempt < c.retryAttempts {
+				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
+					return 0, werr
+				}
+				continue
+			}
+			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload,
+				"instance returned HTTP %d after %d attempt(s)", status, attempt+1)
+
+		default:
+			// 1xx, 3xx (redirects are not followed) and any other 2xx shape:
+			// not a streamable response; retrying cannot change the shape.
+			closeBody(resp)
+			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
+		}
+	}
+}
+
+// streamResponseBody copies one 200/206 response body to w and verifies the
+// declared size (see Download's contract). The body is closed on every path;
+// on a clean stream the close error is surfaced like the buffered path does,
+// on a failed stream the original (sanitized) error wins.
+func streamResponseBody(resp *fhttp.Response, w io.Writer, status int) (int64, error) {
+	src := io.Reader(resp.Body)
+	if src == nil {
+		src = strings.NewReader("")
+	}
+	n, err := io.Copy(w, src)
+	if err != nil {
+		closeBody(resp)
+		return n, nitter.Errorf(nitter.KindUnavailable, opDownload, "stream interrupted: %w", sanitizeTransportErr(err))
+	}
+	if cerr := closeBody(resp); cerr != nil {
+		return n, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
+	}
+	if expected, ok := declaredLength(resp, status); ok && n != expected {
+		return n, nitter.Errorf(nitter.KindMalformed, opDownload,
+			"response size mismatch: received %d bytes, expected %d", n, expected)
+	}
+	return n, nil
+}
+
+// closeBody closes a response body, tolerating a nil body (the buffered
+// doOnce path likewise treats a nil body as an empty read).
+func closeBody(resp *fhttp.Response) error {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	return resp.Body.Close()
+}
+
+// declaredLength reports the total byte count a streaming response promises,
+// for the size verification in Download's contract: a 200's Content-Length;
+// a 206's Content-Range total, falling back to Content-Length when the total
+// is absent or star-sized ("bytes 0-N/*"). Absent or unparseable headers
+// report ok == false: nothing was declared, so there is nothing to verify
+// the received bytes against.
+func declaredLength(resp *fhttp.Response, status int) (int64, bool) {
+	if status == fhttp.StatusPartialContent {
+		if total := contentRangeTotal(resp.Header.Get("Content-Range")); total > 0 {
+			return total, true
+		}
+	}
+	v := strings.TrimSpace(resp.Header.Get("Content-Length"))
+	if v == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// contentRangeTotal parses the total after the last "/" of a
+// "bytes 0-N/TOTAL" Content-Range value; 0 when the header carries no "/",
+// ends in "*" or is not a non-negative integer. It mirrors the media
+// package's contentRangeTotal (video_probe.py's parser); the two cannot
+// share code because media imports httpx, never the other way round.
+func contentRangeTotal(v string) int64 {
+	i := strings.LastIndex(v, "/")
+	if i < 0 {
+		return 0
+	}
+	tail := strings.TrimSpace(v[i+1:])
+	if tail == "" || tail == "*" {
+		return 0
+	}
+	n, err := strconv.ParseInt(tail, 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
 // send is the shared GET/POST pipeline: pacing, the retry/classification loop
 // and body reading. The request is rebuilt per attempt so a POST body (a
 // one-shot reader once consumed) is resent whole on retries. The response's
@@ -322,24 +519,9 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 			return respBody, status, map[string][]string(resp.Header), nil
 
 		case status == fhttp.StatusTooManyRequests:
-			delay, valid := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
-			if retryAfterUsed {
-				e := &nitter.Error{
-					Kind: nitter.KindRateLimited,
-					Op:   op,
-					Err:  errors.New("instance returned HTTP 429 again after honoring Retry-After"),
-				}
-				if valid {
-					e.RetryAfter = &delay
-				}
-				return nil, 0, nil, e
-			}
-			if !valid {
-				return nil, 0, nil, &nitter.Error{
-					Kind: nitter.KindRateLimited,
-					Op:   op,
-					Err:  errors.New("instance returned HTTP 429 without a usable Retry-After"),
-				}
+			delay, terr := c.tooManyRequests(op, resp, retryAfterUsed)
+			if terr != nil {
+				return nil, 0, nil, terr
 			}
 			retryAfterUsed = true
 			if werr := c.wait(ctx, delay, "retry-after"); werr != nil {
@@ -462,6 +644,35 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// tooManyRequests decides the action for a 429 response, shared by the
+// buffered pipeline (send) and the streaming one (Download): honoring the
+// response's Retry-After exactly once returns (delay, nil) — the caller
+// waits and retries; every other shape is terminal — the returned
+// KindRateLimited error either carries the final response's Retry-After (a
+// 429 after an honored wait) or reports an unusable one (no wait, no retry).
+func (c *Client) tooManyRequests(op string, resp *fhttp.Response, retryAfterUsed bool) (time.Duration, *nitter.Error) {
+	delay, valid := parseRetryAfter(resp.Header.Get("Retry-After"), c.now())
+	if retryAfterUsed {
+		e := &nitter.Error{
+			Kind: nitter.KindRateLimited,
+			Op:   op,
+			Err:  errors.New("instance returned HTTP 429 again after honoring Retry-After"),
+		}
+		if valid {
+			e.RetryAfter = &delay
+		}
+		return 0, e
+	}
+	if !valid {
+		return 0, &nitter.Error{
+			Kind: nitter.KindRateLimited,
+			Op:   op,
+			Err:  errors.New("instance returned HTTP 429 without a usable Retry-After"),
+		}
+	}
+	return delay, nil
 }
 
 // parseRetryAfter parses a Retry-After header value: a delay in seconds or
