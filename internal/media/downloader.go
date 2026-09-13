@@ -36,6 +36,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -72,7 +73,7 @@ type Downloader struct {
 	HTTP *httpx.Client
 }
 
-// DownloadResult reports one completed FetchToFile.
+// DownloadResult reports one completed FetchToFile or FetchToFileAuto.
 type DownloadResult struct {
 	// URL is the URL that was downloaded. The command layer's fallback
 	// loop stamps whichever candidate actually succeeded.
@@ -81,6 +82,50 @@ type DownloadResult struct {
 	Bytes int64
 	// SHA256 is the lowercase hex digest, computed streaming while writing.
 	SHA256 string
+	// Path is the final on-disk path the bytes were renamed to. FetchToFile
+	// reports its finalPath argument; FetchToFileAuto reports the path with
+	// the Content-Type-derived extension appended (ruling R-M9-4) — the only
+	// place the derived name exists.
+	Path string
+}
+
+// existsError marks the refusal FetchToFile and FetchToFileAuto raise when
+// the final target already exists and force is false: it Is-matches the
+// ErrFileExists sentinel (the errors.Is contract the command layer relies
+// on) and carries the final path for callers that must name it — the
+// --on-exists skip mode; for the auto-extension path the path exists nowhere
+// else, since only the response's Content-Type decided it. The Error() text
+// is the sentinel's message plus the path, exactly what the pre-structure
+// wrap produced.
+type existsError struct {
+	path string
+}
+
+func (e *existsError) Error() string { return ErrFileExists.Error() + ": " + e.path }
+func (e *existsError) Is(target error) bool {
+	return target == ErrFileExists
+}
+func (e *existsError) Path() string { return e.path }
+
+// contentTypeExts maps the Content-Type values the media CDNs serve to the
+// file extension the auto path derives (ruling R-M9-4). Anything else falls
+// back to the caller's kind-based default.
+var contentTypeExts = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/webp": ".webp",
+	"image/gif":  ".gif",
+	"video/mp4":  ".mp4",
+}
+
+// extFromContentType derives the auto path's extension from a response's
+// Content-Type header value (parameters after ';' are stripped, case
+// folded); "" when the type is not one the mapping knows.
+func extFromContentType(contentType string) string {
+	if i := strings.IndexByte(contentType, ';'); i >= 0 {
+		contentType = contentType[:i]
+	}
+	return contentTypeExts[strings.ToLower(strings.TrimSpace(contentType))]
 }
 
 // FetchToFile downloads url to finalPath atomically: the response body
@@ -110,7 +155,7 @@ func (d *Downloader) FetchToFile(ctx context.Context, url, finalPath string, for
 	if !force {
 		switch _, err := os.Stat(finalPath); {
 		case err == nil:
-			return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "%w: %s", ErrFileExists, finalPath)
+			return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "%w", &existsError{path: finalPath})
 		case !errors.Is(err, os.ErrNotExist):
 			return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "stat %s: %w", finalPath, err)
 		}
@@ -145,7 +190,88 @@ func (d *Downloader) FetchToFile(ctx context.Context, url, finalPath string, for
 		_ = os.Remove(tmpName)
 		return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "rename to %s: %w", finalPath, err)
 	}
-	return DownloadResult{URL: url, Bytes: written, SHA256: hex.EncodeToString(hash.Sum(nil))}, nil
+	return DownloadResult{URL: url, Bytes: written, SHA256: hex.EncodeToString(hash.Sum(nil)), Path: finalPath}, nil
+}
+
+// FetchToFileAuto downloads url to a path it derives itself — the write half
+// of ruling R-M9-4, for planned files whose URL carries no extension. The
+// body streams into a temp file in basePath's directory (hashed on the way,
+// exactly like FetchToFile), the file extension is derived from the
+// response's Content-Type (image/jpeg→.jpg, image/png→.png, image/webp→.webp,
+// image/gif→.gif, video/mp4→.mp4; anything else falls back to defaultExt,
+// the caller's kind-based default — .jpg for images and covers, .mp4 for
+// videos — which is normalized to carry its leading dot), and the completed
+// temp file is renamed to basePath+ext. The result reports the derived final
+// path in Path: the command layer cannot recompute it.
+//
+// The extension is only knowable from the response, so — unlike FetchToFile —
+// the download happens before the exists check: an existing basePath+ext
+// still fails with an error wrapping ErrFileExists (kind KindLocalState,
+// carrying the derived path) unless force is set, and the temp file is
+// removed either way. Everything else mirrors FetchToFile: transport
+// classification verbatim, no directory creation, failures leave no residue.
+// An unknown Content-Type together with an empty defaultExt cannot name the
+// file and fails as KindLocalState rather than silently writing an
+// extension-less file.
+func (d *Downloader) FetchToFileAuto(ctx context.Context, url, basePath, defaultExt string, force bool) (DownloadResult, error) {
+	if err := ctx.Err(); err != nil {
+		return DownloadResult{}, nitter.Errorf(nitter.KindUnavailable, opMediaDownload, "download not sent: %w", err)
+	}
+	if d.HTTP == nil {
+		return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "no transport wired into the media downloader")
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(basePath), downloadTempPattern)
+	if err != nil {
+		return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	// discard removes the temp file and returns err unchanged: every failure
+	// past CreateTemp leaves no residue behind.
+	discard := func(err error) (DownloadResult, error) {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return DownloadResult{}, err
+	}
+
+	hash := sha256.New()
+	written, header, err := d.HTTP.DownloadMeta(ctx, url, io.MultiWriter(tmp, hash), downloadHeaders(url))
+	if err != nil {
+		return discard(err)
+	}
+	ext := extFromContentType(http.Header(header).Get("Content-Type"))
+	if ext == "" {
+		ext = strings.TrimSpace(defaultExt)
+		if ext == "" {
+			return discard(nitter.Errorf(nitter.KindLocalState, opMediaDownload,
+				"no extension derivable from the response's Content-Type and no default extension given for %s", basePath))
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+	}
+	finalPath := basePath + ext
+
+	if !force {
+		switch _, err := os.Stat(finalPath); {
+		case err == nil:
+			return discard(nitter.Errorf(nitter.KindLocalState, opMediaDownload, "%w", &existsError{path: finalPath}))
+		case !errors.Is(err, os.ErrNotExist):
+			return discard(nitter.Errorf(nitter.KindLocalState, opMediaDownload, "stat %s: %w", finalPath, err))
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		return discard(nitter.Errorf(nitter.KindLocalState, opMediaDownload, "sync temp file: %w", err))
+	}
+	if err := tmp.Close(); err != nil {
+		return discard(nitter.Errorf(nitter.KindLocalState, opMediaDownload, "close temp file: %w", err))
+	}
+	if err := os.Rename(tmpName, finalPath); err != nil {
+		_ = os.Remove(tmpName)
+		return DownloadResult{}, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "rename to %s: %w", finalPath, err)
+	}
+	return DownloadResult{URL: url, Bytes: written, SHA256: hex.EncodeToString(hash.Sum(nil)), Path: finalPath}, nil
 }
 
 // downloadHeaders is the header set of a media download GET: the plugin's

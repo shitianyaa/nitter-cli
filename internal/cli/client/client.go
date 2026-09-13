@@ -104,6 +104,64 @@ func ParseStatusRef(s string) (id, user string, err error) {
 	return appapi.ParseStatusRef(s)
 }
 
+// PlannedFile re-exports media.PlannedFile — one file a download plan will
+// fetch — so the download command can consume DownloadPlanner's output
+// without importing internal/media (R11 boundary; same re-export precedent
+// as TestOptions).
+type PlannedFile = media.PlannedFile
+
+// ErrFileExists re-exports media.ErrFileExists: the download command detects
+// an existing target with errors.Is to apply --on-exists refuse/skip without
+// importing internal/media (R11 boundary; same re-export precedent).
+var ErrFileExists = media.ErrFileExists
+
+// MediaDownloader is the media-download capability a command consumes: one
+// URL, one target file, streaming over the shared transport. Parameters are
+// primitives and the result is the sdk DownloadRecord — no internal/media
+// type reaches a command package (R11; the adapter converts). Backed by
+// *media.Downloader through downloaderAdapter.
+//
+//   - FetchToFile writes finalPath (the extension is the caller's: the plan
+//     carried one). An existing finalPath fails with an error wrapping
+//     ErrFileExists unless force is set; force overwrites through the same
+//     atomic temp-then-rename flow.
+//   - FetchToFileAuto is the extension-derivation path for planned files
+//     whose URL carries none (ruling R-M9-4): the extension comes from the
+//     response's Content-Type, falling back to defaultExt (the caller's
+//     kind-based default), and the record's Path carries the derived final
+//     path — the only place it exists.
+type MediaDownloader interface {
+	FetchToFile(ctx context.Context, url, finalPath string, force bool) (nitter.DownloadRecord, error)
+	FetchToFileAuto(ctx context.Context, url, basePath, defaultExt string, force bool) (nitter.DownloadRecord, error)
+}
+
+// DownloadPlanner is the download-planning capability a command consumes:
+// media.PlanDownload behind the interface (R11 — the command package never
+// imports internal/media). Backed by planAdapter.
+type DownloadPlanner interface {
+	PlanDownload(refID string, res []nitter.MediaResolution, quality, kindFilter string) ([]PlannedFile, error)
+}
+
+// ExistsPath extracts the already-existing final path a download existence
+// refusal carries, reporting whether the error is one (errors.Is
+// ErrFileExists) AND names its path. The --on-exists skip mode needs the
+// path to stat the on-disk size: for the auto-extension path the derived
+// path exists nowhere else, since only the response's Content-Type decided
+// it.
+func ExistsPath(err error) (string, bool) {
+	if !errors.Is(err, ErrFileExists) {
+		return "", false
+	}
+	var pe interface {
+		error
+		Path() string
+	}
+	if errors.As(err, &pe) {
+		return pe.Path(), true
+	}
+	return "", false
+}
+
 // Wiring carries everything a command needs to acquire data, built once from
 // persistent flags + settings. Transport, Chooser and AppAPI share one
 // composition: the appapi client wraps the same transport and clock, and its
@@ -209,6 +267,49 @@ func (w *Wiring) Media() MediaResolver {
 		now = time.Now
 	}
 	return mediaAdapter{res: &media.Resolver{HTTP: w.Transport, Now: now}, nitterBase: w.nitterBase}
+}
+
+// downloaderAdapter bridges the record-returning MediaDownloader to the
+// internal/media downloader's DownloadResult (a four-field conversion; no
+// media type crosses to a command package).
+type downloaderAdapter struct {
+	d *media.Downloader
+}
+
+func (a downloaderAdapter) FetchToFile(ctx context.Context, url, finalPath string, force bool) (nitter.DownloadRecord, error) {
+	res, err := a.d.FetchToFile(ctx, url, finalPath, force)
+	return downloadRecord(res), err
+}
+
+func (a downloaderAdapter) FetchToFileAuto(ctx context.Context, url, basePath, defaultExt string, force bool) (nitter.DownloadRecord, error) {
+	res, err := a.d.FetchToFileAuto(ctx, url, basePath, defaultExt, force)
+	return downloadRecord(res), err
+}
+
+func downloadRecord(res media.DownloadResult) nitter.DownloadRecord {
+	return nitter.DownloadRecord{Path: res.Path, URL: res.URL, Bytes: res.Bytes, SHA256: res.SHA256}
+}
+
+// Downloader returns the media-download capability as the narrow interface
+// commands consume (R11: commands never import internal/media). The
+// downloader shares the wiring's transport, so downloads ride the same
+// pacing budget and proxy as resolution and probes.
+func (w *Wiring) Downloader() MediaDownloader {
+	return downloaderAdapter{d: &media.Downloader{HTTP: w.Transport}}
+}
+
+// planAdapter backs DownloadPlanner with media.PlanDownload (a pure
+// function, so the adapter is stateless).
+type planAdapter struct{}
+
+func (planAdapter) PlanDownload(refID string, res []nitter.MediaResolution, quality, kindFilter string) ([]PlannedFile, error) {
+	return media.PlanDownload(refID, res, quality, kindFilter)
+}
+
+// Planner returns the download-planning capability as the narrow interface
+// commands consume (R11: commands never import internal/media).
+func (w *Wiring) Planner() DownloadPlanner {
+	return planAdapter{}
 }
 
 // Build composes the wiring.

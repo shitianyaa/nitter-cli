@@ -16,6 +16,7 @@ import (
 
 	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/config"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/download"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/get"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/instances"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/list"
@@ -102,6 +103,7 @@ func New(s *Streams) *cobra.Command {
 	root.AddCommand(list.New(s))
 	root.AddCommand(get.New(s))
 	root.AddCommand(media.New(s))
+	root.AddCommand(download.New(s))
 	root.AddCommand(watch.New(s))
 	root.AddCommand(seen.New(s))
 	root.AddCommand(update.New(s))

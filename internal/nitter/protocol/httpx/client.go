@@ -299,11 +299,25 @@ func (c *Client) GetMeta(ctx context.Context, url string, headers map[string]str
 // written is the total stream size; on error it reports how many bytes
 // reached w before the failure — they cannot be recalled.
 func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers map[string]string) (written int64, err error) {
+	written, _, err = c.DownloadMeta(ctx, url, w, headers)
+	return written, err
+}
+
+// DownloadMeta performs Download's exact streaming GET (same pacing, retry,
+// 429 and classification contract, same error surface) and additionally
+// surfaces the response headers of the streamed response — as a plain
+// map[string][]string — for callers that must read one: the media
+// downloader's auto-extension path derives the file extension from the
+// response's Content-Type (the GetMeta precedent: Download cannot carry
+// headers, and a second request would re-download the body). On any error
+// the headers are nil and the written count reports how many bytes reached w
+// before the failure.
+func (c *Client) DownloadMeta(ctx context.Context, url string, w io.Writer, headers map[string]string) (written int64, header map[string][]string, err error) {
 	if err := ctx.Err(); err != nil {
-		return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "request not sent: %w", err)
+		return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "request not sent: %w", err)
 	}
 	if err := c.pace(ctx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	// retryAfterUsed guards the single 429 wait-and-retry, exactly like send.
@@ -313,7 +327,7 @@ func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers 
 		if err != nil {
 			// Parse failures carry the raw URL in their message — sanitize
 			// before wrapping (sdk redaction contract).
-			return 0, nitter.Errorf(nitter.KindInvalidArg, opDownload, "build request: %w", sanitizeTransportErr(err))
+			return 0, nil, nitter.Errorf(nitter.KindInvalidArg, opDownload, "build request: %w", sanitizeTransportErr(err))
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -324,11 +338,11 @@ func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers 
 		if err != nil {
 			if attempt < c.retryAttempts {
 				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
-					return 0, werr
+					return 0, nil, werr
 				}
 				continue
 			}
-			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload,
+			return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload,
 				"request failed after %d attempt(s): %w", attempt+1, sanitizeTransportErr(err))
 		}
 
@@ -340,46 +354,46 @@ func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers 
 		case status == fhttp.StatusTooManyRequests:
 			// Headers stay readable after the body is closed.
 			if cerr := closeBody(resp); cerr != nil {
-				return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
+				return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
 			}
 			delay, terr := c.tooManyRequests(opDownload, resp, retryAfterUsed)
 			if terr != nil {
-				return 0, terr
+				return 0, nil, terr
 			}
 			retryAfterUsed = true
 			if werr := c.wait(ctx, delay, "retry-after"); werr != nil {
-				return 0, werr
+				return 0, nil, werr
 			}
 			continue
 
 		case status == fhttp.StatusNotFound:
 			closeBody(resp)
-			return 0, nitter.Errorf(nitter.KindNotFound, opDownload, "instance returned HTTP 404")
+			return 0, nil, nitter.Errorf(nitter.KindNotFound, opDownload, "instance returned HTTP 404")
 
 		case status == fhttp.StatusUnauthorized || status == fhttp.StatusForbidden:
 			closeBody(resp)
-			return 0, nitter.Errorf(nitter.KindChallenge, opDownload, "instance returned HTTP %d", status)
+			return 0, nil, nitter.Errorf(nitter.KindChallenge, opDownload, "instance returned HTTP %d", status)
 
 		case status >= 400 && status < 500:
 			closeBody(resp)
-			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
+			return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
 
 		case status >= 500:
 			closeBody(resp)
 			if attempt < c.retryAttempts {
 				if werr := c.wait(ctx, c.retryDelay*time.Duration(attempt+1), "backoff"); werr != nil {
-					return 0, werr
+					return 0, nil, werr
 				}
 				continue
 			}
-			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload,
+			return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload,
 				"instance returned HTTP %d after %d attempt(s)", status, attempt+1)
 
 		default:
 			// 1xx, 3xx (redirects are not followed) and any other 2xx shape:
 			// not a streamable response; retrying cannot change the shape.
 			closeBody(resp)
-			return 0, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
+			return 0, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "instance returned HTTP %d", status)
 		}
 	}
 }
@@ -387,8 +401,10 @@ func (c *Client) Download(ctx context.Context, url string, w io.Writer, headers 
 // streamResponseBody copies one 200/206 response body to w and verifies the
 // declared size (see Download's contract). The body is closed on every path;
 // on a clean stream the close error is surfaced like the buffered path does,
-// on a failed stream the original (sanitized) error wins.
-func streamResponseBody(resp *fhttp.Response, w io.Writer, status int) (int64, error) {
+// on a failed stream the original (sanitized) error wins. The response
+// headers ride along for DownloadMeta (headers stay readable after the body
+// is closed); they are nil on every error path.
+func streamResponseBody(resp *fhttp.Response, w io.Writer, status int) (int64, map[string][]string, error) {
 	src := io.Reader(resp.Body)
 	if src == nil {
 		src = strings.NewReader("")
@@ -396,16 +412,16 @@ func streamResponseBody(resp *fhttp.Response, w io.Writer, status int) (int64, e
 	n, err := io.Copy(w, src)
 	if err != nil {
 		closeBody(resp)
-		return n, nitter.Errorf(nitter.KindUnavailable, opDownload, "stream interrupted: %w", sanitizeTransportErr(err))
+		return n, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "stream interrupted: %w", sanitizeTransportErr(err))
 	}
 	if cerr := closeBody(resp); cerr != nil {
-		return n, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
+		return n, nil, nitter.Errorf(nitter.KindUnavailable, opDownload, "close response body: %w", sanitizeTransportErr(cerr))
 	}
 	if expected, ok := declaredLength(resp, status); ok && n != expected {
-		return n, nitter.Errorf(nitter.KindMalformed, opDownload,
+		return n, nil, nitter.Errorf(nitter.KindMalformed, opDownload,
 			"response size mismatch: received %d bytes, expected %d", n, expected)
 	}
-	return n, nil
+	return n, map[string][]string(resp.Header), nil
 }
 
 // closeBody closes a response body, tolerating a nil body (the buffered

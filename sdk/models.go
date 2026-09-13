@@ -4,9 +4,11 @@
 // unconditionally (no omitempty) so consumers can rely on key presence in
 // every line; empty values render as zero JSON values.
 //
-// The one exception is the media-resolution pair below (MediaVariant,
-// MediaResolution): their sparse optional fields use omitempty, so key
-// presence is guaranteed only for MediaResolution's ref/source/kind/url.
+// The two exceptions are the media-resolution pair below (MediaVariant,
+// MediaResolution) and DownloadRecord's sha256: their sparse optional fields
+// use omitempty, so key presence is guaranteed only for MediaResolution's
+// ref/source/kind/url and DownloadRecord's ref/path/kind/source/url/bytes
+// (the sha256 omission is the documented --on-exists skip marker).
 //
 // Producers filling these structs must not fabricate data a source does not
 // carry: leave fields at their zero value instead (the RSS and HTML parse
@@ -151,4 +153,27 @@ type MediaResolution struct {
 	// Variants lists every downloadable encoding the source offered for a
 	// video or GIF entry, in upstream order; empty for images.
 	Variants []MediaVariant `json:"variants,omitempty"`
+}
+
+// DownloadRecord is one file `nitter download` wrote to disk (or found
+// already on disk under --on-exists skip). It extends the NDJSON data
+// contract additively. Ref is the raw input reference the file belongs to;
+// Path is the absolute on-disk path (the download envelope's id); Kind is
+// the planned file's media kind ("image", "video", "gif" or "cover");
+// Source names the strategy that resolved the status; URL is the direct link
+// that was downloaded (empty on a skip row — nothing was downloaded); Bytes
+// is the streamed size in bytes (on a skip row: the existing file's actual
+// on-disk size); SHA256 is the lowercase hex digest of the streamed bytes.
+//
+// SHA256 is the one sparse field of this struct: a skip row reports no
+// digest for a file the command did not download (nothing is fabricated), so
+// its sha256 key is omitted from the JSON — the documented skip marker.
+type DownloadRecord struct {
+	Ref    string `json:"ref"`
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+	URL    string `json:"url"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256,omitempty"`
 }

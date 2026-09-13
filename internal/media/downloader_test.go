@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -355,5 +356,232 @@ func TestFetchToFileMissingParentDirIsLocalState(t *testing.T) {
 	}
 	if n := len(leftoverTemps(t, dir)); n != 0 {
 		t.Errorf("%d temp file(s) left behind", n)
+	}
+}
+
+// --- FetchToFileAuto (M9 Task 4, ruling R-M9-4) -----------------------------
+
+// autoSrv serves body under one route with the given Content-Type and
+// records every request path. The map is captured by reference so tests can
+// fill routes after the server exists.
+type autoSrv struct {
+	mu        sync.Mutex
+	srv       *httptest.Server
+	seen      []string
+	responses map[string]autoResponse
+}
+
+type autoResponse struct {
+	body        string
+	contentType string
+	status      int
+}
+
+func (a *autoSrv) requests() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.seen...)
+}
+
+func newAutoSrv(t *testing.T) *autoSrv {
+	t.Helper()
+	a := &autoSrv{responses: map[string]autoResponse{}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.seen = append(a.seen, r.URL.Path)
+		resp, ok := a.responses[r.URL.Path]
+		a.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if resp.contentType != "" {
+			w.Header().Set("Content-Type", resp.contentType)
+		}
+		if resp.status != 0 {
+			w.WriteHeader(resp.status)
+		}
+		_, _ = io.WriteString(w, resp.body)
+	})
+	a.srv = httptest.NewServer(mux)
+	t.Cleanup(a.srv.Close)
+	return a
+}
+
+// existsPathOf extracts the final path a download existence refusal carries
+// (the structural accessor the CLI wiring re-exports for the --on-exists
+// skip mode).
+type existsPathOf interface {
+	error
+	Path() string
+}
+
+func TestFetchToFileAutoDerivesExtensionFromContentType(t *testing.T) {
+	// R-M9-4: when the plan carries no extension, the response's
+	// Content-Type decides the file extension; the result names the final
+	// path it derived.
+	for _, tc := range []struct{ contentType, wantExt string }{
+		{"image/jpeg", ".jpg"},
+		{"image/png", ".png"},
+		{"image/webp", ".webp"},
+		{"image/gif", ".gif"},
+		{"video/mp4", ".mp4"},
+		{"image/jpeg; charset=binary", ".jpg"}, // parameters stripped
+	} {
+		t.Run(tc.contentType, func(t *testing.T) {
+			srv := newAutoSrv(t)
+			srv.responses["/photo"] = autoResponse{body: "bytes", contentType: tc.contentType}
+			dir := t.TempDir()
+			res, err := newTestDownloader(t).FetchToFileAuto(context.Background(),
+				srv.srv.URL+"/photo", filepath.Join(dir, "20700-1"), ".jpg", false)
+			if err != nil {
+				t.Fatalf("FetchToFileAuto: %v", err)
+			}
+			wantPath := filepath.Join(dir, "20700-1") + tc.wantExt
+			if res.Path != wantPath {
+				t.Errorf("Path = %q, want %q", res.Path, wantPath)
+			}
+			if res.Bytes != 5 || res.SHA256 != wantSHA([]byte("bytes")) || res.URL != srv.srv.URL+"/photo" {
+				t.Errorf("result = %+v, want the served bytes hashed", res)
+			}
+			if got, rerr := os.ReadFile(wantPath); rerr != nil || string(got) != "bytes" {
+				t.Errorf("file = %q (%v), want the streamed bytes at the derived path", got, rerr)
+			}
+			if n := len(leftoverTemps(t, dir)); n != 0 {
+				t.Errorf("%d temp file(s) left behind", n)
+			}
+		})
+	}
+}
+
+func TestFetchToFileAutoUnknownContentTypeFallsBackToDefault(t *testing.T) {
+	// An unlisted Content-Type falls back to the caller's kind-based default
+	// (.jpg images/covers, .mp4 videos — the command layer derives it from
+	// PlannedFile.Kind). A default without its leading dot is normalized.
+	srv := newAutoSrv(t)
+	srv.responses["/clip"] = autoResponse{body: "mp4", contentType: "application/octet-stream"}
+	dir := t.TempDir()
+	res, err := newTestDownloader(t).FetchToFileAuto(context.Background(),
+		srv.srv.URL+"/clip", filepath.Join(dir, "20700-1"), ".mp4", false)
+	if err != nil {
+		t.Fatalf("FetchToFileAuto: %v", err)
+	}
+	want := filepath.Join(dir, "20700-1.mp4")
+	if res.Path != want {
+		t.Errorf("Path = %q, want %q", res.Path, want)
+	}
+	if _, rerr := os.Stat(want); rerr != nil {
+		t.Errorf("file missing at the default extension: %v", rerr)
+	}
+
+	res, err = newTestDownloader(t).FetchToFileAuto(context.Background(),
+		srv.srv.URL+"/clip", filepath.Join(dir, "20700-2"), "mp4", false)
+	if err != nil {
+		t.Fatalf("FetchToFileAuto (dotless default): %v", err)
+	}
+	if res.Path != filepath.Join(dir, "20700-2.mp4") {
+		t.Errorf("Path = %q, want the dotless default normalized to .mp4", res.Path)
+	}
+}
+
+func TestFetchToFileAutoNoDefaultExtensionIsLocalState(t *testing.T) {
+	// No silent extension-less file: an unknown Content-Type and an empty
+	// default cannot name the file, so the call fails.
+	srv := newAutoSrv(t)
+	srv.responses["/x"] = autoResponse{body: "mystery", contentType: "weird/type"}
+	dir := t.TempDir()
+	_, err := newTestDownloader(t).FetchToFileAuto(context.Background(),
+		srv.srv.URL+"/x", filepath.Join(dir, "20700-1"), "", false)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
+		t.Fatalf("error = %v (%T), want kind %q", err, err, nitter.KindLocalState)
+	}
+	if n := len(leftoverTemps(t, dir)); n != 0 {
+		t.Errorf("%d temp file(s) left behind", n)
+	}
+}
+
+func TestFetchToFileAutoRefusesExistingWithoutForce(t *testing.T) {
+	// The derived final path exists and force is false: the refusal wraps
+	// ErrFileExists (kind local_state) and CARRIES the derived path — the
+	// only place it exists, since the Content-Type decided it. The temp
+	// residue is removed and the existing file is untouched. Per R-M9-4 the
+	// extension is only knowable from the response, so the download itself
+	// has happened by then.
+	srv := newAutoSrv(t)
+	srv.responses["/photo"] = autoResponse{body: "fresh", contentType: "image/jpeg"}
+	dir := t.TempDir()
+	base := filepath.Join(dir, "20700-1")
+	existing := base + ".jpg"
+	if err := os.WriteFile(existing, []byte("keep me"), 0o644); err != nil {
+		t.Fatalf("seed existing file: %v", err)
+	}
+	_, err := newTestDownloader(t).FetchToFileAuto(context.Background(), srv.srv.URL+"/photo", base, ".jpg", false)
+	if !errors.Is(err, ErrFileExists) {
+		t.Fatalf("error = %v, want it to wrap ErrFileExists", err)
+	}
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
+		t.Errorf("error = %v, want kind %q", err, nitter.KindLocalState)
+	}
+	var pe existsPathOf
+	if !errors.As(err, &pe) || pe.Path() != existing {
+		t.Errorf("error = %v, want it to carry the derived path %q", err, existing)
+	}
+	if got, rerr := os.ReadFile(existing); rerr != nil || string(got) != "keep me" {
+		t.Errorf("existing file changed: %q (%v)", got, rerr)
+	}
+	if n := len(leftoverTemps(t, dir)); n != 0 {
+		t.Errorf("%d temp file(s) left behind", n)
+	}
+	if got := srv.requests(); len(got) != 1 {
+		t.Errorf("requests = %v, want exactly the one download (the extension needs the response)", got)
+	}
+}
+
+func TestFetchToFileAutoForceOverwrites(t *testing.T) {
+	srv := newAutoSrv(t)
+	srv.responses["/photo"] = autoResponse{body: "fresh bytes", contentType: "image/png"}
+	dir := t.TempDir()
+	final := filepath.Join(dir, "20700-1.png")
+	if err := os.WriteFile(final, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("seed existing file: %v", err)
+	}
+	res, err := newTestDownloader(t).FetchToFileAuto(context.Background(), srv.srv.URL+"/photo", filepath.Join(dir, "20700-1"), ".png", true)
+	if err != nil {
+		t.Fatalf("FetchToFileAuto(force): %v", err)
+	}
+	if got, rerr := os.ReadFile(final); rerr != nil || string(got) != "fresh bytes" {
+		t.Errorf("file = %q (%v), want the overwrite", got, rerr)
+	}
+	if res.Bytes != int64(len("fresh bytes")) {
+		t.Errorf("Bytes = %d, want %d", res.Bytes, len("fresh bytes"))
+	}
+	if n := len(leftoverTemps(t, dir)); n != 0 {
+		t.Errorf("%d temp file(s) left behind", n)
+	}
+}
+
+func TestFetchToFileExistsErrorCarriesPath(t *testing.T) {
+	// The plain FetchToFile existence refusal upgrades to the path-carrying
+	// error too (same wire text, structured path): the skip mode needs it
+	// without parsing error strings.
+	srv := newAutoSrv(t)
+	dir := t.TempDir()
+	final := filepath.Join(dir, "photo.jpg")
+	if err := os.WriteFile(final, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, err := newTestDownloader(t).FetchToFile(context.Background(), srv.srv.URL+"/x", final, false)
+	if !errors.Is(err, ErrFileExists) {
+		t.Fatalf("error = %v, want ErrFileExists", err)
+	}
+	var pe existsPathOf
+	if !errors.As(err, &pe) || pe.Path() != final {
+		t.Errorf("error = %v, want it to carry path %q", err, final)
+	}
+	if n := len(srv.requests()); n != 0 {
+		t.Errorf("requests = %d, want 0 (exists is decided before any network I/O)", n)
 	}
 }

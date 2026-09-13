@@ -2,9 +2,15 @@ package client_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +252,74 @@ func neutralizeEnv(t *testing.T) {
 		"http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
+	}
+}
+
+// TestDownloadCapability passes the download capabilities through the wiring:
+// MediaDownloader streams one URL to disk over the shared transport and
+// reports the final path, and DownloadPlanner projects a resolution into its
+// plan (R11: the command packages consume both through these interfaces
+// only, so the tests exercise them exactly as the commands will).
+func TestDownloadCapability(t *testing.T) {
+	body := "video-bytes"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	w, err := client.Build(&invocation.RootOptions{}, validCfg(), time.Now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	final := filepath.Join(t.TempDir(), "100-1.mp4")
+	rec, err := w.Downloader().FetchToFile(context.Background(), srv.URL+"/x.mp4", final, false)
+	if err != nil {
+		t.Fatalf("Downloader().FetchToFile: %v", err)
+	}
+	if rec.Path != final || rec.URL != srv.URL+"/x.mp4" || rec.Bytes != int64(len(body)) {
+		t.Errorf("record = %+v, want the final path, the served URL and %d bytes", rec, len(body))
+	}
+	sum := sha256.Sum256([]byte(body))
+	if rec.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Errorf("SHA256 = %q, want the streamed digest", rec.SHA256)
+	}
+	if got, rerr := os.ReadFile(final); rerr != nil || string(got) != body {
+		t.Errorf("file = %q (%v), want the streamed bytes", got, rerr)
+	}
+
+	plan, err := w.Planner().PlanDownload("100", []nitter.MediaResolution{
+		{Kind: "video", URL: "https://video.twimg.com/x.mp4"},
+	}, "high", "")
+	if err != nil {
+		t.Fatalf("Planner().PlanDownload: %v", err)
+	}
+	if len(plan) != 1 || plan[0].StatusID != "100" || plan[0].Seq != "1" ||
+		plan[0].Kind != "video" || plan[0].Ext != ".mp4" || plan[0].URL != "https://video.twimg.com/x.mp4" {
+		t.Errorf("plan = %+v, want the single converged video file", plan)
+	}
+}
+
+// TestDownloaderExistsErrorCarriesPath pins the skip mode's seam: the
+// existence refusal wraps the re-exported ErrFileExists and carries the
+// already-existing final path (the auto-extension path derives it from the
+// response's Content-Type, so only the downloader knows it).
+func TestDownloaderExistsErrorCarriesPath(t *testing.T) {
+	w, err := client.Build(&invocation.RootOptions{}, validCfg(), time.Now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	final := filepath.Join(t.TempDir(), "photo.jpg")
+	if err := os.WriteFile(final, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("seed existing file: %v", err)
+	}
+	_, err = w.Downloader().FetchToFile(context.Background(), "https://cdn.test/x.jpg", final, false)
+	if !errors.Is(err, client.ErrFileExists) {
+		t.Fatalf("error = %v, want it to wrap client.ErrFileExists", err)
+	}
+	if p, ok := client.ExistsPath(err); !ok || p != final {
+		t.Errorf("ExistsPath = (%q, %v), want (%q, true)", p, ok, final)
 	}
 }

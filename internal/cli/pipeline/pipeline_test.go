@@ -8,6 +8,7 @@ import (
 
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
+	nitter "github.com/shitianyaa/nitter-cli/sdk"
 )
 
 func TestResolveOutputMode(t *testing.T) {
@@ -135,5 +136,62 @@ func TestWriteErrorEnvelopeEmptyInputOmitted(t *testing.T) {
 	want := `{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"nitter get","stage":"fetch","code":"no_input","message":"nothing matched"},"meta":{}}` + "\n"
 	if got := buf.String(); got != want {
 		t.Fatalf("error envelope bytes =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestWriteDownloadEnvelopeGolden pins the v1 wire shape of the download
+// record (M9 Task 4, additive kind): {schema,kind:"download",id,data,meta}
+// with id = the absolute on-disk path, the sdk DownloadRecord as data and
+// the raw input ref as meta.input. The kind value is frozen — additive-only.
+func TestWriteDownloadEnvelopeGolden(t *testing.T) {
+	var buf bytes.Buffer
+	env := pipeline.Envelope{
+		Schema: pipeline.Schema,
+		Kind:   pipeline.KindDownload,
+		ID:     "/tmp/out/100-1.mp4",
+		Data: nitter.DownloadRecord{
+			Ref:    "https://x.com/nasa/status/100",
+			Path:   "/tmp/out/100-1.mp4",
+			Kind:   "video",
+			Source: "nitter",
+			URL:    "https://cdn.test/x.mp4",
+			Bytes:  3,
+			SHA256: "ab12cd",
+		},
+		Meta: &pipeline.Meta{Input: "https://x.com/nasa/status/100"},
+	}
+	if err := pipeline.WriteEnvelope(&buf, env); err != nil {
+		t.Fatalf("WriteEnvelope: %v", err)
+	}
+	want := `{"schema":"nitter.pipeline/v1","kind":"download","id":"/tmp/out/100-1.mp4","data":{"ref":"https://x.com/nasa/status/100","path":"/tmp/out/100-1.mp4","kind":"video","source":"nitter","url":"https://cdn.test/x.mp4","bytes":3,"sha256":"ab12cd"},"meta":{"input":"https://x.com/nasa/status/100"}}` + "\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("download envelope bytes =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestWriteDownloadEnvelopeSkipRow pins the skip row's contract: the sha256
+// key is ABSENT (nothing was re-downloaded, no digest is fabricated) while
+// bytes carries the existing file's on-disk size.
+func TestWriteDownloadEnvelopeSkipRow(t *testing.T) {
+	var buf bytes.Buffer
+	env := pipeline.Envelope{
+		Schema: pipeline.Schema,
+		Kind:   pipeline.KindDownload,
+		ID:     "/tmp/out/100-1.jpg",
+		Data: nitter.DownloadRecord{
+			Ref:    "https://x.com/nasa/status/100",
+			Path:   "/tmp/out/100-1.jpg",
+			Kind:   "image",
+			Source: "nitter",
+			Bytes:  4096,
+		},
+		Meta: &pipeline.Meta{Input: "https://x.com/nasa/status/100"},
+	}
+	if err := pipeline.WriteEnvelope(&buf, env); err != nil {
+		t.Fatalf("WriteEnvelope: %v", err)
+	}
+	want := `{"schema":"nitter.pipeline/v1","kind":"download","id":"/tmp/out/100-1.jpg","data":{"ref":"https://x.com/nasa/status/100","path":"/tmp/out/100-1.jpg","kind":"image","source":"nitter","url":"","bytes":4096},"meta":{"input":"https://x.com/nasa/status/100"}}` + "\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("skip envelope bytes =\n%q\nwant\n%q", got, want)
 	}
 }
