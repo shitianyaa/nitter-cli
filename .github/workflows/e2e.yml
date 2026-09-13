@@ -13,14 +13,20 @@ on:
       - "docs/**"
       - "**/*.md"
       - "skills/**"
+      - "changelog/**"
   pull_request:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "skills/**"
+      - "changelog/**"
 
 permissions:
   contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:

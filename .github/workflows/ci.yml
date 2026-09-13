@@ -6,10 +6,24 @@ name: ci
 
 on:
   push:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "skills/**"
+      - "changelog/**"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "skills/**"
+      - "changelog/**"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:

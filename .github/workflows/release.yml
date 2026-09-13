@@ -19,7 +19,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -105,6 +105,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
