@@ -75,10 +75,10 @@ func TestReportSourceErrorCodeClassifiesSDKKind(t *testing.T) {
 // classification as the NDJSON envelope, nothing written to the streams.
 func TestReportSourceErrorCollectAppendsEntry(t *testing.T) {
 	src := watchengine.Source{Kind: watchengine.KindUser, Ref: "NASA"}
-	doc := &jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}
+	acc := &onceJSON{doc: jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}}
 	var out, errOut bytes.Buffer
 	s := &invocation.Streams{Out: &out, Err: &errOut}
-	opts := cycleOptions{collect: doc}
+	opts := cycleOptions{collect: acc}
 
 	err := fmt.Errorf("fetch user:NASA: %w", nitter.Errorf(nitter.KindRateLimited, "op", "slow down"))
 	if werr := reportSourceError(s, opts, src, src.Key(), err); werr != nil {
@@ -87,10 +87,10 @@ func TestReportSourceErrorCollectAppendsEntry(t *testing.T) {
 	if out.Len() != 0 || errOut.Len() != 0 {
 		t.Errorf("collect mode wrote to the streams: out %q err %q", out.String(), errOut.String())
 	}
-	if len(doc.Errors) != 1 {
-		t.Fatalf("errors = %v, want one entry", doc.Errors)
+	if len(acc.doc.Errors) != 1 {
+		t.Fatalf("errors = %v, want one entry", acc.doc.Errors)
 	}
-	entry := doc.Errors[0]
+	entry := acc.doc.Errors[0]
 	if entry.Ref != "user:NASA" || entry.Code != string(nitter.KindRateLimited) || entry.Message == "" {
 		t.Errorf("entry = %+v, want ref user:NASA / code rate_limited / a message", entry)
 	}

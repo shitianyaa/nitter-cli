@@ -218,6 +218,25 @@ type jsonDocument struct {
 	Errors []jsonErrorEntry `json:"errors"`
 }
 
+// pendingPut is one deferred state advance of --once --json mode: buffered
+// during the cycle and applied only after the document write succeeded, so
+// a failed or interrupted delivery leaves the state unadvanced and the next
+// round re-pushes (produce-then-persist, 宁重勿丢).
+type pendingPut struct {
+	key   string
+	state seen.SourceState
+}
+
+// onceJSON carries the --once --json accumulation: doc is the output
+// document (ruling R-M10-2 — bare Tweet objects plus one {ref, code,
+// message} entry per failed source; both slices initialized so an empty
+// cycle marshals as [], never null), pending the deferred per-source state
+// writes in cycle order.
+type onceJSON struct {
+	doc     jsonDocument
+	pending []pendingPut
+}
+
 // run executes the watch command: validate flags, resolve sources (argv,
 // else config), open the state store, build the wiring, then run one cycle
 // (--once) or the ticker loop.
@@ -225,7 +244,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	// --json is defined for --once only: one cycle IS one document. The
 	// resident loop is a stream of cycles — a "document" would be ambiguous
 	// (one per cycle? the whole run?) — so it stays rejected there.
-	var doc *jsonDocument
+	var acc *onceJSON
 	if opts.asJSON {
 		if opts.asNDJSON {
 			return invocation.Usagef("watch: --json and --ndjson are mutually exclusive")
@@ -233,14 +252,15 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		if !opts.once {
 			return invocation.Usagef("watch: --json requires --once; without it watch is a stream of cycles, not one JSON document (use --ndjson for the envelope stream)")
 		}
-		doc = &jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}
+		acc = &onceJSON{doc: jsonDocument{Tweets: []nitter.Tweet{}, Errors: []jsonErrorEntry{}}}
 	}
 	// watch keeps the pre-auto-NDJSON decision table: the M10 pipe default
 	// change is declared for the data commands only, so watch's default stays
 	// the text rows on a TTY AND in a pipe — --ndjson selects the envelope
 	// stream. ModeHuman and ModeText share the row rendering, so one literal
-	// covers both non-NDJSON modes. In --once --json mode the collector (doc)
-	// routes the records into the document instead of any stdout stream.
+	// covers both non-NDJSON modes. In --once --json mode the collector (acc)
+	// routes the records into the document and defers the state writes
+	// instead of any stdout stream.
 	mode := pipeline.ModeHuman
 	if opts.asNDJSON {
 		mode = pipeline.ModeNDJSON
@@ -311,7 +331,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		keepOverflow:    opts.maxNewOverflow == overflowKeep,
 		maxPages:        maxPages,
 		mode:            mode,
-		collect:         doc,
+		collect:         acc,
 		filters:         opts.filters,
 	}
 
@@ -322,12 +342,24 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 		}
 		if ctx.Err() != nil {
 			// Canceled mid-cycle (SIGINT): graceful exit wins over the
-			// failed-source summary (and over a partial document).
+			// failed-source summary (and over a partial document). The
+			// buffered state writes are dropped with the document — nothing
+			// was delivered, so the next round re-pushes (宁重勿丢).
 			return nil
 		}
-		if doc != nil {
-			if err := writeJSONDocument(s.Out, doc); err != nil {
+		if acc != nil {
+			if err := writeJSONDocument(s.Out, &acc.doc); err != nil {
 				return graceful(err)
+			}
+			// The document landed — only NOW advance the state
+			// (produce-then-persist): a state-write failure here is a real
+			// error (exit 1) whose tweets were delivered and whose
+			// un-advanced sources re-push next round, and the failed
+			// document write above left the state wholly untouched.
+			for _, p := range acc.pending {
+				if err := store.Put(p.key, p.state); err != nil {
+					return err
+				}
 			}
 		}
 		if failed > 0 {
@@ -409,9 +441,10 @@ type cycleOptions struct {
 	keepOverflow bool
 	maxPages     int
 	mode         pipeline.Mode
-	// collect routes the cycle's records into a --once --json document
-	// instead of the stdout stream (nil in every other mode).
-	collect *jsonDocument
+	// collect routes the cycle's records into a --once --json document and
+	// defers the per-source state writes until the document has landed
+	// (nil in every other mode).
+	collect *onceJSON
 	filters tweetfilter.Filters
 }
 
@@ -420,9 +453,11 @@ type cycleOptions struct {
 // abort the cycle — they are reported (a {ref, code, message} entry in the
 // --once --json document, an error envelope in NDJSON mode, an
 // "error: <key>: <message>" stderr line otherwise) and the source's state is
-// left untouched. A returned error is fatal for the whole watch run: a
-// state-store failure or a non-EPIPE stdout write failure. EPIPE is returned
-// as-is; the caller converts it to a graceful exit (pipeline.IsBrokenPipe).
+// left untouched. A returned error is fatal for the whole watch run: in the
+// streaming modes a state-store failure or a non-EPIPE stdout write failure
+// (--once --json mode buffers both the document and the state writes, so it
+// cannot fail here). EPIPE is returned as-is; the caller converts it to a
+// graceful exit (pipeline.IsBrokenPipe).
 func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *client.Wiring, sources []watchengine.Source, opts cycleOptions) (int, error) {
 	failed := 0
 	for _, src := range sources {
@@ -433,6 +468,17 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 		}
 		key := src.Key()
 		prev, _ := store.Get(key)
+		if opts.collect != nil {
+			// A duplicate argv source's earlier occurrence has its state
+			// buffered, not yet applied: the buffered state is the effective
+			// previous state, so duplicate sources dedup exactly like in the
+			// immediate-Put modes.
+			for _, p := range opts.collect.pending {
+				if p.key == key {
+					prev = p.state
+				}
+			}
+		}
 
 		tweets, instance, err := fetchSource(ctx, w, src, opts.maxPages)
 		if err != nil {
@@ -463,9 +509,12 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 			KeepOverflow:    opts.keepOverflow,
 		})
 
-		// Produce first, persist after (先产出后落盘): a write failure below
-		// returns before the Put, so the next round re-pushes this round's
-		// tweets — 宁重勿丢.
+		// Produce first, persist after (先产出后落盘): in the streaming modes a
+		// write failure below returns before the Put; in --once --json mode
+		// the Put is buffered and applied only after the document has
+		// landed. Either way a delivery or state-write failure leaves the
+		// state unadvanced, so the next round re-pushes this round's tweets
+		// — 宁重勿丢.
 		if len(res.Tweets) > 0 {
 			if werr := emitTweets(s, opts, res.Tweets, key, instance, fetchedAt); werr != nil {
 				return failed, werr
@@ -475,7 +524,9 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 		// (Result.State == prev) must not touch the file, so UpdatedAt
 		// stays an honest record of the last real advance.
 		if stateChanged(res.State, prev) {
-			if err := store.Put(key, res.State); err != nil {
+			if opts.collect != nil {
+				opts.collect.pending = append(opts.collect.pending, pendingPut{key: key, state: res.State})
+			} else if err := store.Put(key, res.State); err != nil {
 				return failed, err
 			}
 		}
@@ -528,7 +579,7 @@ func firstPageIDs(fetched []nitter.Tweet) []string {
 // Stderr writes ignore errors like everywhere else.
 func reportSourceError(s *invocation.Streams, opts cycleOptions, src watchengine.Source, key string, err error) error {
 	if opts.collect != nil {
-		opts.collect.Errors = append(opts.collect.Errors, jsonErrorEntry{
+		opts.collect.doc.Errors = append(opts.collect.doc.Errors, jsonErrorEntry{
 			Ref:     key,
 			Code:    errorCodeOf(err),
 			Message: err.Error(),
@@ -572,7 +623,7 @@ func writeJSONDocument(w io.Writer, doc *jsonDocument) error {
 // otherwise one TweetRow line each in the default modes.
 func emitTweets(s *invocation.Streams, opts cycleOptions, tweets []nitter.Tweet, key, instance, fetchedAt string) error {
 	if opts.collect != nil {
-		opts.collect.Tweets = append(opts.collect.Tweets, tweets...)
+		opts.collect.doc.Tweets = append(opts.collect.doc.Tweets, tweets...)
 		return nil
 	}
 	if opts.mode == pipeline.ModeNDJSON {

@@ -2,6 +2,7 @@ package watch_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,21 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	code := cli.Run(args, strings.NewReader(""), &out, &errOut)
 	return code, out.String(), errOut.String()
 }
+
+// runCLIStdout runs the CLI with a custom stdout writer (for output-failure
+// paths the always-succeeding strings.Builder harness cannot express) and
+// returns the exit code and stderr.
+func runCLIStdout(t *testing.T, stdout io.Writer, args ...string) (int, string) {
+	t.Helper()
+	var errOut strings.Builder
+	code := cli.Run(args, strings.NewReader(""), stdout, &errOut)
+	return code, errOut.String()
+}
+
+// failingWriter fails every write with a fixed non-EPIPE error.
+type failingWriter struct{ err error }
+
+func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
 
 // fakeNitter serves canned answers keyed by the exact request URI
 // (path?query). The answers are swappable between watch runs: a second cycle
@@ -855,6 +871,58 @@ func TestWatchOnceJSONReportsSourceErrors(t *testing.T) {
 	}
 	if doc.Errors[0].Ref != "user:Broken" || doc.Errors[0].Code != "upstream_unavailable" || doc.Errors[0].Message == "" {
 		t.Errorf("error entry = %+v, want ref user:Broken / code upstream_unavailable / a message", doc.Errors[0])
+	}
+}
+
+// TestWatchOnceJSONPersistsOnlyAfterTheDocumentLands pins the corrected
+// produce-then-persist ordering in --once --json mode: the per-source state
+// writes are buffered during the cycle and applied only after the document
+// write succeeded. A failing document write therefore leaves the state
+// wholly unadvanced (the next round re-pushes the cycle, 宁重勿丢), while a
+// successful run advances it.
+func TestWatchOnceJSONPersistsOnlyAfterTheDocumentLands(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101", "102")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+	seenPath := filepath.Join(stateDir, "seen.json")
+	args := []string{"watch", "user:NASA", "--once", "--json", "--include-existing", "--state-dir", stateDir}
+
+	// The document write fails (a non-EPIPE stdout failure exits 1): the
+	// tweets were NOT delivered, so the state must stay untouched — the next
+	// round re-pushes them.
+	code, errOut := runCLIStdout(t, &failingWriter{err: errors.New("stdout write failed")}, args...)
+	if code != 1 {
+		t.Fatalf("failing document write: exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "stdout write failed") {
+		t.Errorf("failing document write: stderr = %q, want the write failure reported", errOut)
+	}
+	if _, err := os.Stat(seenPath); !os.IsNotExist(err) {
+		t.Errorf("failing document write advanced the state (stat err = %v), want the store untouched", err)
+	}
+
+	// Control: the same run with a working stdout lands the document AND
+	// then advances the state.
+	code, out, errOut := runCLI(t, args...)
+	if code != 0 {
+		t.Fatalf("control: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var doc struct {
+		Tweets []map[string]any `json:"tweets"`
+		Errors []map[string]any `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("control: output is not one JSON document: %v\n%s", err, out)
+	}
+	if len(doc.Tweets) != 2 || doc.Tweets[0]["id"] != "101" || doc.Tweets[1]["id"] != "102" {
+		t.Errorf("control: tweets = %v, want the whole first fetch (include-existing)", doc.Tweets)
+	}
+	st := readSeenFile(t, seenPath).Sources["user:NASA"]
+	if !st.Initialized || !slices.Contains(st.SeenIDs, "101") || !slices.Contains(st.SeenIDs, "102") {
+		t.Errorf("control: seen state = %+v, want initialized with ids 101 and 102 (state advanced after the document landed)", st)
 	}
 }
 
