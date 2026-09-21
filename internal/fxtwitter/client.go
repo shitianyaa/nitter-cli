@@ -594,6 +594,10 @@ func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cu
 
 	body, err := c.doGet(ctx, opQuotes, endpoint, params)
 	if err != nil {
+		var sdkErr *sdk.Error
+		if errors.As(err, &sdkErr) && sdkErr.Kind == sdk.KindNotFound {
+			return nil, "", nil
+		}
 		return nil, "", err
 	}
 
@@ -673,6 +677,10 @@ func (c *Client) SearchUsers(ctx context.Context, query string, count int) ([]sd
 
 	body, err := c.doGet(ctx, opSearchUsers, "/2/search/users", params)
 	if err != nil {
+		var sdkErr *sdk.Error
+		if errors.As(err, &sdkErr) && sdkErr.Kind == sdk.KindNotFound {
+			return nil, nil
+		}
 		return nil, err
 	}
 
