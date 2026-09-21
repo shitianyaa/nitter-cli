@@ -683,3 +683,13 @@ func AsUsageError(err error) error {
 	}
 	return err
 }
+
+// SetFxBaseURLForTesting sets the FxTwitter base URL override for unit tests.
+// The returned cleanup function restores the previous value.
+func SetFxBaseURLForTesting(rawURL string) func() {
+	prev := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = rawURL
+	return func() {
+		fxtwitter.EndpointOverrides.BaseURL = prev
+	}
+}

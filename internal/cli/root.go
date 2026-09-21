@@ -15,8 +15,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/shitianyaa/nitter-cli/internal/buildinfo"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/circle"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/comments"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/config"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/download"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/following"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/get"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/instances"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/list"
@@ -107,6 +110,9 @@ func New(s *Streams) *cobra.Command {
 	root.AddCommand(watch.New(s))
 	root.AddCommand(seen.New(s))
 	root.AddCommand(update.New(s))
+	root.AddCommand(following.New(s))
+	root.AddCommand(comments.New(s))
+	root.AddCommand(circle.New(s))
 	return root
 }
 

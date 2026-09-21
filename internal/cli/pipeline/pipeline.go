@@ -44,6 +44,7 @@ const Schema = "nitter.pipeline/v1"
 const (
 	KindTweet          = "tweet"
 	KindUser           = "user"
+	KindProfile        = "profile"
 	KindList           = "list"
 	KindInstanceReport = "instance_report"
 	KindSeenEntry      = "seen_entry"
