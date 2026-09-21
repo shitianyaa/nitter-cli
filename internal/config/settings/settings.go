@@ -17,6 +17,7 @@ const (
 	EnvDefaultLimit = "NITTER_DEFAULT_LIMIT"
 	EnvLogLevel     = "NITTER_LOG_LEVEL"
 	EnvLogFormat    = "NITTER_LOG_FORMAT"
+	EnvFetchBackend = "NITTER_FETCH_BACKEND"
 )
 
 // Settings is the on-disk schema of ~/.nitter-cli/config.toml.
@@ -37,6 +38,7 @@ type Settings struct {
 	RetryAttempts    int    `toml:"retry_attempts"`
 	RetryDelay       string `toml:"retry_delay"`
 	InstanceCooldown string `toml:"instance_cooldown"`
+	FetchBackend     string `toml:"fetch_backend"`
 	Proxy            string `toml:"proxy"`
 	LogLevel         string `toml:"log_level"`
 	LogFormat        string `toml:"log_format"`
@@ -85,6 +87,7 @@ func Defaults() Settings {
 		RetryAttempts:     2,
 		RetryDelay:        "1s",
 		InstanceCooldown:  "60s",
+		FetchBackend:      "mix",
 		Proxy:             "",
 		LogLevel:          "info",
 		LogFormat:         "text",
@@ -149,6 +152,22 @@ func Load(cfgPath string, env func(string) string) (Settings, error) {
 	}
 	if v := env(EnvLogFormat); v != "" {
 		s.LogFormat = v
+	}
+	if v := env(EnvFetchBackend); v != "" {
+		if v != "mix" && v != "nitter" && v != "fx" {
+			return Settings{}, &ValidationError{
+				Key: EnvFetchBackend,
+				Err: fmt.Errorf("invalid %s %q (allowed: mix, nitter, fx)", EnvFetchBackend, v),
+			}
+		}
+		s.FetchBackend = v
+	}
+
+	if s.FetchBackend != "mix" && s.FetchBackend != "nitter" && s.FetchBackend != "fx" {
+		return Settings{}, &ValidationError{
+			Key: "fetch_backend",
+			Err: fmt.Errorf("invalid fetch_backend %q (allowed: mix, nitter, fx)", s.FetchBackend),
+		}
 	}
 
 	// Durations are stored as strings in TOML and validated here so callers

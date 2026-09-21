@@ -19,6 +19,7 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/client"
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 	"github.com/shitianyaa/nitter-cli/internal/media"
 	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
 	"github.com/shitianyaa/nitter-cli/sdk"
@@ -27,7 +28,7 @@ import (
 // validCfg returns Settings with valid duration strings (as settings.Load
 // would produce). Build is deliberately strict about unvalidated settings.
 func validCfg() settings.Settings {
-	return settings.Settings{RetryDelay: "1s", RequestInterval: "1s", InstanceCooldown: "1s"}
+	return settings.Settings{RetryDelay: "1s", RequestInterval: "1s", InstanceCooldown: "1s", FetchBackend: "nitter"}
 }
 
 func TestBuildWiresParts(t *testing.T) {
@@ -217,7 +218,7 @@ func TestLoadEffectiveSettings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadEffectiveSettings: %v", err)
 		}
-		if cfg.DefaultLimit != 20 || cfg.RequestInterval != "1s" {
+		if cfg.DefaultLimit != 20 || cfg.RequestInterval != "1s" || cfg.FetchBackend != "mix" {
 			t.Fatalf("cfg = %+v, want defaults", cfg)
 		}
 	})
@@ -242,6 +243,27 @@ func TestLoadEffectiveSettings(t *testing.T) {
 			t.Fatalf("err = %v, want it to name the offending key", err)
 		}
 	})
+	t.Run("invalid fetch_backend maps to usage error", func(t *testing.T) {
+		neutralizeEnv(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		dir := filepath.Join(home, ".nitter-cli")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("fetch_backend = \"bogus\"\n"), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		_, err := client.LoadEffectiveSettings()
+		var ue *invocation.UsageError
+		if !errors.As(err, &ue) {
+			t.Fatalf("err = %v (%T), want *invocation.UsageError", err, err)
+		}
+		if !strings.Contains(err.Error(), "fetch_backend") {
+			t.Fatalf("err = %v, want it to name the offending key", err)
+		}
+	})
 }
 
 // neutralizeEnv clears the settings and proxy env overrides so the file and
@@ -249,7 +271,7 @@ func TestLoadEffectiveSettings(t *testing.T) {
 func neutralizeEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
-		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT", "NITTER_FETCH_BACKEND",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
 		"http_proxy", "https_proxy", "all_proxy",
 	} {
@@ -475,4 +497,111 @@ func TestBuildWithoutCredentialsSendsNoAuth(t *testing.T) {
 		}
 		inst.Close()
 	}
+}
+
+func TestHybridTimelineAndSearchDispatch(t *testing.T) {
+	fxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/statuses"):
+			if strings.Contains(r.URL.Path, "failuser") {
+				http.Error(w, `{"code":404}`, http.StatusNotFound)
+				return
+			}
+			_, _ = io.WriteString(w, `{"code":200,"results":[{"id":"111","url":"https://x.com/user/status/111","text":"from fx","author":{"screen_name":"user"}}]}`)
+		case strings.Contains(r.URL.Path, "/search"):
+			if strings.Contains(r.URL.RawQuery, "failquery") {
+				http.Error(w, `{"code":404}`, http.StatusNotFound)
+				return
+			}
+			_, _ = io.WriteString(w, `{"code":200,"results":[{"id":"222","url":"https://x.com/user/status/222","text":"search fx","author":{"screen_name":"user"}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer fxSrv.Close()
+
+	nitterSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/rss"):
+			_, _ = io.WriteString(w, basicAuthRSSFeed)
+		case strings.Contains(r.URL.Path, "/search"):
+			_, _ = io.WriteString(w, `<div class="timeline"><div class="timeline-item"><a class="tweet-link" href="/user/status/333"></a><div class="tweet-content">from nitter search</div></div></div>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer nitterSrv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = fxSrv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	t.Run("mix mode uses Fx first", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tweets, inst, err := w.Timeline().Timeline(context.Background(), "user", 5, 5)
+		if err != nil {
+			t.Fatalf("Timeline: %v", err)
+		}
+		if inst != "FxTwitter" || len(tweets) != 1 || tweets[0].ID != "111" {
+			t.Errorf("got inst=%q tweets=%+v, want FxTwitter and tweet 111", inst, tweets)
+		}
+	})
+
+	t.Run("mix mode falls back to Nitter on Fx error", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tweets, inst, err := w.Timeline().Timeline(context.Background(), "failuser", 5, 5)
+		if err != nil {
+			t.Fatalf("Timeline: %v", err)
+		}
+		if inst != nitterSrv.URL || len(tweets) != 1 {
+			t.Errorf("got inst=%q, want nitter fallback URL", inst)
+		}
+	})
+
+	t.Run("nitter mode ignores Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "nitter"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tweets, inst, err := w.Timeline().Timeline(context.Background(), "user", 5, 5)
+		if err != nil {
+			t.Fatalf("Timeline: %v", err)
+		}
+		if inst != nitterSrv.URL {
+			t.Errorf("got inst=%q, want nitter instance %q", inst, nitterSrv.URL)
+		}
+		_ = tweets
+	})
+
+	t.Run("following and conversation sources wire through Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if w.Following() == nil {
+			t.Error("Following() is nil")
+		}
+		if w.Conversation() == nil {
+			t.Error("Conversation() is nil")
+		}
+	})
 }

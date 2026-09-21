@@ -31,6 +31,11 @@ const (
 	opSearch        = "fxtwitter.SearchTweets"
 )
 
+// EndpointOverrides allows overriding default endpoints in tests.
+var EndpointOverrides struct {
+	BaseURL string
+}
+
 // Client is a client for FxTwitter API v2 endpoints.
 type Client struct {
 	BaseURL    string
@@ -68,6 +73,9 @@ func NewClient(opts ...Option) *Client {
 		BaseURL: DefaultBaseURL,
 		Timeout: DefaultTimeout,
 	}
+	if EndpointOverrides.BaseURL != "" {
+		c.BaseURL = strings.TrimRight(EndpointOverrides.BaseURL, "/")
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -88,6 +96,9 @@ func (c *Client) getHTTPClient() *http.Client {
 func (c *Client) getBaseURL() string {
 	if c.BaseURL != "" {
 		return strings.TrimRight(c.BaseURL, "/")
+	}
+	if EndpointOverrides.BaseURL != "" {
+		return strings.TrimRight(EndpointOverrides.BaseURL, "/")
 	}
 	return DefaultBaseURL
 }

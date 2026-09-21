@@ -21,7 +21,7 @@ import (
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -440,7 +440,8 @@ func TestSearchInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 }
 
 func TestSearchNoInstancesExitsOne(t *testing.T) {
-	tempHome(t) // zero instances, no --instance
+	home := tempHome(t) // zero instances, no --instance
+	writeConfig(t, home, fastTOML)
 	code, _, errOut := runCLI(t, "search", "moon")
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)

@@ -26,6 +26,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("NITTER_DEFAULT_LIMIT", "")
 	t.Setenv("NITTER_LOG_LEVEL", "")
 	t.Setenv("NITTER_LOG_FORMAT", "")
+	t.Setenv("NITTER_FETCH_BACKEND", "")
 	return home
 }
 
@@ -112,7 +113,7 @@ func TestConfigSetSeedsBaselineOnFreshHome(t *testing.T) {
 	// is asserted by key content.
 	for _, want := range []string{
 		"max_pages", "request_interval", "retry_attempts",
-		"retry_delay", "instance_cooldown", "proxy", "log_level", "log_format",
+		"retry_delay", "instance_cooldown", "fetch_backend", "proxy", "log_level", "log_format",
 		"download_path", "filename_template", "directory_template",
 	} {
 		if !strings.Contains(string(data), want) {
@@ -194,6 +195,7 @@ func TestConfigGetAllListsExactlyTheKnownKeys(t *testing.T) {
 		"retry_attempts = 2",
 		"retry_delay = 1s",
 		"instance_cooldown = 60s",
+		"fetch_backend = mix",
 		"proxy = ",
 		"log_level = info",
 		"log_format = text",
@@ -531,4 +533,30 @@ func TestConfigUnknownSubcommandExits1(t *testing.T) {
 	if !strings.Contains(errOut, "unknown command") {
 		t.Fatalf("stderr = %q, want the unknown-command error", errOut)
 	}
+}
+
+func TestConfigSetGetFetchBackend(t *testing.T) {
+	home := tempHome(t)
+	for _, val := range []string{"fx", "nitter", "mix"} {
+		code, _, errOut := runCLI(t, "", "config", "set", "fetch_backend", val)
+		if code != 0 {
+			t.Fatalf("set fetch_backend %s exit = %d, want 0 (stderr %q)", val, code, errOut)
+		}
+		code, out, _ := runCLI(t, "", "config", "get", "fetch_backend")
+		if code != 0 {
+			t.Fatalf("get fetch_backend exit = %d, want 0", code)
+		}
+		if got, want := strings.TrimSpace(out), "fetch_backend = "+val; got != want {
+			t.Fatalf("get output = %q, want %q", got, want)
+		}
+	}
+
+	code, _, errOut := runCLI(t, "", "config", "set", "fetch_backend", "invalid")
+	if code != 2 {
+		t.Fatalf("set invalid fetch_backend exit = %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "fetch_backend") {
+		t.Fatalf("stderr = %q, want it to name fetch_backend", errOut)
+	}
+	_ = home
 }

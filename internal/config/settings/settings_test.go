@@ -25,6 +25,7 @@ func TestDefaults(t *testing.T) {
 		RetryAttempts:     2,
 		RetryDelay:        "1s",
 		InstanceCooldown:  "60s",
+		FetchBackend:      "mix",
 		Proxy:             "",
 		LogLevel:          "info",
 		LogFormat:         "text",
@@ -101,6 +102,7 @@ func TestLoad(t *testing.T) {
 			RetryAttempts:    5,
 			RetryDelay:       "3s",
 			InstanceCooldown: "90s",
+			FetchBackend:     "mix",
 			Proxy:            "http://127.0.0.1:7890",
 			LogLevel:         "debug",
 			LogFormat:        "json",
@@ -149,7 +151,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("env overrides win over file", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
-		const fixture = "default_limit = 7\nlog_level = \"debug\"\n"
+		const fixture = "default_limit = 7\nlog_level = \"debug\"\nfetch_backend = \"nitter\"\n"
 		if err := os.WriteFile(cfgPath, []byte(fixture), 0o600); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
@@ -157,6 +159,7 @@ func TestLoad(t *testing.T) {
 		got, err := settings.Load(cfgPath, envMap(map[string]string{
 			"NITTER_DEFAULT_LIMIT": "9",
 			"NITTER_LOG_FORMAT":    "json",
+			"NITTER_FETCH_BACKEND": "fx",
 		}))
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
@@ -169,6 +172,23 @@ func TestLoad(t *testing.T) {
 		}
 		if got.LogFormat != "json" {
 			t.Fatalf("LogFormat = %q, want %q (env beats default)", got.LogFormat, "json")
+		}
+		if got.FetchBackend != "fx" {
+			t.Fatalf("FetchBackend = %q, want %q (env beats file)", got.FetchBackend, "fx")
+		}
+	})
+
+	t.Run("invalid NITTER_FETCH_BACKEND errors", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		_, err := settings.Load(cfgPath, envMap(map[string]string{
+			"NITTER_FETCH_BACKEND": "bogus",
+		}))
+		if err == nil {
+			t.Fatal("Load() error = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "NITTER_FETCH_BACKEND") {
+			t.Fatalf("Load() error = %v, want it to name NITTER_FETCH_BACKEND", err)
 		}
 	})
 
@@ -277,6 +297,38 @@ func TestLoadValidationError(t *testing.T) {
 		}
 		if verr.Key != "NITTER_DEFAULT_LIMIT" {
 			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "NITTER_DEFAULT_LIMIT")
+		}
+	})
+
+	t.Run("invalid fetch_backend from file carries the key", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+		content := "fetch_backend = \"invalid\"\n"
+		if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		_, err := settings.Load(cfgPath, envMap(nil))
+		var verr *settings.ValidationError
+		if !errors.As(err, &verr) {
+			t.Fatalf("Load() error = %v, want *settings.ValidationError", err)
+		}
+		if verr.Key != "fetch_backend" {
+			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "fetch_backend")
+		}
+	})
+
+	t.Run("invalid NITTER_FETCH_BACKEND env value carries the key", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+
+		_, err := settings.Load(cfgPath, envMap(map[string]string{
+			"NITTER_FETCH_BACKEND": "invalid",
+		}))
+		var verr *settings.ValidationError
+		if !errors.As(err, &verr) {
+			t.Fatalf("Load() error = %v, want *settings.ValidationError", err)
+		}
+		if verr.Key != "NITTER_FETCH_BACKEND" {
+			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "NITTER_FETCH_BACKEND")
 		}
 	})
 

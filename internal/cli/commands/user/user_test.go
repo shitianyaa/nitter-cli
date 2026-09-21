@@ -18,7 +18,7 @@ import (
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast. Negative values are documented opt-outs in httpx; hand-edited
 // config.toml is the user's power tool.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -28,7 +28,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT", "NITTER_FETCH_BACKEND",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -585,7 +585,8 @@ func TestUserInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 }
 
 func TestUserNoInstancesExitsOne(t *testing.T) {
-	tempHome(t) // zero instances, no --instance
+	home := tempHome(t) // zero instances, no --instance
+	writeConfig(t, home, fastTOML)
 	code, _, errOut := runCLI(t, "user", "NASA")
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
@@ -862,5 +863,21 @@ func TestUserMediaFilters(t *testing.T) {
 	}
 	if got := bad.rec.requests(); len(got) != 0 {
 		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+}
+
+func TestUserWithRepliesFlag(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--with-replies", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "101") {
+		t.Errorf("output = %q, want tweet 101", out)
 	}
 }
