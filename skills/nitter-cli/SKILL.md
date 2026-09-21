@@ -85,7 +85,7 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle run`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
 | Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
@@ -103,20 +103,21 @@ the user is fine sharing (see trap 16).
 
 - For humans on a TTY: the default tab-separated text.
 - For programs: when stdout is NOT a TTY (a pipe or a redirect) the data
-  commands (`user` `search` `list` `get` `media` `download` `instances test`)
+  commands (`user` `search` `list` `get` `media` `download` `instances test` `following` `comments` `trends` `quotes` `profile`)
   emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
   needed; `--ndjson` selects the same stream explicitly (also on a TTY).
   An empty result in a pipe prints nothing at all — no `(empty)` hint; do not
   read silence as failure, check the exit code.
   Envelope kinds: `tweet` or `error` (plus `instance_report` for
-  `instances test`, `media` for `media`, `download` for `download`).
+  `instances test`, `media` for `media`, `download` for `download`,
+  `profile` for `following`/`profile`/`search --type user`, `trend` for `trends`).
   `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
   stream. `seen list`, `config`, `update` are unchanged.
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
-  `update --check`; `--ndjson` on `user` `search` `list` `get` `media`
-  `download` `instances test` and `watch`; `watch --json` only with `--once`
+  `update --check` `following` `comments` `trends` `quotes` `profile`; `--ndjson` on `user` `search` `list` `get` `media`
+  `download` `instances test` `following` `comments` `trends` `quotes` `profile` and `watch`; `watch --json` only with `--once`
   (one `{"tweets","errors"}` document); `config`/`seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
@@ -167,7 +168,13 @@ nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instanc
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
 nitter following NASA --limit 10                        # fetch accounts followed by handle (profile table or NDJSON)
+nitter profile NASA                                     # display creator profile card (bio, follower count, stats)
+nitter profile NASA --json                              # profile object JSON
 nitter comments 2100031016471818431 --limit 10          # fetch replies/thread for tweet (extract hidden links/threads)
+nitter quotes 2100031016471818431 --limit 10            # fetch quote tweets / second-creation mining for status
+nitter quotes 2100031016471818431 --media-only --json   # quote tweets with media attachments
+nitter trends --limit 10                                # fetch real-time Twitter/X trends (#, topic, context, tweet count)
+nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
 nitter circle show shaoluo                              # show handles in circle
 nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
@@ -175,6 +182,7 @@ nitter circle add shaoluo NewCreator                    # add handle to circle
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
+nitter search "digital art" --type user --limit 10      # search user profiles / illustrators by name/bio
 nitter search "moon landing" --limit 10                 # plain phrase
 
 nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
@@ -359,6 +367,18 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     distinct from resident `watch` polling, circles categorize favorite creators
     by theme/style for on-demand discovery (`circle show`) and pipeline streaming
     (`circle run <name> | nitter download -o DIR`).
+22. **`trends` retrieves real-time Twitter/X trending topics**: FxTwitter-powered;
+    returns trending topic rank, name, context category, tweet count, and grouped topics.
+    Emits tab-separated table on TTY or `kind: "trend"` NDJSON in pipes.
+23. **`quotes` uncovers quote tweets and second-creations**: status quote tweets retrieval;
+    supports `--media-only` and `--no-reposts` filters, emitting tweet rows on TTY or
+    `kind: "tweet"` NDJSON in pipes.
+24. **`profile` and `search --type user` for creator discovery**: `profile <HANDLE>`
+    displays a structured user card on TTY or `kind: "profile"` NDJSON in pipes.
+    `search <QUERY> --type user` discovers creators, artists, and topic influencers
+    matching keyword/bio.
+25. **`get` fast-lane dispatch**: `nitter get` uses FxTwitter fast-lane first under `mix`
+    (default) and `fx` modes, falling back to configured Nitter instances on failure.
 
 ## Media delivery for agents
 

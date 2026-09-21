@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -602,6 +603,209 @@ func TestHybridTimelineAndSearchDispatch(t *testing.T) {
 		}
 		if w.Conversation() == nil {
 			t.Error("Conversation() is nil")
+		}
+		if w.Quotes() == nil {
+			t.Error("Quotes() is nil")
+		}
+		if w.Trends() == nil {
+			t.Error("Trends() is nil")
+		}
+		if w.Profile() == nil {
+			t.Error("Profile() is nil")
+		}
+	})
+}
+
+func TestStatusDispatchAndCapabilityWiring(t *testing.T) {
+	fxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/2/status/100"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"tweet": map[string]any{
+					"id":   "100",
+					"text": "Fx status 100",
+					"author": map[string]any{
+						"screen_name": "fxuser",
+					},
+				},
+			})
+		case strings.HasPrefix(r.URL.Path, "/2/status/200/quotes"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"quotes": []map[string]any{
+					{"id": "201", "text": "quote 1"},
+				},
+				"cursor": "cur_quotes",
+			})
+		case r.URL.Path == "/2/trends":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"trends": []map[string]any{
+					{"name": "#Trending", "rank": 1, "context": "News"},
+				},
+			})
+		case r.URL.Path == "/2/search/users":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"users": []map[string]any{
+					{"screen_name": "searcheduser", "name": "Searched User"},
+				},
+			})
+		case strings.HasPrefix(r.URL.Path, "/2/profile/profuser"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"user": map[string]any{
+					"screen_name": "profuser",
+					"name":        "Profile User",
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer fxSrv.Close()
+
+	nitterSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/status/"):
+			// Return valid status HTML
+			id := "999"
+			if strings.Contains(r.URL.Path, "100") {
+				id = "100"
+			}
+			_, _ = io.WriteString(w, `<div class="conversation"><div class="main-tweet"><div class="timeline-item">`+
+				`<a class="tweet-link" href="/nitteruser/status/`+id+`#m"></a>`+
+				`<div class="tweet-content">status body `+id+`</div>`+
+				`</div></div></div>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer nitterSrv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = fxSrv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	t.Run("Status mix mode hits Fx first", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tw, inst, err := w.Status().Status(context.Background(), "100")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if inst != "FxTwitter" || tw.ID != "100" || tw.Text != "Fx status 100" {
+			t.Errorf("got inst=%q tw=%+v, want FxTwitter and status 100", inst, tw)
+		}
+	})
+
+	t.Run("Status mix mode falls back to Nitter on Fx 404", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		// status 999 404s on Fx, should fall back to Nitter
+		tw, inst, err := w.Status().Status(context.Background(), "999")
+		if err != nil {
+			t.Fatalf("Status fallback failed: %v", err)
+		}
+		if inst != nitterSrv.URL || tw.ID != "999" {
+			t.Errorf("got inst=%q tw=%+v, want nitter instance and status 999", inst, tw)
+		}
+	})
+
+	t.Run("Status nitter mode ignores Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "nitter"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tw, inst, err := w.Status().Status(context.Background(), "100")
+		if err != nil {
+			t.Fatalf("Status: %v", err)
+		}
+		if inst != nitterSrv.URL {
+			t.Errorf("got inst=%q, want nitter instance %q", inst, nitterSrv.URL)
+		}
+		_ = tw
+	})
+
+	t.Run("Quotes wires to Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		quotes, cur, err := w.Quotes().Quotes(context.Background(), "200", 10, "")
+		if err != nil {
+			t.Fatalf("Quotes failed: %v", err)
+		}
+		if len(quotes) != 1 || quotes[0].ID != "201" || cur != "cur_quotes" {
+			t.Errorf("got quotes=%+v cur=%q", quotes, cur)
+		}
+	})
+
+	t.Run("Trends wires to Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		trends, err := w.Trends().Trends(context.Background())
+		if err != nil {
+			t.Fatalf("Trends failed: %v", err)
+		}
+		if len(trends) != 1 || trends[0].Name != "#Trending" {
+			t.Errorf("got trends=%+v", trends)
+		}
+	})
+
+	t.Run("SearchUsers wires to Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		users, err := w.Search().SearchUsers(context.Background(), "query", 10)
+		if err != nil {
+			t.Fatalf("SearchUsers failed: %v", err)
+		}
+		if len(users) != 1 || users[0].Handle != "searcheduser" {
+			t.Errorf("got users=%+v", users)
+		}
+
+		// Empty query returns error
+		_, err = w.Search().SearchUsers(context.Background(), "", 10)
+		if err == nil {
+			t.Error("expected error on empty query, got nil")
+		}
+	})
+
+	t.Run("Profile wires to Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		prof, err := w.Profile().Profile(context.Background(), "profuser")
+		if err != nil {
+			t.Fatalf("Profile failed: %v", err)
+		}
+		if prof.Handle != "profuser" || prof.Name != "Profile User" {
+			t.Errorf("got prof=%+v", prof)
 		}
 	})
 }

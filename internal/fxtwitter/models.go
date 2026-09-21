@@ -488,6 +488,29 @@ func (r *RawConversationResponse) ToSDK() *sdk.Conversation {
 	}
 }
 
+// RawStatusResponse represents the response from /2/status/:id.
+type RawStatusResponse struct {
+	Code    int           `json:"code"`
+	Message string        `json:"message"`
+	Tweet   *RawTweetItem `json:"tweet"`
+	Status  *RawTweetItem `json:"status"`
+	RawTweetItem
+}
+
+// ToSDK converts RawStatusResponse to *sdk.Tweet.
+func (r *RawStatusResponse) ToSDK() *sdk.Tweet {
+	if r == nil {
+		return nil
+	}
+	if r.Tweet != nil {
+		return r.Tweet.Resolve().ToSDK()
+	}
+	if r.Status != nil {
+		return r.Status.Resolve().ToSDK()
+	}
+	return r.RawTweetItem.Resolve().ToSDK()
+}
+
 // RawTimelineResponse represents timeline and search responses.
 type RawTimelineResponse struct {
 	Code     int            `json:"code"`
@@ -495,6 +518,7 @@ type RawTimelineResponse struct {
 	Results  []RawTweetItem `json:"results"`
 	Tweets   []RawTweetItem `json:"tweets"`
 	Statuses []RawTweetItem `json:"statuses"`
+	Quotes   []RawTweetItem `json:"quotes"`
 	Cursor   *RawCursor     `json:"cursor"`
 }
 
@@ -506,7 +530,10 @@ func (r *RawTimelineResponse) Items() []RawTweetItem {
 	if len(r.Tweets) > 0 {
 		return r.Tweets
 	}
-	return r.Statuses
+	if len(r.Statuses) > 0 {
+		return r.Statuses
+	}
+	return r.Quotes
 }
 
 // CursorValue returns the cursor string.
@@ -515,4 +542,79 @@ func (r *RawTimelineResponse) CursorValue() string {
 		return r.Cursor.Value
 	}
 	return ""
+}
+
+// RawTrend represents one trending topic from /2/trends.
+type RawTrend struct {
+	Name          string   `json:"name"`
+	Rank          *int     `json:"rank"`
+	Context       string   `json:"context"`
+	DomainContext string   `json:"domain_context"`
+	TweetCount    int      `json:"tweet_count"`
+	TweetsCount   int      `json:"tweets_count"`
+	PostCount     int      `json:"post_count"`
+	Count         int      `json:"count"`
+	GroupedTopics []string `json:"grouped_topics"`
+	GroupedTrends []string `json:"grouped_trends"`
+}
+
+// ToSDK converts RawTrend to sdk.Trend with fallback rank.
+func (t *RawTrend) ToSDK(defaultRank int) sdk.Trend {
+	rank := defaultRank
+	if t.Rank != nil && *t.Rank > 0 {
+		rank = *t.Rank
+	}
+	context := t.Context
+	if context == "" {
+		context = t.DomainContext
+	}
+	tweetCount := t.TweetCount
+	if tweetCount == 0 {
+		tweetCount = t.TweetsCount
+	}
+	if tweetCount == 0 {
+		tweetCount = t.PostCount
+	}
+	if tweetCount == 0 {
+		tweetCount = t.Count
+	}
+	topics := t.GroupedTopics
+	if len(topics) == 0 {
+		topics = t.GroupedTrends
+	}
+	return sdk.Trend{
+		Name:          t.Name,
+		Rank:          rank,
+		Context:       context,
+		TweetCount:    tweetCount,
+		GroupedTopics: topics,
+	}
+}
+
+// RawTrendsResponse represents the response from /2/trends.
+type RawTrendsResponse struct {
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Trends  []RawTrend `json:"trends"`
+	Results []RawTrend `json:"results"`
+}
+
+// RawUsersResponse represents the response from /2/search/users.
+type RawUsersResponse struct {
+	Code     int          `json:"code"`
+	Message  string       `json:"message"`
+	Users    []*RawAuthor `json:"users"`
+	Results  []*RawAuthor `json:"results"`
+	Profiles []*RawAuthor `json:"profiles"`
+}
+
+// UserList returns all user profiles in the response.
+func (r *RawUsersResponse) UserList() []*RawAuthor {
+	if len(r.Users) > 0 {
+		return r.Users
+	}
+	if len(r.Results) > 0 {
+		return r.Results
+	}
+	return r.Profiles
 }

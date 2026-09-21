@@ -17,11 +17,12 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -416,7 +417,8 @@ func TestGetAllInstancesFailExitsOne(t *testing.T) {
 }
 
 func TestGetNoInstancesExitsOne(t *testing.T) {
-	tempHome(t) // zero instances, no --instance
+	home := tempHome(t) // zero instances, no --instance
+	writeConfig(t, home, fastTOML)
 	code, _, errOut := runCLI(t, "get", "101")
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
@@ -458,5 +460,42 @@ func TestGetInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 	envs := parseEnvelopes(t, out)
 	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
 		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
+	}
+}
+
+func TestGetFxFastLane(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/2/status/555") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"tweet": map[string]any{
+					"id":   "555",
+					"text": "fast lane status",
+					"author": map[string]any{
+						"screen_name": "space",
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	code, out, _ := runCLI(t, "get", "555", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out, `"id":"555"`) || !strings.Contains(out, "fast lane status") {
+		t.Errorf("out = %q, want tweet from Fx fast-lane", out)
 	}
 }

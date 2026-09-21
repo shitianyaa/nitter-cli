@@ -35,6 +35,7 @@ func New(s *invocation.Streams) *cobra.Command {
 	var (
 		limitFlag    int
 		maxPagesFlag int
+		typeFlag     string
 		asJSON       bool
 		asNDJSON     bool
 		filters      tweetfilter.Filters
@@ -43,9 +44,13 @@ func New(s *invocation.Streams) *cobra.Command {
 		Use:   "search <QUERY>",
 		Short: "Search tweets on the configured Nitter instances",
 		Long: `Run QUERY against the configured Nitter instances and print one row per
-matching tweet:
+matching tweet (or matching user profiles when --type user):
 
   <ID>  <YYYY-MM-DD HH:MM>  @<handle>  <single-line text>
+
+When --type user:
+
+  @<handle>  <name>  <followers_count>  <bio>
 
 The query is passed through to Nitter unchanged (URL-escaped only), so its
 own query syntax applies: a leading # searches a hashtag, "from:user" a
@@ -55,16 +60,17 @@ Instances are tried in config order; an instance whose fetch fails cools
 down while the next one is tried. The result pages follow their load-more
 cursor.
 
---limit caps the number of tweets (0 = all); without the flag the config's
+--type specifies search target: "tweet" (default) or "user".
+--limit caps the number of items (0 = all); without the flag the config's
 default_limit applies. --max-pages caps pagination (0 = default 5); without
 the flag the config's max_pages applies.
 
 --json prints a machine-readable document: one JSON object for a single
-tweet, an array otherwise (an empty result prints []). --ndjson instead
-prints one nitter.pipeline/v1 envelope per tweet (kind tweet, the tweet ID
-as id, the Tweet as data, provenance in meta; meta.source is "search:" plus
-the query as typed). --json and --ndjson are mutually exclusive. An empty
-result prints nothing on stdout in NDJSON mode and the (empty) hint on
+item, an array otherwise (an empty result prints []). --ndjson instead
+prints one nitter.pipeline/v1 envelope per item (kind tweet or profile,
+the item ID as id, the item as data, provenance in meta; meta.source is
+"search:" plus the query as typed). --json and --ndjson are mutually exclusive.
+An empty result prints nothing on stdout in NDJSON mode and the (empty) hint on
 stderr in the default modes.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
@@ -73,17 +79,19 @@ stderr in the default modes.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd, s, args[0], limitFlag, maxPagesFlag, asJSON, asNDJSON, filters)
+			return run(cmd, s, args[0], limitFlag, maxPagesFlag, typeFlag, asJSON, asNDJSON, filters)
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
-		"Maximum tweets to fetch, 0 for all (default: config default_limit)")
+		"Maximum items to fetch, 0 for all (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Maximum result pages (default: config max_pages; built-in default 5)")
+	cmd.Flags().StringVar(&typeFlag, "type", "tweet",
+		"Search target type: tweet or user (default: tweet)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
-		"Print one JSON object for a single tweet, an array otherwise")
+		"Print one JSON object for a single item, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
-		"Print one nitter.pipeline/v1 envelope per tweet (kind tweet)")
+		"Print one nitter.pipeline/v1 envelope per item (kind tweet or profile)")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
 		"Drop pure retweets (retweet-header detection) from the output")
 	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
@@ -97,13 +105,17 @@ stderr in the default modes.`,
 // wins over the config value; a negative flag is a usage error while a
 // negative config value keeps its documented "0 semantics = all" pixiv
 // heritage (appapi treats limit <= 0 as unbounded).
-func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
+func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, typeFlag string, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(query) == "" {
 		return invocation.Usagef("search: the query must not be empty")
+	}
+	typeFlag = strings.ToLower(strings.TrimSpace(typeFlag))
+	if typeFlag != "tweet" && typeFlag != "user" {
+		return invocation.Usagef("search: invalid --type %q (allowed: tweet, user)", typeFlag)
 	}
 	if limitFlag < 0 {
 		return invocation.Usagef("search: --limit must be >= 0 (0 means all)")
@@ -138,6 +150,62 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	if typeFlag == "user" {
+		profiles, err := w.Search().SearchUsers(ctx, query, limit)
+		if err != nil {
+			return client.AsUsageError(err)
+		}
+		fetchedAt := time.Now().UTC().Format(time.RFC3339)
+		switch mode {
+		case pipeline.ModeNDJSON:
+			for _, p := range profiles {
+				env := pipeline.Envelope{
+					Schema: pipeline.Schema,
+					Kind:   pipeline.KindProfile,
+					ID:     p.Handle,
+					Data:   p,
+					Meta: &pipeline.Meta{
+						Source:    "search:" + query,
+						Instance:  "FxTwitter",
+						FetchedAt: fetchedAt,
+					},
+				}
+				if err := pipeline.WriteEnvelope(s.Out, env); err != nil {
+					if errors.Is(err, syscall.EPIPE) {
+						return nil
+					}
+					return err
+				}
+			}
+			return nil
+		case pipeline.ModeJSON:
+			if profiles == nil {
+				profiles = []nitter.Profile{}
+			}
+			var v any = profiles
+			if len(profiles) == 1 {
+				v = profiles[0]
+			}
+			b, err := jsonx.MarshalLine(v)
+			if err != nil {
+				return err
+			}
+			_, err = s.Out.Write(b)
+			return err
+		default:
+			rows := result.ProfileRows(profiles)
+			if len(rows) == 0 {
+				fmt.Fprintln(s.Err, "(empty)")
+				return nil
+			}
+			for _, r := range rows {
+				fmt.Fprintln(s.Out, r.Line())
+			}
+			return nil
+		}
+	}
+
 	tweets, instance, err := w.Search().Search(ctx, query, limit, maxPages)
 	if err != nil {
 		// Invalid-argument classifications (none expected past the local

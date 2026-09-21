@@ -11,6 +11,12 @@
 - **Curated creator circles (`nitter circle`)**: manage and stream private rosters in `~/.nitter-cli/circles.toml` (`list`, `show`, `add`, `run`).
 - **`nitter user --with-replies`**: include the user's reply tweets in timeline.
 - **SDK model expansions**: added `Profile` and `Conversation` models to `sdk`.
+- **Trends command (`nitter trends`)**: fetch real-time Twitter/X trending topics with ranks, names, contexts, and tweet counts (formatted table on TTY, `kind: "trend"` NDJSON in pipe mode).
+- **Quote tweets command (`nitter quotes`)**: fetch quote tweets and derivative creations for a status (supports `--media-only` and `--no-reposts`, emitting `kind: "tweet"` NDJSON in pipe mode).
+- **Profile card command (`nitter profile`)**: fetch creator profile card with bio, counts, and media URLs (`kind: "profile"` NDJSON in pipe mode).
+- **User search (`nitter search --type user`)**: search creators, artists, and profiles by keywords or bio.
+- **Fast-lane dispatch for `nitter get`**: `get` connects through FxTwitter first in `mix` and `fx` modes, smoothly falling back to Nitter instances.
+- **SDK `Trend` model and `KindTrend` protocol constant**: added `Trend` struct and `KindTrend = "trend"`.
 
 ## Changed
 

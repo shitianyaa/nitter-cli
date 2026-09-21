@@ -50,6 +50,7 @@ const (
 	KindSeenEntry      = "seen_entry"
 	KindMedia          = "media"
 	KindDownload       = "download"
+	KindTrend          = "trend"
 	KindError          = "error"
 )
 

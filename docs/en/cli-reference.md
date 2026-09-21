@@ -141,18 +141,61 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `add`: adds handle to a circle (creates file/circle on demand).
 - `run`: traverses and streams latest tweets for all creators in the circle.
 
+## nitter profile
+
+```bash
+nitter profile <HANDLE> [--json|--ndjson]
+```
+
+Fetches user profile card and metadata for `HANDLE`.
+- Renders formatted user card on TTY: handle, name, bio, follower count, following count, tweet count, media count, avatar, banner, and protected status.
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelope in pipe mode.
+- `--json` outputs the Profile JSON object.
+
+## nitter quotes
+
+```bash
+nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
+```
+
+Fetches quote tweets for a tweet status ID or URL.
+- Renders tweet rows on TTY: `<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "tweet"`) NDJSON envelopes in pipe mode with `meta.source` set to `quotes:<id>`.
+- `--limit`: caps number of quotes to fetch (default: 20, 0 = all).
+- `--media-only`: keeps only quotes carrying media attachments.
+- `--no-reposts`: filters out retweets.
+- `--json`: outputs JSON document.
+
+## nitter trends
+
+```bash
+nitter trends [--limit N] [--json|--ndjson]
+```
+
+Fetches real-time trending topics on Twitter/X via FxTwitter.
+- Renders formatted table on TTY: `#  TREND TOPIC  CONTEXT  TWEETS`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "trend"`) NDJSON envelopes in pipe mode.
+- `--limit`: caps number of trends to display (default: 0, 0 = all).
+- `--json`: outputs array of `Trend` objects.
+
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
-Runs `QUERY` against the configured instances. The query is passed through to
+Runs `QUERY` against the configured instances or FxTwitter.
+When `--type tweet` (default), the query is passed through to
 Nitter unchanged (URL-escaped once by the HTTP layer), so Nitter's own query
 syntax applies: a leading `#` searches a hashtag, `from:user` a user's posts,
 anything else is a plain phrase search. An empty (whitespace-only) query exits 2.
 NDJSON `meta.source` is `search:<query as typed>`.
+
+When `--type user`, searches for user profiles, artists, and creators matching the query:
+- Renders user table on TTY: `@<handle>  <name>  <followers>  <bio>`.
+- Emits `kind: "profile"` NDJSON envelopes in pipe mode.
+- `--json` outputs Profile objects.
 
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
@@ -180,7 +223,8 @@ The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 nitter get <REF> [--json|--ndjson]
 ```
 
-Fetches one single status. `REF` is a bare numeric status ID, or a status URL —
+Fetches one single status. In `mix` (default) and `fx` modes, tries FxTwitter fast-lane first, smoothly falling back to Nitter instances on failure.
+`REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
 and `/video/1` suffixes are accepted. With no argument and a non-TTY stdin the
@@ -188,7 +232,7 @@ reference is read from one stdin line; giving it both ways is an ambiguity
 error (exit 2). There are no pagination flags. The quoted tweet, when present,
 is summarized in the `quote` field (visible in `--json`/`--ndjson`); interaction
 counts are not reported — none are fabricated. NDJSON `meta.source` is
-`status:<numeric ID>`.
+`status:<numeric ID>`. When served by FxTwitter, `meta.instance` is recorded as `FxTwitter`.
 
 Example (`--json` prints exactly one object for the single status; shape
 illustrative):

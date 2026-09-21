@@ -91,6 +91,7 @@ type TimelineSource interface {
 // and *fxtwitter.Client through searchAdapter.
 type SearchSource interface {
 	Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error)
+	SearchUsers(ctx context.Context, query string, count int) ([]nitter.Profile, error)
 }
 
 // ListSource is the list-timeline acquisition capability a command consumes
@@ -102,9 +103,27 @@ type ListSource interface {
 
 // StatusSource is the single-status acquisition capability a command
 // consumes (same provenance contract as TimelineSource). Backed by
-// *appapi.Client through statusAdapter.
+// *fxtwitter.Client and *appapi.Client through statusAdapter.
 type StatusSource interface {
 	Status(ctx context.Context, ref string) (nitter.Tweet, string, error)
+}
+
+// QuotesSource is the quote-tweets acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through quotesAdapter.
+type QuotesSource interface {
+	Quotes(ctx context.Context, statusID string, count int, cursor string) ([]nitter.Tweet, string, error)
+}
+
+// TrendsSource is the trending-topics acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through trendsAdapter.
+type TrendsSource interface {
+	Trends(ctx context.Context) ([]nitter.Trend, error)
+}
+
+// ProfileSource is the user-profile acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through profileAdapter.
+type ProfileSource interface {
+	Profile(ctx context.Context, handle string) (*nitter.Profile, error)
 }
 
 // FollowingSource is the user-following acquisition capability a command
@@ -353,6 +372,16 @@ func (a searchAdapter) searchFx(ctx context.Context, query string, limit int) ([
 	return tweets, "FxTwitter", nil
 }
 
+func (a searchAdapter) SearchUsers(ctx context.Context, query string, count int) ([]nitter.Profile, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nitter.Errorf(nitter.KindInvalidArg, "client.SearchUsers", "query cannot be empty")
+	}
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.SearchUsers", "no fxtwitter client wired")
+	}
+	return a.w.Fx.SearchUsers(ctx, query, count)
+}
+
 // Search returns the search acquisition capability as the narrow interface
 // commands consume (R11: commands never import appapi).
 func (w *Wiring) Search() SearchSource { return searchAdapter{w: w} }
@@ -369,17 +398,74 @@ func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, max
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) List() ListSource { return listAdapter{w: w} }
 
-// statusAdapter bridges the primitive-parameter StatusSource to the appapi
-// method (same shape — kept for symmetry with the other adapters).
+// statusAdapter bridges the primitive-parameter StatusSource to the hybrid dispatcher.
 type statusAdapter struct{ w *Wiring }
 
 func (a statusAdapter) Status(ctx context.Context, ref string) (nitter.Tweet, string, error) {
+	backend := a.w.FetchBackend
+	if backend == "" {
+		backend = "mix"
+	}
+
+	if backend == "mix" || backend == "fx" {
+		statusID, _, err := ParseStatusRef(ref)
+		if err != nil {
+			return nitter.Tweet{}, "", err
+		}
+		if a.w.Fx != nil {
+			tw, err := a.w.Fx.FetchStatus(ctx, statusID)
+			if err == nil && tw != nil {
+				return *tw, "FxTwitter", nil
+			}
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nitter.Tweet{}, "", err
+			}
+		}
+		return a.w.AppAPI.Status(ctx, ref)
+	}
+
 	return a.w.AppAPI.Status(ctx, ref)
 }
 
 // Status returns the single-status acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) Status() StatusSource { return statusAdapter{w: w} }
+
+type quotesAdapter struct{ w *Wiring }
+
+func (a quotesAdapter) Quotes(ctx context.Context, statusID string, count int, cursor string) ([]nitter.Tweet, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Quotes", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchQuotes(ctx, statusID, count, cursor)
+}
+
+// Quotes returns the quotes acquisition capability.
+func (w *Wiring) Quotes() QuotesSource { return quotesAdapter{w: w} }
+
+type trendsAdapter struct{ w *Wiring }
+
+func (a trendsAdapter) Trends(ctx context.Context) ([]nitter.Trend, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Trends", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchTrends(ctx)
+}
+
+// Trends returns the trends acquisition capability.
+func (w *Wiring) Trends() TrendsSource { return trendsAdapter{w: w} }
+
+type profileAdapter struct{ w *Wiring }
+
+func (a profileAdapter) Profile(ctx context.Context, handle string) (*nitter.Profile, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Profile", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchUserProfile(ctx, handle)
+}
+
+// Profile returns the profile acquisition capability.
+func (w *Wiring) Profile() ProfileSource { return profileAdapter{w: w} }
 
 type followingAdapter struct{ w *Wiring }
 

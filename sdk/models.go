@@ -101,6 +101,16 @@ type Conversation struct {
 	Cursor  string  `json:"cursor"`
 }
 
+// Trend is the SDK's outward projection of a trending topic.
+// Fields are the NDJSON data contract (additive-only).
+type Trend struct {
+	Name          string   `json:"name"`
+	Rank          int      `json:"rank"`
+	Context       string   `json:"context"`
+	TweetCount    int      `json:"tweet_count"`
+	GroupedTopics []string `json:"grouped_topics"`
+}
+
 // Probe is one capability check of an InstanceReport: OK for success, or the
 // HTTP status and a short redacted error description on failure.
 type Probe struct {

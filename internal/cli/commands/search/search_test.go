@@ -17,6 +17,9 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/search"
+	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
@@ -479,4 +482,84 @@ func TestSearchNegativeLimitIsUsageError(t *testing.T) {
 	if !strings.Contains(errOut, "--limit") {
 		t.Fatalf("stderr = %q, want it to name the flag", errOut)
 	}
+}
+
+func TestSearchInvalidTypeIsUsageError(t *testing.T) {
+	tempHome(t)
+	code, _, errOut := runCLI(t, "search", "query", "--type=unknown")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "--type") {
+		t.Fatalf("stderr = %q, want it to name --type", errOut)
+	}
+}
+
+func TestSearchTypeUser(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/2/search/users" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"users": []map[string]any{
+					{
+						"screen_name":     "nasa",
+						"name":            "NASA",
+						"description":     "Space exploration agency",
+						"followers_count": 80000000,
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	t.Run("TTY table output", func(t *testing.T) {
+		var out, errOut strings.Builder
+		s := &invocation.Streams{
+			In:          strings.NewReader(""),
+			Out:         &out,
+			Err:         &errOut,
+			OutIsTTY:    true,
+			RootOptions: &invocation.RootOptions{},
+		}
+		cmd := search.New(s)
+		cmd.SetArgs([]string{"nasa", "--type", "user"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+		if !strings.Contains(out.String(), "@nasa	NASA	80000000	Space exploration agency") {
+			t.Errorf("out = %q, want profile row", out.String())
+		}
+	})
+
+	t.Run("NDJSON output", func(t *testing.T) {
+		code, out, _ := runCLI(t, "search", "nasa", "--type", "user", "--ndjson")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if !strings.Contains(out, `"kind":"profile"`) || !strings.Contains(out, `"handle":"nasa"`) {
+			t.Errorf("out = %q, want profile NDJSON envelope", out)
+		}
+	})
+
+	t.Run("JSON output", func(t *testing.T) {
+		code, out, _ := runCLI(t, "search", "nasa", "--type", "user", "--json")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if !strings.Contains(out, `"handle":"nasa"`) {
+			t.Errorf("out = %q, want profile JSON", out)
+		}
+	})
 }

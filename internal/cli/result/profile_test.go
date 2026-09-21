@@ -20,8 +20,13 @@ func TestProfileRow(t *testing.T) {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
 	line := rows[0].Line()
-	wantPrefix := "@NASA\tNASA Official\t1234567\t"
+	wantPrefix := "@NASA	NASA Official	1234567	"
 	if len(line) < len(wantPrefix) || line[:len(wantPrefix)] != wantPrefix {
 		t.Errorf("line = %q, want prefix %q", line, wantPrefix)
+	}
+
+	card := result.ProfileCard(p)
+	if card == "" {
+		t.Error("ProfileCard returned empty string")
 	}
 }

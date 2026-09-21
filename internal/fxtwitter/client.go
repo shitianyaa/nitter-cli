@@ -29,6 +29,10 @@ const (
 	opUserFollowing = "fxtwitter.FetchUserFollowing"
 	opConversation  = "fxtwitter.FetchConversation"
 	opSearch        = "fxtwitter.SearchTweets"
+	opStatus        = "fxtwitter.FetchStatus"
+	opQuotes        = "fxtwitter.FetchQuotes"
+	opTrends        = "fxtwitter.FetchTrends"
+	opSearchUsers   = "fxtwitter.SearchUsers"
 )
 
 // EndpointOverrides allows overriding default endpoints in tests.
@@ -543,4 +547,153 @@ func (c *Client) SearchTweets(
 		tweets = tweets[:count]
 	}
 	return tweets, nextCursor, nil
+}
+
+// FetchStatus retrieves a single status by its ID.
+func (c *Client) FetchStatus(ctx context.Context, statusID string) (*sdk.Tweet, error) {
+	cleanID := strings.TrimSpace(statusID)
+	if cleanID == "" {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opStatus, "statusID cannot be empty")
+	}
+
+	endpoint := fmt.Sprintf("/2/status/%s", cleanID)
+	body, err := c.doGet(ctx, opStatus, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RawStatusResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, sdk.Errorf(sdk.KindMalformed, opStatus, "decode response: %w", err)
+	}
+
+	tweet := resp.ToSDK()
+	if tweet == nil || tweet.ID == "" {
+		return nil, sdk.Errorf(sdk.KindNotFound, opStatus, "status not found: %s", cleanID)
+	}
+
+	return tweet, nil
+}
+
+// FetchQuotes retrieves quote tweets for a given status ID.
+func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cursor string) ([]sdk.Tweet, string, error) {
+	cleanID := strings.TrimSpace(statusID)
+	if cleanID == "" {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opQuotes, "statusID cannot be empty")
+	}
+
+	endpoint := fmt.Sprintf("/2/status/%s/quotes", cleanID)
+	params := url.Values{}
+	if count > 0 {
+		params.Set("count", strconv.Itoa(count))
+		params.Set("limit", strconv.Itoa(count))
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, err := c.doGet(ctx, opQuotes, endpoint, params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var resp RawTimelineResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, "", sdk.Errorf(sdk.KindMalformed, opQuotes, "decode response: %w", err)
+	}
+
+	items := resp.Items()
+	tweets := make([]sdk.Tweet, 0, len(items))
+	for _, item := range items {
+		if tw := item.Resolve().ToSDK(); tw != nil {
+			tweets = append(tweets, *tw)
+		}
+	}
+
+	nextCursor := resp.CursorValue()
+	if nextCursor == cursor {
+		nextCursor = ""
+	}
+
+	if count > 0 && len(tweets) > count {
+		tweets = tweets[:count]
+	}
+
+	return tweets, nextCursor, nil
+}
+
+// FetchTrends retrieves currently trending topics.
+func (c *Client) FetchTrends(ctx context.Context) ([]sdk.Trend, error) {
+	body, err := c.doGet(ctx, opTrends, "/2/trends", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var rawList []RawTrend
+	var resp RawTrendsResponse
+	if err := json.Unmarshal(body, &resp); err == nil {
+		rawList = resp.Trends
+		if len(rawList) == 0 {
+			rawList = resp.Results
+		}
+	} else if err := json.Unmarshal(body, &rawList); err != nil {
+		return nil, sdk.Errorf(sdk.KindMalformed, opTrends, "decode response: %w", err)
+	}
+
+	trends := make([]sdk.Trend, 0, len(rawList))
+	for i, raw := range rawList {
+		if strings.TrimSpace(raw.Name) == "" {
+			continue
+		}
+		trends = append(trends, raw.ToSDK(i+1))
+	}
+
+	return trends, nil
+}
+
+// SearchUsers queries FxTwitter user search endpoint.
+func (c *Client) SearchUsers(ctx context.Context, query string, count int) ([]sdk.Profile, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opSearchUsers, "query cannot be empty")
+	}
+
+	perPage := count
+	if perPage < 1 {
+		perPage = 10
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	params := url.Values{}
+	params.Set("q", q)
+	params.Set("count", strconv.Itoa(perPage))
+	params.Set("limit", strconv.Itoa(perPage))
+
+	body, err := c.doGet(ctx, opSearchUsers, "/2/search/users", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var users []*RawAuthor
+	var resp RawUsersResponse
+	if err := json.Unmarshal(body, &resp); err == nil {
+		users = resp.UserList()
+	} else if err := json.Unmarshal(body, &users); err != nil {
+		return nil, sdk.Errorf(sdk.KindMalformed, opSearchUsers, "decode response: %w", err)
+	}
+
+	profiles := make([]sdk.Profile, 0, len(users))
+	for _, u := range users {
+		if p := u.ToSDKProfile(); p != nil {
+			profiles = append(profiles, *p)
+		}
+	}
+
+	if count > 0 && len(profiles) > count {
+		profiles = profiles[:count]
+	}
+
+	return profiles, nil
 }

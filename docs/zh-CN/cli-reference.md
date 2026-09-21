@@ -131,17 +131,59 @@ nitter circle run <NAME> [--limit N] [--media-only] [--json|--ndjson]
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
 
+## nitter profile
+
+```bash
+nitter profile <HANDLE> [--json|--ndjson]
+```
+
+获取博主个人名片卡与详细元数据。
+- TTY 默认渲染排版名片卡：包含 Handle、昵称、Bio、关注数、粉丝数、发推数、媒体数、头像/背景横幅直链及受保护状态。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
+- `--json`：输出单条 Profile JSON 对象。
+
+## nitter quotes
+
+```bash
+nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
+```
+
+挖掘指定推文（ID 或 URL）的引用推文（Quotes，二创及转发点评）。
+- TTY 默认渲染推文行：`<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`。
+- 管道模式（`!isatty`）自动输出 `kind: "tweet"` 单行 NDJSON 信封，`meta.source` 标记为 `quotes:<id>`。
+- `--limit`：限制条数（默认 20，0 表示无限制）。
+- `--media-only`：仅保留带媒体附件的引用推文。
+- `--no-reposts`：过滤纯转推。
+- `--json`：输出 JSON 文档。
+
+## nitter trends
+
+```bash
+nitter trends [--limit N] [--json|--ndjson]
+```
+
+获取实时 Twitter/X 热搜榜单趋势。
+- TTY 默认渲染排版表格：`#  TREND TOPIC  CONTEXT  TWEETS`。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "trend"`）单行 NDJSON 信封。
+- `--limit`：限制展示条数（默认 0，表示全量展示）。
+- `--json`：输出完整 `Trend` 数组。
+
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
-对配置的实例运行 `QUERY`。查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
+对配置的实例或 FxTwitter 运行 `QUERY`。当 `--type tweet`（默认）时，查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
 适用 Nitter 自身的查询语法：前导 `#` 搜话题标签，`from:user` 搜某用户的帖子，
 其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
 `search:<按原样输入的查询>`。
+
+当 `--type user` 时，按关键词搜索推主、画师、KOL 账号：
+- TTY 渲染用户表格：`@<handle>  <name>  <followers>  <bio>`。
+- 管道模式（`!isatty`）自动输出 `kind: "profile"` NDJSON 信封。
+- `--json` 输出 Profile 对象或数组。
 
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
@@ -167,13 +209,14 @@ nitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] 
 nitter get <REF> [--json|--ndjson]
 ```
 
-抓取单条推文。`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
+抓取单条推文。默认 `fetch_backend=mix` 与 `fx` 模式下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例。
+`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
 `/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
 stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出是歧义错误（退出 2）。
 没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/
 `--ndjson` 可见）；互动数不予报告——绝不虚构。NDJSON 的 `meta.source` 为
-`status:<数字 ID>`。
+`status:<数字 ID>`。当由 FxTwitter 提供时，NDJSON 的 `meta.instance` 标为 `FxTwitter`。
 
 示例（`--json` 对单条推文只输出一个对象；形态为示意）：
 

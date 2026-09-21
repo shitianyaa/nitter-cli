@@ -267,3 +267,39 @@ func TestConversationZeroValueMarshalsEveryContractKey(t *testing.T) {
 		t.Errorf("decoded zero Conversation mismatch: %+v", decoded)
 	}
 }
+
+func TestTrendJSONShapeIsTheDataContract(t *testing.T) {
+	trend := nitter.Trend{
+		Name:          "#GoLang",
+		Rank:          1,
+		Context:       "Technology · Trending",
+		TweetCount:    15200,
+		GroupedTopics: []string{"Programming", "Software"},
+	}
+
+	got := marshalNDJSON(t, trend)
+	want := `{"name":"#GoLang","rank":1,"context":"Technology · Trending","tweet_count":15200,"grouped_topics":["Programming","Software"]}`
+	if got != want {
+		t.Errorf("Trend JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+
+	var decoded nitter.Trend
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("Unmarshal(Trend) = error %v", err)
+	}
+	if decoded.Name != "#GoLang" || decoded.Rank != 1 || decoded.Context != "Technology · Trending" || decoded.TweetCount != 15200 || len(decoded.GroupedTopics) != 2 {
+		t.Errorf("decoded Trend mismatch: %+v", decoded)
+	}
+}
+
+func TestTrendZeroValueMarshalsEveryContractKey(t *testing.T) {
+	b, err := json.Marshal(nitter.Trend{})
+	if err != nil {
+		t.Fatalf("Marshal(zero Trend) = error %v", err)
+	}
+	got := string(b)
+	want := `{"name":"","rank":0,"context":"","tweet_count":0,"grouped_topics":null}`
+	if got != want {
+		t.Errorf("zero Trend JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}

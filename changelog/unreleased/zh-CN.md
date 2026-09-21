@@ -11,6 +11,12 @@
 - **私人精选圈子管理（`nitter circle`）**：支持 `list`、`show`、`add` 与流式拉取整圈推文的 `run` 子命令，配置文件保存在 `~/.nitter-cli/circles.toml`。
 - **`nitter user --with-replies`**：支持在时间线中包含用户自身发布的回复推文。
 - **SDK 模型扩充**：`sdk` 包新增 `Profile` 与 `Conversation` 标准模型。
+- **实时热搜趋势命令（`nitter trends`）**：获取实时 Twitter/X 热门话题榜单（支持排名、话题名、上下文分类及发推数统计；TTY 格式化表格，管道模式输出 `kind: "trend"` NDJSON 信封）。
+- **推文引用挖掘命令（`nitter quotes`）**：挖掘单条推文的二次创作与带图引用（支持 `--media-only`、`--no-reposts` 过滤，管道模式输出 `kind: "tweet"` NDJSON 信封）。
+- **博主名片卡命令（`nitter profile`）**：获取博主完整个人主页资料卡（含 Handle、名称、Bio、关注/粉丝/推文/媒体计数及头像横幅直链；管道输出 `kind: "profile"` NDJSON 信封）。
+- **推主与创作者搜索（`nitter search --type user`）**：支持在 `search` 命令中通过 `--type user` 搜索推主、画师及创作者账号画像。
+- **单推抓取（`nitter get`）接入 Fx 快道**：在 `mix` 与 `fx` 模式下优先走 FxTwitter 极速通道，遇故障平滑回退 Nitter 实例。
+- **SDK `Trend` 模型与 Protocol `KindTrend`**：新增 `Trend` 结构体及 `KindTrend = "trend"` 协议常量。
 
 ## 变更
 

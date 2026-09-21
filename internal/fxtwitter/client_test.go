@@ -685,4 +685,234 @@ func TestEmptyInputsValidation(t *testing.T) {
 	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
 		t.Errorf("expected KindInvalidArg for empty following handle, got %v", err)
 	}
+
+	// Empty statusID in FetchStatus returns KindInvalidArg
+	_, err = client.FetchStatus(ctx, "")
+	if err == nil {
+		t.Error("expected error on empty statusID in FetchStatus, got nil")
+	}
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for empty statusID, got %v", err)
+	}
+
+	// Empty statusID in FetchQuotes returns KindInvalidArg
+	_, _, err = client.FetchQuotes(ctx, "", 10, "")
+	if err == nil {
+		t.Error("expected error on empty statusID in FetchQuotes, got nil")
+	}
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for empty statusID, got %v", err)
+	}
+
+	// Empty query in SearchUsers returns KindInvalidArg
+	_, err = client.SearchUsers(ctx, "", 10)
+	if err == nil {
+		t.Error("expected error on empty query in SearchUsers, got nil")
+	}
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for empty query, got %v", err)
+	}
+}
+
+func TestFetchStatusSuccessAndNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/2/status/12345":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"tweet": map[string]any{
+					"id":   "12345",
+					"text": "Hello world from Fx status",
+					"author": map[string]any{
+						"screen_name": "jack",
+						"name":        "Jack",
+					},
+					"media": map[string]any{
+						"all": []map[string]any{
+							{"type": "photo", "url": "https://pbs.twimg.com/media/pic.jpg"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/2/status/40404":
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":    404,
+				"message": "Status not found",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	// 1. Success
+	tw, err := client.FetchStatus(ctx, "12345")
+	if err != nil {
+		t.Fatalf("FetchStatus failed: %v", err)
+	}
+	if tw.ID != "12345" || tw.Text != "Hello world from Fx status" || tw.Author.Handle != "jack" {
+		t.Errorf("FetchStatus tweet mismatch: %+v", tw)
+	}
+	if len(tw.Media) != 1 || tw.Media[0].URL != "https://pbs.twimg.com/media/pic.jpg" {
+		t.Errorf("FetchStatus media mismatch: %+v", tw.Media)
+	}
+
+	// 2. 404
+	_, err = client.FetchStatus(ctx, "40404")
+	if err == nil {
+		t.Fatal("expected error for 404 status, got nil")
+	}
+	var terr *sdk.Error
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindNotFound {
+		t.Errorf("expected KindNotFound for 404 status, got %v", err)
+	}
+}
+
+func TestFetchQuotes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/2/status/9999/quotes") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"quotes": []map[string]any{
+				{
+					"id":   "1001",
+					"text": "Quote 1",
+					"author": map[string]any{
+						"screen_name": "quoter1",
+					},
+				},
+				{
+					"id":   "1002",
+					"text": "Quote 2",
+					"author": map[string]any{
+						"screen_name": "quoter2",
+					},
+				},
+			},
+			"cursor": "next_quotes_cursor",
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	tweets, nextCursor, err := client.FetchQuotes(ctx, "9999", 10, "")
+	if err != nil {
+		t.Fatalf("FetchQuotes failed: %v", err)
+	}
+	if len(tweets) != 2 || tweets[0].ID != "1001" || tweets[1].ID != "1002" {
+		t.Errorf("FetchQuotes tweets mismatch: %+v", tweets)
+	}
+	if nextCursor != "next_quotes_cursor" {
+		t.Errorf("FetchQuotes cursor = %q, want next_quotes_cursor", nextCursor)
+	}
+}
+
+func TestFetchTrends(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/trends" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"trends": []map[string]any{
+				{
+					"name":           "#AI",
+					"rank":           1,
+					"context":        "Technology · Trending",
+					"tweet_count":    42000,
+					"grouped_topics": []string{"Tech", "Computing"},
+				},
+				{
+					"name":        "SpaceX",
+					"rank":        nil,
+					"context":     "Science · Trending",
+					"tweet_count": 15000,
+				},
+				{
+					"name": "", // should be skipped
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	trends, err := client.FetchTrends(ctx)
+	if err != nil {
+		t.Fatalf("FetchTrends failed: %v", err)
+	}
+	if len(trends) != 2 {
+		t.Fatalf("FetchTrends returned %d trends, want 2", len(trends))
+	}
+	if trends[0].Name != "#AI" || trends[0].Rank != 1 || trends[0].TweetCount != 42000 || len(trends[0].GroupedTopics) != 2 {
+		t.Errorf("trends[0] mismatch: %+v", trends[0])
+	}
+	// Defensively assigns rank 2 for second item
+	if trends[1].Name != "SpaceX" || trends[1].Rank != 2 || trends[1].TweetCount != 15000 {
+		t.Errorf("trends[1] mismatch: %+v", trends[1])
+	}
+}
+
+func TestSearchUsers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/search/users" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("q") != "artist" {
+			http.Error(w, `{"code":400,"message":"bad query"}`, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"users": []map[string]any{
+				{
+					"screen_name":     "picasso",
+					"name":            "Pablo Picasso",
+					"description":     "Cubist painter",
+					"followers_count": 50000,
+				},
+				{
+					"screen_name":     "monet",
+					"name":            "Claude Monet",
+					"description":     "Impressionist painter",
+					"followers_count": 30000,
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	users, err := client.SearchUsers(ctx, "artist", 10)
+	if err != nil {
+		t.Fatalf("SearchUsers failed: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("SearchUsers returned %d users, want 2", len(users))
+	}
+	if users[0].Handle != "picasso" || users[0].Name != "Pablo Picasso" || users[0].FollowersCount != 50000 {
+		t.Errorf("users[0] mismatch: %+v", users[0])
+	}
+	if users[1].Handle != "monet" || users[1].Bio != "Impressionist painter" {
+		t.Errorf("users[1] mismatch: %+v", users[1])
+	}
 }

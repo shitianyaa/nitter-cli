@@ -1,6 +1,7 @@
 package result
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -35,4 +36,34 @@ func ProfileRows(ps []nitter.Profile) []ProfileRow {
 		})
 	}
 	return rows
+}
+
+// ProfileCard renders a profile as a formatted user card.
+func ProfileCard(p nitter.Profile) string {
+	var sb strings.Builder
+	handle := "@" + strings.TrimPrefix(p.Handle, "@")
+	if p.Name != "" {
+		fmt.Fprintf(&sb, "%s (%s)\n", handle, p.Name)
+	} else {
+		fmt.Fprintf(&sb, "%s\n", handle)
+	}
+	if p.Bio != "" {
+		fmt.Fprintf(&sb, "Bio:        %s\n", p.Bio)
+	}
+	fmt.Fprintf(&sb, "Followers:  %d\n", p.FollowersCount)
+	fmt.Fprintf(&sb, "Following:  %d\n", p.FollowingCount)
+	fmt.Fprintf(&sb, "Tweets:     %d\n", p.TweetsCount)
+	if p.MediaCount > 0 {
+		fmt.Fprintf(&sb, "Media:      %d\n", p.MediaCount)
+	}
+	if p.AvatarURL != "" {
+		fmt.Fprintf(&sb, "Avatar:     %s\n", p.AvatarURL)
+	}
+	if p.BannerURL != "" {
+		fmt.Fprintf(&sb, "Banner:     %s\n", p.BannerURL)
+	}
+	if p.IsProtected {
+		sb.WriteString("Protected:  true\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
