@@ -91,27 +91,55 @@ successful output; stderr is never JSON.
 
 ```bash
 nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+  [--with-replies] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Fetches the timeline of `HANDLE` — 1–15 letters, digits or underscores, without
-the `@` (bad shape exits 2 before any network). The RSS feed (`<HANDLE>/rss`) is
-tried first; when it fails or yields no tweets the HTML user page is fetched,
-following its load-more cursor. NDJSON `meta.source` is `user:<HANDLE>`.
-`--max-pages 0` lets the HTML fallback paginate without a page bound (until
-upstream exhaustion); see the shared fetch behavior above.
+the `@` (bad shape exits 2 before any network). When `fetch_backend=mix` (default)
+FxTwitter fast-lane is tried first without credentials, falling back smoothly to
+configured Nitter instances on failure or when `--instance` is specified.
+`--max-pages 0` removes the pagination cap.
 
-Field filters apply **after the fetch, before output** (the three combine
-freely; an invalid `--media-type` value exits 2):
+- `--with-replies` includes the user's reply tweets.
+- `--no-reposts` drops pure retweets.
+- `--media-only` drops tweets carrying no media attachments (uses Fx `/media` endpoint when active).
+- `--media-type image|video|gif` keeps only tweets with at least one matching media entry.
 
-- `--no-reposts` drops pure retweets (the retweet header only exists on the
-  HTML parse path; on user timelines the RSS path additionally flags them by
-  author mismatch — a retweeted item links the original author, never the
-  requested handle. Search/list have no RSS layer, so that signal does not
-  extend to them).
-- `--media-only` drops tweets that carry no media attachments.
-- `--media-type image|video|gif` keeps only tweets carrying at least one media
-  entry of that type.
+## nitter following
+
+```bash
+nitter following <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+Fetches accounts followed by `HANDLE` via FxTwitter API v2.
+- Renders as formatted table on TTY: `@<handle>  <name>  <followers>  <bio>`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelopes in pipe mode.
+- `--json` outputs the array of `Profile` objects.
+
+## nitter comments
+
+```bash
+nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--ndjson]
+```
+
+Fetches the root tweet, context thread chain, and user replies for a status.
+- Essential for extracting author self-replies with hidden download links or reading long multi-part threads.
+- `--sort` selects reply ordering (`likes` default or `recency`).
+
+## nitter circle
+
+```bash
+nitter circle list [--json]
+nitter circle show <NAME> [--json]
+nitter circle add <NAME> <HANDLE>
+nitter circle run <NAME> [--limit N] [--media-only] [--json|--ndjson]
+```
+
+Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
+- `list`: lists configured circles with user counts.
+- `show`: lists handles in a circle.
+- `add`: adds handle to a circle (creates file/circle on demand).
+- `run`: traverses and streams latest tweets for all creators in the circle.
 
 ## nitter search
 
@@ -408,23 +436,24 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-Manages the twelve scalar keys of `~/.nitter-cli/config.toml` (defaults, env
+Manages the thirteen scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
 [README](../../README.md#configuration)):
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path,
+instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
 filename_template, directory_template
 ```
 
 - `config path` prints the config file path. Takes no arguments (else exit 2).
-- `config get` without a key prints all twelve keys as `key = value`; with a
+- `config get` without a key prints all thirteen keys as `key = value`; with a
   key it prints that one. Unknown keys are rejected (exit 2) before the file
   is read.
 - `config set KEY [VALUE]` validates and coerces the value **before any disk
   write** (integers `>= 0` for `default_limit`/`max_pages`/`retry_attempts`;
   durations `>= 0` for `request_interval`/`retry_delay`/`instance_cooldown`;
+  `fetch_backend` is `mix|nitter|fx`;
   `log_level` is `debug|info`; `log_format` is `text|json`; `proxy`,
   `download_path` and the two naming templates accept any string). Without a
   VALUE, one line is read from piped stdin (secrets should not need argv); on

@@ -163,7 +163,7 @@ client, err := nitter.New(
 写入（值也可从 stdin 管道读入）；`nitter config unset KEY` 删除。`[[instances]]`
 与 `[[watch.sources]]` 数组表只能直接编辑文件——`config set` 拒绝它们。
 
-### 标量键（全部十二个）
+### 标量键（全部十三个）
 
 | 键 | 类型 | 默认 | 环境变量覆盖 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -173,6 +173,7 @@ client, err := nitter.New(
 | `retry_attempts` | int | `2` | — | 首次之外的重试次数（网络错误与 5xx） |
 | `retry_delay` | duration | `1s` | — | 线性退避基数：第 n 次重试等待 `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | 实例失败（429 / 网络错误）后的冷却时长 |
+| `fetch_backend` | 枚举 | `mix` | `NITTER_FETCH_BACKEND` | 抓取后端策略：`mix`（默认优先 FxTwitter，故障回退自建 Nitter）、`nitter`（纯 Nitter 实例）、`fx`（纯 FxTwitter） |
 | `proxy` | string | `""` | — | 代理 URL（`http(s)`、`socks5(h)`）；空 = 走环境代理（`HTTPS_PROXY`/`ALL_PROXY`） |
 | `log_level` | 枚举 | `info` | `NITTER_LOG_LEVEL` | `debug` 或 `info`；诊断只进 stderr，不污染 stdout |
 | `log_format` | 枚举 | `text` | `NITTER_LOG_FORMAT` | `text` 或 `json`（单行） |
@@ -180,8 +181,8 @@ client, err := nitter.New(
 | `filename_template` | string | `{id}-{seq}` | — | 普通媒体的下载文件名，占位符 `{id}` `{seq}` `{user}` `{kind}` `{ext}`（默认 = 模板出现前的 `<id>-<seq>.<ext>` 命名；封面始终 `<id>-cover.<ext>`；`download --filename-template` 单次覆盖；非法模板告警并回退默认） |
 | `directory_template` | string | `""` | — | `download_path` 之下的下载子目录，占位符 `{id}` `{user}` `{kind}`（`/` 分隔层级；禁用 `{seq}`/`{ext}`；空 = 平铺） |
 
-环境变量只覆盖这三个键，且优先于文件：`NITTER_DEFAULT_LIMIT`（整数）、
-`NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`。
+环境变量优先于文件：`NITTER_DEFAULT_LIMIT`（整数）、
+`NITTER_LOG_LEVEL`、`NITTER_LOG_FORMAT`、`NITTER_FETCH_BACKEND`。
 
 ### 数组表
 

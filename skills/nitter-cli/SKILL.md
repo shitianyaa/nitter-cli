@@ -85,8 +85,8 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `media`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
-| Local write | `config set`, `config unset`, `seen clear` | Confirm every single time; authorization does not carry over |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle run`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
@@ -157,6 +157,7 @@ nitter instances test http://nitter.internal:8080 --full # +search probe; --list
 nitter instances test URL --ndjson                      # one instance_report envelope per instance
 
 nitter user NASA --limit 5                              # timeline, RSS first, HTML fallback
+nitter user NASA --with-replies --limit 5                # include user replies and interactions
 nitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
 nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
 nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
@@ -164,6 +165,13 @@ nitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by ma
 nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounded HTML pagination, until upstream exhaustion
 nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
+
+nitter following NASA --limit 10                        # fetch accounts followed by handle (profile table or NDJSON)
+nitter comments 2100031016471818431 --limit 10          # fetch replies/thread for tweet (extract hidden links/threads)
+nitter circle list                                      # list configured creator circles
+nitter circle show shaoluo                              # show handles in circle
+nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
+nitter circle add shaoluo NewCreator                    # add handle to circle
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
@@ -211,11 +219,11 @@ nitter update --check --prerelease                      # admit prereleases into
 
 ## Config keys
 
-Twelve scalar keys in `~/.nitter-cli/config.toml`, managed with
+Thirteen scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
-`instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
+`instance_cooldown` (60s), `fetch_backend` (`mix` — mix|nitter|fx), `proxy` (empty), `log_level` (info), `log_format`
 (text), `download_path` (`./nitter-media`, cwd-relative — where `download`
 writes media; `download --output` overrides it per call), `filename_template`
 (`{id}-{seq}` — the download filename, placeholders
@@ -223,11 +231,11 @@ writes media; `download --output` overrides it per call), `filename_template`
 `--filename-template` overrides per call), `directory_template` (empty =
 flat; download subdirectory from `{id}`/`{user}`/`{kind}`). An invalid
 template warns on stderr and falls back to the default at download time. Env
-overrides exist for three keys only: `NITTER_DEFAULT_LIMIT`,
-`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`. Two array tables are hand-edited
+overrides exist for four keys: `NITTER_DEFAULT_LIMIT`,
+`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`, `NITTER_FETCH_BACKEND`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and
-`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md).
+`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md). Creator circles are managed in `~/.nitter-cli/circles.toml` via `nitter circle` commands.
 
 ## Key semantics and traps
 

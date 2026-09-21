@@ -83,23 +83,53 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
 
 ```bash
 nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+  [--with-replies] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
-网络动作前退出 2）。先尝试 RSS 源（`<HANDLE>/rss`）；失败或空结果时改为抓取
-HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 为
-`user:<HANDLE>`。`--max-pages 0` 让 HTML 回退路径无页数上限地翻页（直至上游
-穷尽）；见上方「共同抓取行为」。
+网络动作前退出 2）。默认 `fetch_backend=mix` 时优先通过 FxTwitter 极速免登通道拉取，
+遇到故障或指定 `--instance` 时平滑走 Nitter 实例。`--max-pages 0` 表示不设页数上限。
 
-字段过滤在**抓取之后、输出之前**应用（三者可自由组合；`--media-type` 值不合法
-退出 2）：
-
-- `--no-reposts` 丢弃纯转推（转推标记只存在于 HTML 解析路径；在用户时间线上
-  RSS 路径还会按作者不一致识别转推——被转推条目链接的是原作者，绝不会是请求的
-  句柄。search/list 没有 RSS 层，该信号不适用于它们）。
-- `--media-only` 丢弃不带任何媒体附件的推文。
+- `--with-replies` 包含用户自身发布的回复推文。
+- `--no-reposts` 丢弃纯转推。
+- `--media-only` 丢弃不带任何媒体附件的推文（Fx 激活时走 `/media` 高速专线）。
 - `--media-type image|video|gif` 只保留携带至少一个该类型媒体条目的推文。
+
+## nitter following
+
+```bash
+nitter following <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+通过 FxTwitter 接口拉取 `HANDLE` 关注的用户列表（扩列与找同好）。
+- TTY 默认渲染排版表格：`@<handle>  <name>  <followers>  <bio>`。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
+- `--json` 输出完整 `Profile` 数组。
+
+## nitter comments
+
+```bash
+nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--ndjson]
+```
+
+获取某条推文的主楼、上下文对话链（`thread`）以及评论区回复（`replies`）。
+- 典型场景：提取博主首条自评隐藏链接/网盘、追更 1/N 连环长推/漫画串。
+- `--sort`：可选 `likes`（默认高赞排序）或 `recency`（最新回复排序）。
+
+## nitter circle
+
+```bash
+nitter circle list [--json]
+nitter circle show <NAME> [--json]
+nitter circle add <NAME> <HANDLE>
+nitter circle run <NAME> [--limit N] [--media-only] [--json|--ndjson]
+```
+
+管理与遍历保存在 `~/.nitter-cli/circles.toml` 的私人精选创作者圈子名单。
+- `list`：列出所有圈子名称、描述及博主数。
+- `show`：查看指定圈子内的博主 handle 列表。
+- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
+- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
 
 ## nitter search
 
@@ -348,21 +378,22 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-管理 `~/.nitter-cli/config.toml` 的十二个标量键（默认值、环境变量覆盖与数组表见
+管理 `~/.nitter-cli/config.toml` 的十三个标量键（默认值、环境变量覆盖与数组表见
 [README](../../README.zh-CN.md#配置)）：
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path,
+instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
 filename_template, directory_template
 ```
 
 - `config path` 打印配置文件路径。不接受参数（否则退出 2）。
-- `config get` 不带键时按 `key = value` 打印全部十二个键；带键时只打印该键。
+- `config get` 不带键时按 `key = value` 打印全部十三个键；带键时只打印该键。
   未知键在读取文件之前即被拒绝（退出 2）。
 - `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
   `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
   `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
+  `fetch_backend` 取 `mix|nitter|fx`；
   `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
   `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
   读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。

@@ -176,25 +176,26 @@ pagination, and error kinds.
 `[[watch.sources]]` array tables are managed by editing the file directly —
 `config set` refuses them.
 
-### Scalar keys (all twelve)
+### Scalar keys (all thirteen)
 
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
-| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Tweets per manual command when `--limit` is not given (`0` = all) |
-| `max_pages` | int | `5` | — | Pagination cap per fetch (on `user`, an explicit `--max-pages 0` instead removes the cap) |
-| `request_interval` | duration | `1s` | — | Global minimum interval between the starts of consecutive requests |
-| `retry_attempts` | int | `2` | — | Extra attempts after the first, for network errors and 5xx |
-| `retry_delay` | duration | `1s` | — | Linear backoff base: the n-th retry waits `retry_delay × n` |
+| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Item cap when a command receives no `--limit` (`0` = all) |
+| `max_pages` | int | `5` | — | Upper bound on pagination (on `user`, `--max-pages 0` lifts the cap) |
+| `request_interval` | duration | `1s` | — | Global floor on delay between request start times |
+| `retry_attempts` | int | `2` | — | Extra attempts on network errors and 5xx |
+| `retry_delay` | duration | `1s` | — | Linear backoff base: attempt n waits `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
-| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = environment proxies (`HTTPS_PROXY`/`ALL_PROXY`) |
-| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
-| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or `json` (single-line) |
-| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media (cwd-relative; created on demand; `download --output DIR` overrides it per invocation) |
-| `filename_template` | string | `{id}-{seq}` | — | Download filename for regular media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = the pre-template `<id>-<seq>.<ext>` naming; covers always `<id>-cover.<ext>`; `download --filename-template` overrides per invocation; invalid templates warn and fall back) |
-| `directory_template` | string | `""` | — | Download subdirectory below `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates levels; `{seq}`/`{ext}` forbidden; empty = flat) |
+| `fetch_backend` | enum | `mix` | `NITTER_FETCH_BACKEND` | Fetch backend strategy: `mix` (default, FxTwitter fast-lane with Nitter fallback), `nitter` (pure Nitter), `fx` (pure FxTwitter) |
+| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = fall back to environment (`HTTPS_PROXY`/`ALL_PROXY`) |
+| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr only, stdout stays pure data |
+| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or single-line `json` |
+| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media files (cwd-relative; created on demand; overridden per call by `download --output DIR`) |
+| `filename_template` | string | `{id}-{seq}` | — | Filename template for non-cover media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = legacy `<id>-<seq>.<ext>` naming; covers are always `<id>-cover.<ext>`; overridden per call by `download --filename-template`; invalid template warns and falls back to default) |
+| `directory_template` | string | `""` | — | Subdirectory under `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates nesting; `{seq}`/`{ext}` forbidden; empty = flat) |
 
-Environment overrides apply on top of the file for exactly these three keys:
-`NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`.
+Environment variables win over the file: `NITTER_DEFAULT_LIMIT` (integer),
+`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`, `NITTER_FETCH_BACKEND`.
 
 ### Array tables
 
