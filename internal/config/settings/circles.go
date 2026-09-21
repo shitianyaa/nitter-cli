@@ -16,6 +16,7 @@ type Circle struct {
 	Name        string   `toml:"name" json:"name"`
 	Description string   `toml:"description,omitempty" json:"description"`
 	Users       []string `toml:"users" json:"users"`
+	ListID      string   `toml:"list_id,omitempty" json:"list_id,omitempty"`
 }
 
 // CirclesConfig is the wrapper schema for ~/.nitter-cli/circles.toml.
