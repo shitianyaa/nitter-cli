@@ -1,8 +1,8 @@
 ---
 slug: nitter-cli
-version: 0.6.1
+version: 0.7.0
 displayName: Nitter CLI
-summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
+summary: Safely operate public-tweet retrieval through the nitter binary, FxTwitter fast-lane, and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
 homepage: https://github.com/shitianyaa/nitter-cli
 tags: [nitter, cli, agent]
@@ -239,9 +239,14 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
 
 ## Key semantics and traps
 
-1. **Fetch layering**: user timelines try RSS first and fall back to the HTML
-   user page on failure or empty results — same instance list, no switch to
-   disable. `search`/`list`/`get` are HTML-only.
+1. **Fetch layering & hybrid dispatch (`fetch_backend`)**: `fetch_backend`
+   controls user timeline and search routing (`mix` default, `nitter`, `fx`).
+   In `mix` mode, FxTwitter fast-lane is tried first without credentials; on
+   failure (network error, rate-limit 429, or SafeSearch 404) or when an
+   explicit `--instance` flag is provided, it falls back smoothly to the
+   configured Nitter instance pool (RSS first, then HTML user page). `list`
+   timeline is strictly isolated and ALWAYS fetches from Nitter instances
+   (Fx has no List endpoint).
 2. **RSS is single-page.** A user timeline returns at most ~20 tweets per
    fetch even with a larger `--limit`; `--limit 40` legitimately stops at the
    RSS page. Deeper scans: use `watch` cycles, or rely on the HTML fallback —
@@ -342,6 +347,18 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     will not); state the chosen quality when it matters, and use `--probe`
     for real sizes. Every variant stays in `variants` either way, so a
     consumer can still pick another tier from `media` output.
+19. **`following` is FxTwitter-powered**: fetches accounts followed by `HANDLE`
+    with avatar, bio, and follower/following counts. In non-TTY pipes it emits
+    `kind: "profile"` NDJSON envelopes; `--limit 0` fetches all available pages.
+20. **`comments` extracts conversation trees & hidden author links**: returns
+    the root status, parent thread ancestors, and replies (sorted by `--sort likes`
+    or `recency`). This is the primary mechanism for discovering author self-replies
+    containing full-res download links, Fantia/Gumroad passwords, or reading
+    serialized manga threads.
+21. **`circle` manages curated creator rosters (`~/.nitter-cli/circles.toml`)**:
+    distinct from resident `watch` polling, circles categorize favorite creators
+    by theme/style for on-demand discovery (`circle show`) and pipeline streaming
+    (`circle run <name> | nitter download -o DIR`).
 
 ## Media delivery for agents
 
