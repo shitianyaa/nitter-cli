@@ -191,8 +191,8 @@ type RawTweet struct {
 	Retweet             bool            `json:"retweet"`
 	RetweetedStatus     *RawTweet       `json:"retweeted_status"`
 	RepostedBy          json.RawMessage `json:"reposted_by"`
-	ReplyTo             string          `json:"reply_to"`
-	ReplyingTo          string          `json:"replying_to"`
+	ReplyTo             json.RawMessage `json:"reply_to"`
+	ReplyingTo          json.RawMessage `json:"replying_to"`
 	InReplyToScreenName string          `json:"in_reply_to_screen_name"`
 	Quote               *RawTweet       `json:"quote"`
 	QuotedStatus        *RawTweet       `json:"quoted_status"`
@@ -236,6 +236,24 @@ func parseFxTime(createdAt string, createdTimestamp int64) time.Time {
 		return time.Unix(createdTimestamp, 0).UTC()
 	}
 	return time.Time{}
+}
+
+// parseReplyTo flexibly parses reply targets from either string ("user") or object ({"screen_name": "user"}).
+func parseReplyTo(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var strVal string
+	if err := json.Unmarshal(raw, &strVal); err == nil {
+		return strVal
+	}
+	var objVal struct {
+		ScreenName string `json:"screen_name"`
+	}
+	if err := json.Unmarshal(raw, &objVal); err == nil {
+		return objVal.ScreenName
+	}
+	return ""
 }
 
 // ToSDK converts RawTweet to sdk.Tweet.
@@ -320,9 +338,9 @@ func (t *RawTweet) ToSDK() *sdk.Tweet {
 		}
 	}
 
-	replyTo := t.ReplyTo
+	replyTo := parseReplyTo(t.ReplyTo)
 	if replyTo == "" {
-		replyTo = t.ReplyingTo
+		replyTo = parseReplyTo(t.ReplyingTo)
 	}
 	if replyTo == "" {
 		replyTo = t.InReplyToScreenName
