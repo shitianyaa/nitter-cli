@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -119,7 +120,11 @@ func newListCmd(s *invocation.Streams) *cobra.Command {
 }
 
 func newShowCmd(s *invocation.Streams) *cobra.Command {
-	var asJSON bool
+	var (
+		asJSON          bool
+		minFollowers    int
+		minFollowersSet bool
+	)
 	cmd := &cobra.Command{
 		Use:           "show <NAME>",
 		Short:         "Show users in a specific circle",
@@ -133,6 +138,9 @@ func newShowCmd(s *invocation.Streams) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+			if minFollowers < 0 {
+				return invocation.Usagef("circle show: --min-followers must be >= 0")
+			}
 			p, err := paths.New()
 			if err != nil {
 				return err
@@ -144,6 +152,10 @@ func newShowCmd(s *invocation.Streams) *cobra.Command {
 			circle, ok := settings.FindCircle(circles, name)
 			if !ok {
 				return fmt.Errorf("circle %q not found", name)
+			}
+
+			if minFollowersSet {
+				return showFiltered(cmd, s, circle, minFollowers, asJSON)
 			}
 
 			if asJSON {
@@ -170,7 +182,106 @@ func newShowCmd(s *invocation.Streams) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print users as a JSON array")
+	cmd.Flags().Var(&minFollowersFlag{&minFollowers, &minFollowersSet}, "min-followers",
+		"Show only members with at least N followers (fetches each member's profile; prints @<handle>\t<followers>, or JSON objects with --json)")
 	return cmd
+}
+
+// minFollowersFlag is an int flag value that records whether the flag was
+// set, so the default (absent) state performs no network requests.
+type minFollowersFlag struct {
+	ptr  *int
+	seen *bool
+}
+
+func (f *minFollowersFlag) String() string {
+	if f.ptr == nil {
+		return "0"
+	}
+	return strconv.Itoa(*f.ptr)
+}
+
+func (f *minFollowersFlag) Set(v string) error {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("--min-followers must be an integer")
+	}
+	*f.ptr = n
+	*f.seen = true
+	return nil
+}
+
+func (f *minFollowersFlag) Type() string { return "int" }
+
+// showFiltered resolves each member's profile through the client wiring and
+// keeps only members with at least min followers. A member whose profile
+// fetch fails is skipped with a one-line stderr warning while the others
+// continue; when every member fails, the last error is returned as a
+// runtime failure (exit 1).
+func showFiltered(cmd *cobra.Command, s *invocation.Streams, circle settings.Circle, min int, asJSON bool) error {
+	if len(circle.Users) == 0 {
+		if asJSON {
+			_, err := s.Out.Write([]byte("[]\n"))
+			return err
+		}
+		fmt.Fprintln(s.Err, "(empty)")
+		return nil
+	}
+
+	cfg, err := client.LoadEffectiveSettings()
+	if err != nil {
+		return err
+	}
+	w, err := client.Build(s.RootOptions, cfg, time.Now)
+	if err != nil {
+		return client.AsUsageError(err)
+	}
+	ctx := s.CTX
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	type member struct {
+		Handle         string `json:"handle"`
+		FollowersCount int    `json:"followers_count"`
+	}
+
+	var members []member
+	var anySuccess bool
+	var lastErr error
+	for _, u := range circle.Users {
+		p, err := w.Profile().Profile(ctx, u)
+		if err != nil {
+			lastErr = err
+			fmt.Fprintf(s.Err, "warning: circle show: @%s: %v\n", u, err)
+			continue
+		}
+		anySuccess = true
+		if p.FollowersCount < min {
+			continue
+		}
+		members = append(members, member{Handle: p.Handle, FollowersCount: p.FollowersCount})
+	}
+
+	if !anySuccess && lastErr != nil {
+		return client.AsUsageError(lastErr)
+	}
+
+	if asJSON {
+		if members == nil {
+			members = []member{}
+		}
+		b, err := jsonx.MarshalLine(members)
+		if err != nil {
+			return err
+		}
+		_, err = s.Out.Write(b)
+		return err
+	}
+	for _, m := range members {
+		fmt.Fprintf(s.Out, "@%s\t%d\n", m.Handle, m.FollowersCount)
+	}
+	return nil
 }
 
 func newAddCmd(s *invocation.Streams) *cobra.Command {

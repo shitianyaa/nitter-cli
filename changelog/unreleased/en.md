@@ -18,6 +18,7 @@
 - **Fast-lane dispatch for `nitter get`**: `get` connects through FxTwitter first in `mix` and `fx` modes, smoothly falling back to Nitter instances.
 - **SDK `Trend` model and `KindTrend` protocol constant**: added `Trend` struct and `KindTrend = "trend"`.
 - **`nitter circle run --media-type`**: keep only tweets carrying at least one media entry of the given type (`image|video|gif`) when traversing a circle — flag parity with the `user` command; an invalid value is a usage error (exit 2) before any network.
+- **`nitter circle show --min-followers`**: filter circle members by follower count (`--min-followers N` keeps only members with ≥ N followers, printing `@<handle>\t<followers>` per row, or JSON `{handle, followers_count}` objects with `--json`); a failed member profile is skipped with a stderr warning while others continue, all failing exits 1, and a negative N is a usage error (exit 2) before any network.
 
 ## Changed
 

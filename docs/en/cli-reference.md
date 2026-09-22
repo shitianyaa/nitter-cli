@@ -130,7 +130,7 @@ Fetches the root tweet, context thread chain, and user replies for a status.
 
 ```bash
 nitter circle list [--json]
-nitter circle show <NAME> [--json]
+nitter circle show <NAME> [--json] [--min-followers N]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
@@ -138,6 +138,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `list`: lists configured circles with user counts.
 - `show`: lists handles in a circle.
+  - **`--min-followers N`**: keeps only members with at least N followers, printing `@<handle>\t<followers>` per row (TSV for piping); `--json` outputs a JSON array of `{handle, followers_count}` objects instead. Each member's profile is fetched (one request per member); a failed profile is skipped with a one-line stderr warning while the others continue, and when every member fails the command exits 1. A negative N is a usage error (exit 2) before any network. Without the flag the command performs zero network requests and lists plain handles as before.
 - `add`: adds handle to a circle (creates file/circle on demand).
 - `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.

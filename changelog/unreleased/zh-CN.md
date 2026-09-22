@@ -18,6 +18,7 @@
 - **单推抓取（`nitter get`）接入 Fx 快道**：在 `mix` 与 `fx` 模式下优先走 FxTwitter 极速通道，遇故障平滑回退 Nitter 实例。
 - **SDK `Trend` 模型与 Protocol `KindTrend`**：新增 `Trend` 结构体及 `KindTrend = "trend"` 协议常量。
 - **`nitter circle run --media-type`**：遍历圈子时按媒体类型过滤（`image|video|gif`，只保留携带至少一个该类型 media 的推文）——与 `user` 命令的 flag 对齐；非法值为用法错误（退出 2），先于任何网络。
+- **`nitter circle show --min-followers`**：按粉丝数筛选圈子成员（`--min-followers N` 只显示粉丝数 ≥ N 的成员，每行输出 `@<handle>\t<粉丝数>`，与 `--json` 组合时输出 `{handle, followers_count}` 对象数组）；单个成员 profile 拉取失败不硬失败——stderr warning 并跳过，全部失败退出 1，N 为负数是用法错误（退出 2），先于任何网络。
 
 ## 变更
 

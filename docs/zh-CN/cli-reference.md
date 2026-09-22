@@ -120,7 +120,7 @@ nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--
 
 ```bash
 nitter circle list [--json]
-nitter circle show <NAME> [--json]
+nitter circle show <NAME> [--json] [--min-followers N]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
@@ -128,6 +128,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 管理与遍历保存在 `~/.nitter-cli/circles.toml` 的私人精选创作者圈子名单。
 - `list`：列出所有圈子名称、描述及博主数。
 - `show`：查看指定圈子内的博主 handle 列表。
+  - **`--min-followers N`**：只显示粉丝数 ≥ N 的成员，每行输出 `@<handle>\t<粉丝数>`（TSV 便于管道）；与 `--json` 组合时输出 `{handle, followers_count}` 对象的 JSON 数组。每个成员各发一次 profile 请求；单个成员拉取失败不硬失败——stderr 一行 warning 并跳过该成员，其他成员继续；全部失败时退出 1。N 为负数是 usage error（退出 2），先于任何网络。不带该 flag 时行为完全不变（只列 handle，零网络请求）。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
   - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。

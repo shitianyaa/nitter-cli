@@ -182,6 +182,7 @@ nitter trends --limit 10                                # fetch real-time Twitte
 nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
 nitter circle show shaoluo                              # show handles in circle
+nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
 nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
 nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
 nitter circle add shaoluo NewCreator                    # add handle to circle
@@ -372,7 +373,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     serialized manga threads.
 21. **`circle` manages curated creator rosters (`~/.nitter-cli/circles.toml`)**:
     distinct from resident `watch` polling, circles categorize favorite creators
-    by theme/style for on-demand discovery (`circle show`) and pipeline streaming
+    by theme/style for on-demand discovery (`circle show`, `--min-followers N`
+    filters members by follower count — one profile fetch per member, a failed
+    member is skipped with a warning, all failing exits 1) and pipeline streaming
     (`circle run <name> | nitter download -o DIR`).
 22. **`trends` retrieves real-time Twitter/X trending topics**: FxTwitter-powered;
     returns trending topic rank, name, context category, tweet count, and grouped topics.
