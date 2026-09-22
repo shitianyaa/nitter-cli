@@ -29,6 +29,25 @@ copies.
   and ownership.
 - [Development](maintainers/development.md): environment, tests, builds, and
   release flow.
+- [Agent collaboration rules](maintainers/agents/index.md): review checklist and
+  documentation routing for repository work.
+
+## For automation
+
+Read [`AGENTS.md`](../AGENTS.md) at the repository root first. Then enter the
+matching skill for the task:
+
+| Task | Skill |
+| --- | --- |
+| Preparing a PR | [`.agents/skills/nitter-cli-pr/`](../.agents/skills/nitter-cli-pr/SKILL.md) |
+| Diagnosing CI | [`.agents/skills/nitter-cli-ci/`](../.agents/skills/nitter-cli-ci/SKILL.md) |
+| Reviewing changes | [`.agents/skills/nitter-cli-review/`](../.agents/skills/nitter-cli-review/SKILL.md) |
+| Maintaining docs | [`.agents/skills/nitter-cli-docs/`](../.agents/skills/nitter-cli-docs/SKILL.md) |
+| Commit messages | [`.agents/skills/nitter-cli-commit-message/`](../.agents/skills/nitter-cli-commit-message/SKILL.md) |
+| Release notes and tags | [`.agents/skills/nitter-cli-release-notes/`](../.agents/skills/nitter-cli-release-notes/SKILL.md) |
+
+`CLAUDE.md` only references `AGENTS.md`. Long-term rules are not duplicated into
+each tool's config.
 
 ## Changelog
 

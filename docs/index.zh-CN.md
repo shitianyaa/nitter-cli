@@ -24,6 +24,22 @@
 
 - [架构说明](maintainers/architecture.md)：包边界、运行期流程与职责归属。
 - [开发指南](maintainers/development.md)：环境、测试、构建与发布流程。
+- [Agent 协作细则](maintainers/agents/index.md)：审查清单与文档变更路由。
+
+## 面向自动化
+
+先读仓库根目录的 [`AGENTS.md`](../AGENTS.md)，再按任务进入对应 skill：
+
+| 任务 | Skill |
+| --- | --- |
+| 准备 PR | [`.agents/skills/nitter-cli-pr/`](../.agents/skills/nitter-cli-pr/SKILL.md) |
+| 诊断 CI | [`.agents/skills/nitter-cli-ci/`](../.agents/skills/nitter-cli-ci/SKILL.md) |
+| 审查改动 | [`.agents/skills/nitter-cli-review/`](../.agents/skills/nitter-cli-review/SKILL.md) |
+| 维护文档 | [`.agents/skills/nitter-cli-docs/`](../.agents/skills/nitter-cli-docs/SKILL.md) |
+| commit message | [`.agents/skills/nitter-cli-commit-message/`](../.agents/skills/nitter-cli-commit-message/SKILL.md) |
+| 发布说明与打 tag | [`.agents/skills/nitter-cli-release-notes/`](../.agents/skills/nitter-cli-release-notes/SKILL.md) |
+
+`CLAUDE.md` 只引用 `AGENTS.md`，不维护第二份规则；长期规则不复制进各工具配置。
 
 ## 变更日志
 
