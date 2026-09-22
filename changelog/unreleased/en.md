@@ -21,6 +21,8 @@
 
 ## Changed
 
+- **`circle run` deterministic results and filter provenance**: Fx fast-lane results are sorted by tweet ID descending before `--limit` truncates (same input, same output — upstream page-composition fluctuations no longer change the result set); NDJSON envelopes carry `meta.filter` (`"media_only"` or the media-type value) when a media filter is in effect; snapshot semantics and the doubled media-endpoint pagination under `--media-only` are documented in the help text and CLI reference.
+
 - Thirteen scalar keys (added `fetch_backend` with `NITTER_FETCH_BACKEND` env override).
 - `--instance` explicitly forces Nitter; List subscriptions remain strictly isolated to Nitter.
 

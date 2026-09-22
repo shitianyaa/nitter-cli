@@ -316,6 +316,15 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 			opts := []client.TimelineOption{
 				client.WithMediaOnly(mediaOnlyFlag || mediaTypeFlag != ""),
 			}
+			// meta.filter marks the media filter in effect on NDJSON
+			// envelopes ("media_only" or the --media-type value); omitted
+			// without any filter so consumers can verify filtering.
+			metaFilter := ""
+			if mediaOnlyFlag {
+				metaFilter = "media_only"
+			} else if mediaTypeFlag != "" {
+				metaFilter = mediaTypeFlag
+			}
 
 			var allTweets []nitter.Tweet
 			var anySuccess bool
@@ -344,6 +353,7 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 								Source:    "circle:" + circle.Key,
 								Instance:  instance,
 								FetchedAt: fetchedAt,
+								Filter:    metaFilter,
 							},
 						}
 						if err := pipeline.WriteEnvelope(s.Out, env); err != nil {
@@ -389,9 +399,10 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum tweets to fetch per user (default: 20, 0 = all)")
-	cmd.Flags().BoolVar(&mediaOnlyFlag, "media-only", false, "Fetch only tweets with media attachments")
+	cmd.Flags().BoolVar(&mediaOnlyFlag, "media-only", false,
+		"Fetch only tweets with media attachments (uses the Fx media endpoint; snapshot semantics: every run re-fetches each member's latest tweets from scratch, no incremental state — use watch for incremental tracking)")
 	cmd.Flags().StringVar(&mediaTypeFlag, "media-type", "",
-		"Keep only tweets with at least one media entry of this type: image, video or gif")
+		"Keep only tweets with at least one media entry of this type: image, video or gif (applied after fetching, so the result may be shorter than --limit)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print tweets as a JSON array")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per tweet (kind tweet)")
 	return cmd

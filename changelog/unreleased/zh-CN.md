@@ -21,6 +21,8 @@
 
 ## 变更
 
+- **`circle run` 确定性结果与过滤溯源**：Fx 快车道结果按推文 ID 降序排序后再按 `--limit` 截断（同输入同输出——上游翻页组成波动不再改变结果集）；媒体过滤生效时 NDJSON 信封携带 `meta.filter`（`"media_only"` 或媒体类型值）；快照语义与 `--media-only` 下媒体端点翻页加深的补偿行为已写入帮助文本与 CLI 参考。
+
 - 标量配置键由 12 个扩充为 13 个，新增 `fetch_backend`，支持环境变量 `NITTER_FETCH_BACKEND`。
 - 指定 `--instance` 时自动强制走 Nitter 实例，List 订阅严格物理隔离锁定自建 Nitter。
 

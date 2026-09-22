@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -320,7 +322,33 @@ func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, m
 		tweets = filtered
 	}
 
+	// Deterministic order: sort by tweet ID descending (timeline order) so
+	// the same input always produces the same output sequence — the Fx media
+	// endpoint's page composition may fluctuate between runs, but the result
+	// set is stable once ordered. Truncate to limit afterwards (limit 0 =
+	// all). Purely client-side and documented in the CLI reference.
+	sort.SliceStable(tweets, func(i, j int) bool {
+		a, b := tweetIDNum(tweets[i].ID), tweetIDNum(tweets[j].ID)
+		if a != b {
+			return a > b
+		}
+		return tweets[i].ID > tweets[j].ID
+	})
+	if limit > 0 && len(tweets) > limit {
+		tweets = tweets[:limit]
+	}
+
 	return tweets, "FxTwitter", nil
+}
+
+// tweetIDNum parses a numeric status ID as an unsigned integer; unparsable
+// IDs sort as zero (ties then fall back to the string comparison).
+func tweetIDNum(id string) uint64 {
+	v, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // Timeline returns the user-timeline acquisition capability as the narrow

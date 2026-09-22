@@ -83,8 +83,8 @@ func TestWatchUserSourceFetchesTweetsFxBackend(t *testing.T) {
 		t.Fatalf("exit = %d (stderr %q)", code, errOut)
 	}
 	envs := decodeEnvelopes(t, out)
-	if len(envs) != 2 || envs[0].ID != "101" || envs[1].ID != "102" {
-		t.Fatalf("envelopes = %d (%v), want tweets 101 and 102 — the fx fetch must not silently come back empty", len(envs), out)
+	if len(envs) != 2 || envs[0].ID != "102" || envs[1].ID != "101" {
+		t.Fatalf("envelopes = %d (%v), want tweets 102 and 101 (ID descending) — the fx fetch must not silently come back empty", len(envs), out)
 	}
 }
 

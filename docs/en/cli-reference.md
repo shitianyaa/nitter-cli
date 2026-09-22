@@ -140,6 +140,10 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `show`: lists handles in a circle.
 - `add`: adds handle to a circle (creates file/circle on demand).
 - `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
+  - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
+  - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
+  - **Filter marker**: when `--media-only` or `--media-type` is in effect, NDJSON envelopes carry `meta.filter` (`"media_only"` or the media-type value) so consumers can verify filtering; without a filter the key is absent.
+  - **Media-endpoint pagination**: `--media-only` fetches through the Fx media endpoint with a doubled per-page count to compensate for non-media entries — the result set may therefore reach deeper into the member's timeline than the plain fetch (documented behavior, not an error).
 
 ## nitter profile
 

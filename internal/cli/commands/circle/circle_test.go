@@ -356,6 +356,144 @@ func TestCircle_Run(t *testing.T) {
 	})
 }
 
+// TestCircle_RunDeterministicOrder: the Fx fast lane sorts its results by
+// tweet ID descending (timeline order) before returning them, so the same
+// fixture always produces the same ID sequence — two consecutive runs emit
+// identical ID lists even when the upstream page order is shuffled.
+func TestCircle_RunDeterministicOrder(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home)
+
+	runCLI(t, "circle", "add", "ord", "nasa")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.ToLower(r.URL.Path)
+		if !strings.Contains(path, "/2/profile/nasa/media") && !strings.Contains(path, "/2/profile/nasa/statuses") {
+			http.NotFound(w, r)
+			return
+		}
+		// Deliberately NOT in timeline (ID descending) order.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"results": []map[string]any{
+				fxMediaTweet("201", "201 tweet"),
+				fxMediaTweet("203", "203 tweet"),
+				fxMediaTweet("202", "202 tweet"),
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cleanup := client.SetFxBaseURLForTesting(srv.URL)
+	defer cleanup()
+
+	var firstIDs []string
+	for i := 0; i < 2; i++ {
+		code, out, errOut := runCLI(t, "circle", "run", "ord", "--json")
+		if code != 0 {
+			t.Fatalf("run %d: exit = %d, want 0 (stderr %q)", i, code, errOut)
+		}
+		var tweets []nitter.Tweet
+		if err := json.Unmarshal([]byte(out), &tweets); err != nil {
+			t.Fatalf("run %d: unmarshal: %v\n%s", i, err, out)
+		}
+		var ids []string
+		for _, tw := range tweets {
+			ids = append(ids, tw.ID)
+		}
+		if i == 0 {
+			firstIDs = ids
+			continue
+		}
+		if strings.Join(ids, ",") != strings.Join(firstIDs, ",") {
+			t.Errorf("two runs differ: %v vs %v", firstIDs, ids)
+		}
+	}
+	// Sorted deterministically by ID descending (timeline order).
+	if strings.Join(firstIDs, ",") != "203,202,201" {
+		t.Errorf("ids = %v, want [203 202 201] (ID descending)", firstIDs)
+	}
+}
+
+// TestCircle_RunMetaFilter: the NDJSON envelope meta carries a filter marker
+// only when a media filter is in effect: --media-only marks "media_only",
+// --media-type image marks "image", and without any filter the meta has no
+// filter key at all.
+func TestCircle_RunMetaFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		wantFilter string // empty = key must be absent
+	}{
+		{name: "media-only", args: []string{"--media-only"}, wantFilter: "media_only"},
+		{name: "media-type image", args: []string{"--media-type", "image"}, wantFilter: "image"},
+		{name: "no filter", args: nil, wantFilter: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := tempHome(t)
+			writeConfig(t, home)
+			runCLI(t, "circle", "add", "mf", "nasa")
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				path := strings.ToLower(r.URL.Path)
+				if !strings.Contains(path, "/2/profile/nasa/media") && !strings.Contains(path, "/2/profile/nasa/statuses") {
+					http.NotFound(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code":    200,
+					"results": []map[string]any{fxMediaTweet("301", "photo tweet")},
+				})
+			}))
+			defer srv.Close()
+			cleanup := client.SetFxBaseURLForTesting(srv.URL)
+			defer cleanup()
+
+			args := append([]string{"circle", "run", "mf", "--ndjson"}, tc.args...)
+			code, out, errOut := runCLI(t, args...)
+			if code != 0 {
+				t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+			}
+			var env pipeline.Envelope
+			if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &env); err != nil {
+				t.Fatalf("unmarshal envelope: %v\n%s", err, out)
+			}
+			if env.Meta == nil {
+				t.Fatalf("meta is nil")
+			}
+			if tc.wantFilter == "" {
+				if env.Meta.Filter != "" {
+					t.Errorf("meta.filter = %q, want key absent", env.Meta.Filter)
+				}
+				return
+			}
+			if env.Meta.Filter != tc.wantFilter {
+				t.Errorf("meta.filter = %q, want %q", env.Meta.Filter, tc.wantFilter)
+			}
+		})
+	}
+}
+
+// fxMediaTweet builds one fx media-endpoint result entry with a photo.
+func fxMediaTweet(id, text string) map[string]any {
+	return map[string]any{
+		"id":   id,
+		"text": text,
+		"author": map[string]any{
+			"screen_name": "nasa",
+			"name":        "NASA",
+		},
+		"created_at": "Sun Jul 05 09:09:40 +0000 2026",
+		"media": map[string]any{
+			"all": []map[string]any{
+				{"type": "photo", "url": "https://pbs.twimg.com/media/" + id + ".jpg"},
+			},
+		},
+	}
+}
+
 // TestCircle_RunMediaType: --media-type image keeps only tweets carrying an
 // image, video on an image-only circle yields [] (filtered-empty, success),
 // and a bogus value is a usage error (exit 2) naming the flag before any

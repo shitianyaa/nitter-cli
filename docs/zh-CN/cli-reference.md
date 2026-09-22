@@ -130,6 +130,10 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 - `show`：查看指定圈子内的博主 handle 列表。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
+  - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。
+  - **确定性顺序**：Fx 快车道下结果按推文 ID 降序（时间线序）排序后再按 `--limit` 截断，即使上游翻页组成在多次运行间波动，同输入也产生同输出序列。
+  - **过滤标注**：`--media-only` 或 `--media-type` 生效时，NDJSON 信封携带 `meta.filter`（`"media_only"` 或媒体类型值），消费者可验证过滤；无过滤时无该字段。
+  - **媒体端点翻页**：`--media-only` 走 Fx media 端点，每页数量翻倍以补偿非媒体推文——结果集可能比普通拉取探得更深（文档化行为，非错误）。
 
 ## nitter profile
 
