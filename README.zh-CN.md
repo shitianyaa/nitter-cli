@@ -228,7 +228,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 注意：当 `[[instances]]` 条目**同时**设置 `username` 与 `password` 时，发往该
 实例的请求会携带 HTTP basic auth。凭证策略在传输层内按主机限定——凭证只会
 附着在发往其所属实例的请求上，第三方媒体端点（`media`/`download` 的解析器，
-如 fx/vx/syndication/xdown 与 twimg）永远收不到它；凭证也不会进入错误、日志
+如 fx/xdown 与 twimg）永远收不到它；凭证也不会进入错误、日志
 或响应。只设置一半的凭证对视为未配置。单次的 `--instance URL` 覆盖是纯 URL，
 **不携带**凭证——需要认证的实例请使用配置条目。无法配置凭证的实例，请在网络
 层为其加访问控制。

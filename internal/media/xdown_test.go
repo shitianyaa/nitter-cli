@@ -450,7 +450,7 @@ func TestResolveStatusUsesXdownAfterFxEmpty(t *testing.T) {
 		}
 	}
 	if len(fake.calls) != 1 || len(fake.postCalls) != 1 {
-		t.Errorf("requests = %d GET / %d POST, want one of each (vx/syndication never reached)", len(fake.calls), len(fake.postCalls))
+		t.Errorf("requests = %d GET / %d POST, want one of each (nitter not reached)", len(fake.calls), len(fake.postCalls))
 	}
 }
 

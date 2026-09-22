@@ -27,6 +27,8 @@
 
 ## Removed
 
+- **`vx` and `syndication` media strategies**: removed from the `media`/`download` resolve chain (both directions verified dead on two environments — vx always 403 challenge_required, syndication empty/not_found). `--strategy auto` is now `fx → nitter → xdown`; explicit `vx`/`syndication` are usage errors (exit 2).
+
 ## Fixed
 
 ## Security

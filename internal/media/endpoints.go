@@ -11,11 +11,6 @@ import "strings"
 var EndpointOverrides struct {
 	// Fx replaces the https://api.fxtwitter.com base of the fx strategy.
 	Fx string
-	// Vx replaces the https://api.vxtwitter.com base of the vx strategy.
-	Vx string
-	// Syndication replaces the https://cdn.syndication.twimg.com base of the
-	// syndication strategy.
-	Syndication string
 }
 
 // baseURL returns the override (trailing slash trimmed) when set, else the

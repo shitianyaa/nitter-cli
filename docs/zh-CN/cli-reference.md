@@ -227,7 +227,7 @@ stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出�
 ## nitter media
 
 ```bash
-nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
@@ -238,13 +238,12 @@ GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitte
 空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
 调用方完成——本命令只解析直链，不抓取媒体。
 
-**策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → vx → syndication
-→ nitter → xdown 依次尝试，返回**第一个**产出媒体的策略（`source` 标明胜出
-者）；显式指定名称则只运行该策略。payload 能解析但不含媒体的策略会被跳过、
+**策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → nitter → xdown 依次尝试，
+返回**第一个**产出媒体的策略（`source` 标明胜出者）；显式指定名称则只运行该策略。payload 能解析但不含媒体的策略会被跳过、
 继续下一个；所有策略都为空时按 `not_found` 错误解析——「推文没有媒体」是
 正常的分类结果，不是崩溃。
 
-**信任边界**：fx、vx、syndication、xdown 是**第三方公共服务**——解析请求会
+**信任边界**：fx、xdown 是**第三方公共服务**——解析请求会
 把推文 URL 发送给它们，因此只解析你愿意分享的公开推文；它们的失败会以真实
 策略名上报，绝不静默换成其他来源的成功结果。`nitter` 则从**你自己的**配置
 实例读取 status 页（`[[instances]]` 的第一个条目，或 `--instance`）；未配置
@@ -288,7 +287,7 @@ failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--stra
 
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
-  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
   [--json|--ndjson]
 ```
@@ -337,9 +336,9 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 跨 ref 沿用原有 `--on-exists` 语义。空模板值即默认值。
 
 **策略与信任边界**（`--strategy`，默认 `auto`）：与 `media` 命令相同的链路
-——`auto` 依次尝试 fx → vx → syndication → nitter → xdown，首个产出媒体的
+——`auto` 依次尝试 fx → nitter → xdown，首个产出媒体的
 策略胜出（`source` 标明）；显式指定名称则只运行该策略。对 download 而言边界
-比 `media` 更严格，因为抓取本身也会发生：fx、vx、syndication、xdown 是
+比 `media` 更严格，因为抓取本身也会发生：fx、xdown 是
 **第三方公共服务**——解析与下载都会把推文 URL 发送给它们，因此只用于你愿意
 分享的公开推文。`--strategy nitter` 是完全私有路径：解析与下载都留在**你自己**
 配置的实例上（`[[instances]]` 的第一个条目，或 `--instance`）；其直链可能是

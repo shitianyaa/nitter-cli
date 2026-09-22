@@ -240,7 +240,7 @@ type MediaVariant struct {
 
 type MediaResolution struct {
     Ref             string         // canonical https://x.com/<user>/status/<id>
-    Source          string         // strategy: "fx", "vx", "syndication", "nitter" or "xdown"
+    Source          string         // strategy: "fx", "nitter" or "xdown"
     Kind            string         // "image", "video" or "gif"
     URL             string         // direct download link — always https for third-party strategies; plain http only ever from the user's own nitter instance
     FallbackURL     string         // alternative link for the same media (omitempty)
@@ -265,7 +265,7 @@ type DownloadRecord struct {
 
 `CoverURL` (added for the download command, additive) carries the
 poster/thumbnail of a video or GIF entry — fx's `thumbnail_url`,
-syndication's `video.poster`, the xdown cover-image entry; empty for images
+the xdown cover-image entry; empty for images
 and whenever the source carries no cover. It is an https link or empty (the
 no-plain-http rule applies).
 

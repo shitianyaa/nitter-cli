@@ -632,7 +632,7 @@ func TestRunBatchPassesStrategyChain(t *testing.T) {
 	res2.mu.Lock()
 	got = res2.strategies
 	res2.mu.Unlock()
-	want := []string{"fx", "vx", "syndication", "nitter", "xdown"}
+	want := []string{"fx", "nitter", "xdown"}
 	if len(got) != len(want) {
 		t.Fatalf("auto: strategies = %v, want %v", got, want)
 	}

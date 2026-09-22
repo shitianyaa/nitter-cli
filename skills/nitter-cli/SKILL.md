@@ -100,7 +100,7 @@ the product — exit 0); treat the report, not the exit code, as the diagnostic.
 `seen clear` requires `--confirm` and operates on the state location it is
 given (default `~/.nitter-cli/state`, or `--state-dir DIR`).
 `media` is read-only too, but its auto chain hands the tweet URL to third-party
-public resolvers (fx/vx/syndication/xdown) — use it only for public statuses
+public resolvers (fx/xdown) — use it only for public statuses
 the user is fine sharing (see trap 16).
 
 ## Output and piping
@@ -196,7 +196,7 @@ nitter get 2081668333762687236 --json                   # bare numeric ID also w
 echo https://x.com/NASA/status/2081668333762687236 | nitter get   # one ref from non-TTY stdin
 
 nitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
-nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
+nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→nitter→xdown)
 nitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
 nitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
@@ -335,8 +335,8 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     `--media-type` value exits 2. Note `--no-reposts` acts on the HTML
     retweet header only: RSS-sourced data carries no repost marker.
 16. **`media` strategies and the privacy boundary**: `--strategy auto` tries
-    fx → vx → syndication → nitter → xdown and returns the FIRST strategy
-    that yields media (`source` stamps the winner). fx/vx/syndication/xdown
+    fx → nitter → xdown and returns the FIRST strategy
+    that yields media (`source` stamps the winner). fx/xdown
     are THIRD-PARTY public services that receive the tweet URL — only resolve
     public statuses the user is fine sharing, and never feed them private or
     sensitive links; `nitter` instead reads the status page from the user's
@@ -394,8 +394,8 @@ and the exact refs with the user before each invocation (full details:
 references/download.md).
 
 - Resolved URLs are direct links — fetch them with a plain GET (curl, wget,
-  or the host's HTTP client); no cookies or sign-in involved. fx/vx/
-  syndication/xdown serve https; the `nitter` strategy may serve plain
+  or the host's HTTP client); no cookies or sign-in involved. fx/
+  xdown serve https; the `nitter` strategy may serve plain
   http:// links from the user's own instance.
 - If the main URL fails, retry `fallback_url`, then the other `variants`.
 - Deliver downloaded files through the host attachment API; if the host

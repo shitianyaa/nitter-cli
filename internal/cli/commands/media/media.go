@@ -29,15 +29,12 @@ import (
 const opMedia = "media"
 
 // Strategy names accepted by --strategy. auto is the ordered chain
-// fx → vx → syndication → nitter → xdown (the user's plugin-proven order);
-// an explicit name runs only that one.
+// fx → nitter → xdown; an explicit name runs only that one.
 var validStrategies = map[string]bool{
-	"auto":        true,
-	"fx":          true,
-	"vx":          true,
-	"syndication": true,
-	"nitter":      true,
-	"xdown":       true,
+	"auto":   true,
+	"fx":     true,
+	"nitter": true,
+	"xdown":  true,
 }
 
 // autoStrategies is the chain --strategy auto expands to. nitter is included
@@ -45,7 +42,7 @@ var validStrategies = map[string]bool{
 // local-state failure in the aggregate when no instance is configured —
 // never silently skipped (the third-party failure rule: honest strategy
 // reporting).
-var autoStrategies = []string{"fx", "vx", "syndication", "nitter", "xdown"}
+var autoStrategies = []string{"fx", "nitter", "xdown"}
 
 var validQualities = map[string]bool{
 	"high":   true,
@@ -96,10 +93,10 @@ accepted). Multiple REFs run as a batch; with no argument and a non-TTY
 stdin the references are read from stdin (one per non-empty line). Giving
 refs both as arguments and on stdin is an ambiguity error.
 
-Strategies (--strategy, default auto): auto tries fx → vx → syndication →
-nitter → xdown in order and returns the first strategy that yields media
-(source stamps which one won); an explicit name runs only that one. fx/vx/
-syndication/xdown are THIRD-PARTY public services — resolving sends the
+Strategies (--strategy, default auto): auto tries fx → nitter → xdown in
+order and returns the first strategy that yields media
+(source stamps which one won); an explicit name runs only that one. fx and
+xdown are THIRD-PARTY public services — resolving sends the
 tweet URL to them, so only resolve public statuses you are fine sharing;
 their failures are reported with the real strategy name. nitter reads the
 status page from YOUR configured instance ([[instances]] first entry, or
@@ -130,7 +127,7 @@ mutually exclusive. A status without media resolves as a not_found error
 		},
 	}
 	cmd.Flags().StringVar(&strategy, "strategy", "auto",
-		"Resolution strategy: auto (fx→vx→syndication→nitter→xdown) or one of fx, vx, syndication, nitter, xdown")
+		"Resolution strategy: auto (fx→nitter→xdown) or one of fx, nitter, xdown")
 	cmd.Flags().StringVar(&quality, "quality", "high",
 		"Media quality tier: high, medium or low")
 	cmd.Flags().BoolVar(&probe, "probe", false,
@@ -154,7 +151,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, strategy, qua
 		return err
 	}
 	if !validStrategies[strategy] {
-		return invocation.Usagef("media: unknown --strategy %q (want auto, fx, vx, syndication, nitter or xdown)", strategy)
+		return invocation.Usagef("media: unknown --strategy %q (want auto, fx, nitter or xdown)", strategy)
 	}
 	if !validQualities[quality] {
 		return invocation.Usagef("media: unknown --quality %q (want high, medium or low)", quality)

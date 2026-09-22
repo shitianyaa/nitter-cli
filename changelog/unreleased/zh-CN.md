@@ -27,6 +27,8 @@
 
 ## 移除
 
+- **`vx` 与 `syndication` 媒体策略**：从 `media`/`download` 解析链中移除（双环境实测均不可用——vx 恒 403 challenge_required，syndication empty/not_found）。`--strategy auto` 链路改为 `fx → nitter → xdown`；显式指定 `vx`/`syndication` 为用法错误（退出 2）。
+
 ## 修复
 
 ## 安全

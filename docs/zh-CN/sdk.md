@@ -223,7 +223,7 @@ type MediaVariant struct {
 
 type MediaResolution struct {
     Ref             string         // 规范形式 https://x.com/<user>/status/<id>
-    Source          string         // 策略："fx"、"vx"、"syndication"、"nitter" 或 "xdown"
+    Source          string         // 策略："fx"、"nitter" 或 "xdown"
     Kind            string         // "image"、"video" 或 "gif"
     URL             string         // 直接下载链接——第三方策略恒为 https；纯 http 只可能来自用户自己的 nitter 实例
     FallbackURL     string         // 同一媒体的备选链接（omitempty）
@@ -247,7 +247,7 @@ type DownloadRecord struct {
 ```
 
 `CoverURL`（为 download 命令新增的只增字段）承载视频/GIF 条目的封面/缩略图
-——fx 的 `thumbnail_url`、syndication 的 `video.poster`、xdown 的封面图
+——fx 的 `thumbnail_url`、xdown 的封面图
 条目；图片条目为空，来源不携带封面时也为空。它是 https 链接或空串（禁纯
 http 规则同样适用）。
 

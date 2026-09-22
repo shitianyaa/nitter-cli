@@ -773,6 +773,8 @@ func TestDownloadUsageErrorsExit2BeforeNetwork(t *testing.T) {
 
 	for _, tc := range [][]string{
 		{"--strategy", "bogus"},
+		{"--strategy", "vx"},
+		{"--strategy", "syndication"},
 		{"--quality", "ultra"},
 		{"--kind", "audio"},
 		{"--on-exists", "replace"},
@@ -787,6 +789,20 @@ func TestDownloadUsageErrorsExit2BeforeNetwork(t *testing.T) {
 		}
 		if out != "" {
 			t.Errorf("%v: stdout = %q, want nothing", tc, out)
+		}
+	}
+
+	// vx and syndication are removed strategies: the usage error names the
+	// remaining ones (fx/nitter/xdown).
+	for _, name := range []string{"vx", "syndication"} {
+		code, _, errOut := runCLI(t, "download", ref100, "--strategy", name, "--output", outDir)
+		if code != 2 {
+			t.Errorf("--strategy %s: exit = %d, want 2 (stderr %q)", name, code, errOut)
+		}
+		for _, want := range []string{"fx", "nitter", "xdown"} {
+			if !strings.Contains(errOut, want) {
+				t.Errorf("--strategy %s: stderr %q, want it to name %q", name, errOut, want)
+			}
 		}
 	}
 	for _, args := range [][]string{

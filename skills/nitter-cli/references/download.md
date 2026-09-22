@@ -20,7 +20,7 @@ are governed by the installed binary's `nitter download --help`.
    `overwrite`/`skip` unprompted.
 4. Expect the network path to matter: downloads ride the configured proxy
    (`--proxy` / config `proxy`) like every other fetch of this CLI — twimg
-   and syndication hosts are unreachable directly on restricted networks.
+   hosts may be unreachable directly on restricted networks.
 5. Verify flags against `nitter download --help`; do not invent any.
 
 ## References, batching and stdin
@@ -137,11 +137,11 @@ the end).
 ## Strategies and the privacy boundary
 
 `--strategy` (default `auto`) is the media command's chain: auto tries
-fx → vx → syndication → nitter → xdown and the first strategy that yields
+fx → nitter → xdown and the first strategy that yields
 media wins (`source` stamps which one). For download the trust boundary is
 stricter than for `media`, because the fetch itself happens too:
 
-- fx/vx/syndication/xdown are THIRD-PARTY public services — resolving AND
+- fx/xdown are THIRD-PARTY public services — resolving AND
   downloading sends the tweet URL through them, so only use them for public
   statuses the user is fine sharing.
 - `--strategy nitter` is the fully private path: resolution and download

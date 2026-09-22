@@ -244,7 +244,7 @@ illustrative):
 ## nitter media
 
 ```bash
-nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
@@ -258,14 +258,14 @@ an ambiguity error (exit 2). The download itself is the caller's job — the
 command resolves links, it does not fetch media.
 
 **Strategies** (`--strategy`, default `auto`): `auto` tries the chain
-fx → vx → syndication → nitter → xdown in order and returns the FIRST
+fx → nitter → xdown in order and returns the FIRST
 strategy that yields media (`source` stamps which one won); an explicit name
 runs only that one. A strategy whose payload parses but carries no media is
 skipped for the next one; when every strategy comes up empty the status
 resolves as a `not_found` error — a status without media is a normal
 classified outcome, not a crash.
 
-**Trust boundary**: fx, vx, syndication and xdown are **third-party public
+**Trust boundary**: fx and xdown are **third-party public
 services** — resolving a status sends its tweet URL to them, so only resolve
 public statuses you are fine sharing; their failures are reported with the
 real strategy name and are never silently swapped for another source's
@@ -318,7 +318,7 @@ arguments and on stdin) exit 2.
 
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
-  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
   [--json|--ndjson]
 ```
@@ -383,10 +383,10 @@ across refs the `--on-exists` semantics apply unchanged. An empty template
 value means the default.
 
 **Strategies and trust boundary** (`--strategy`, default `auto`): the media
-command's chain — `auto` tries fx → vx → syndication → nitter → xdown and
+command's chain — `auto` tries fx → nitter → xdown and
 the first strategy that yields media wins (`source` stamps which one); an
 explicit name runs only that one. For download the boundary is stricter than
-for `media`, because the fetch happens too: fx, vx, syndication and xdown
+for `media`, because the fetch happens too: fx and xdown
 are **third-party public services** — resolving AND downloading sends the
 tweet URL through them, so only use them for public statuses you are fine
 sharing. `--strategy nitter` is the fully private path: resolution and

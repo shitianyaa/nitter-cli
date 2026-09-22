@@ -248,7 +248,7 @@ Note: when an `[[instances]]` entry sets **both** `username` and `password`,
 requests to that instance carry HTTP basic auth. The credential policy is
 host-scoped inside the transport — a credential is only ever attached to a
 request addressed to its own configured instance, so the third-party media
-endpoints (`media`/`download` resolvers such as fx/vx/syndication/xdown and
+endpoints (`media`/`download` resolvers such as fx/xdown and
 twimg) can never receive it; credentials also never enter errors, logs, or
 responses. An incomplete pair (only one half set) is treated as unconfigured.
 A one-off `--instance URL` override is a plain URL and carries **no**

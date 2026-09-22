@@ -126,7 +126,7 @@ func TestResolveNitterNoBaseIsLocalState(t *testing.T) {
 	// The auto chain surfaces the reason in its aggregate: nitter is reported
 	// with its real name, never silently skipped.
 	res, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyNitter, StrategyVx},
+		Strategies: []Strategy{StrategyNitter, StrategyXdown},
 		NitterBase: "",
 	})
 	if err == nil || !strings.Contains(err.Error(), "nitter") || !strings.Contains(err.Error(), "no nitter instance") {
@@ -188,13 +188,11 @@ func TestResolveStatusAutoUsesNitterBase(t *testing.T) {
 	// must see it and win when the earlier strategies come up empty.
 	page := nitterStatusPage(`<a class="video-container" href="/video/EXVmp4.mp4">video</a>`)
 	r, fake := newTestResolver(map[string]fakeResp{
-		fxURL100:  {body: []byte(`{"text":"hi"}`), status: 200},
-		vxURL100:  {body: []byte(`{"media_extended":[]}`), status: 200},
-		syndURL10: {body: []byte(`{"photos":[]}`), status: 200},
+		fxURL100: {body: []byte(`{"text":"hi"}`), status: 200},
 		"https://nitter.internal:8080/nasa/status/" + id100: {body: []byte(page), status: 200},
 	})
 	res, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication, StrategyNitter, StrategyXdown},
+		Strategies: []Strategy{StrategyFx, StrategyNitter, StrategyXdown},
 		NitterBase: "https://nitter.internal:8080",
 	})
 	if err != nil {
