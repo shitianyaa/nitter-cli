@@ -36,5 +36,7 @@
 
 ## Fixed
 
+- **Nitter user-less refs 404ed (`get`, and `media`/`download` with `--strategy nitter`)**: a bare numeric status ID resolves to a user-less reference, and the instance was asked for its `/status/<id>` route — the deployed Nitter answers 404 there, so those runs failed with `not_found` (the auto chain reported `all media strategies failed`). User-less refs now use `/i/status/<id>`, the same route `StatusRef.String` renders and the one Nitter actually serves.
+- **Nitter-strategy downloads got a polluted file extension**: the nitter media link wraps the real twimg URL inside its own path (`/video/<token>/<percent-encoded URL>`); `url.Parse` decodes that path, so the inner URL's query (`?tag=29`) landed in it and the extension came out as `.mp4?tag=29` — files landed as `<id>-1.mp4_tag=29`. The path is now cut at the first `?`/`#` and only a plausible extension (1–8 alphanumerics) is accepted, otherwise the Content-Type decides.
 - **watch silently fetched nothing under the fx backend**: the user/tag/list source fetches passed `limit 0` (= all) and the Fx fast lane treats `count <= 0` as ZERO tweets with a nil error — every cycle recorded an empty baseline (`seen=0`) and emitted nothing. Source fetches now send a positive all-tweets sentinel (nitter semantics unchanged; the Fx client's eager allocation is clamped so an unbounded count no longer reserves gigabytes).
 ## Security

@@ -36,5 +36,7 @@
 
 ## 修复
 
+- **Nitter 无 user 段的引用 404（`get`，以及 `media`/`download` 的 `--strategy nitter`）**：裸数字状态 ID 解析为无 user 段的引用，而实例被请求的是 `/status/<id>` 路由——部署的 Nitter 对该路由返回 404，导致这些运行以 `not_found` 失败（auto 链报 `all media strategies failed`）。无 user 段引用现改用 `/i/status/<id>`，与 `StatusRef.String` 渲染的路由一致，也是 Nitter 实际提供的路由。
+- **Nitter 策略下载的文件名扩展名被污染**：nitter 媒体链接把真实 twimg URL 包裹在自身路径里（`/video/<token>/<percent-encoded URL>`）；`url.Parse` 会解码该路径，内层 URL 的查询（`?tag=29`）因此落入其中，扩展名被算成 `.mp4?tag=29`——文件落盘为 `<id>-1.mp4_tag=29`。现改为在首个 `?`/`#` 处截断路径，且只接受形如 1–8 个字母数字的合理扩展名，否则由 Content-Type 决定。
 - **watch 在 fx 后端下静默拉到 0 条**：user/tag/list 源取数传 `limit 0`（意为 all），而 Fx 快车道把 `count <= 0` 当成 0 条且不报错——每个 cycle 都静默记成空基线（`seen=0`）、不发推。源取数改为发送正数的 all 哨兵值（nitter 后端语义不变；Fx 客户端的提前分配已钳制，无界 count 不再预留 GB 级内存）。
 ## 安全
