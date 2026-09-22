@@ -174,7 +174,7 @@ func probeHead() []byte {
 func TestMediaAutoChainFallsThroughToNitter(t *testing.T) {
 	home := tempHome(t)
 	fake := newFakeBackend(t, map[string]answer{
-		fxRoute100: {status: 500, body: "boom"},
+		fxRoute100:              {status: 500, body: "boom"},
 		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
 	})
 	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
