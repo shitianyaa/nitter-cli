@@ -7,3 +7,6 @@
 # Planning documents stay local only (SDD specs/plans, ledgers)
 docs/superpowers/
 /.codegraph/
+
+# Local dump for messy media-test artifacts
+/Testignore/
