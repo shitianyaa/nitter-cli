@@ -386,6 +386,15 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     matching keyword/bio.
 25. **`get` fast-lane dispatch**: `nitter get` uses FxTwitter fast-lane first under `mix`
     (default) and `fx` modes, falling back to configured Nitter instances on failure.
+26. **Profile-first discovery, search as the fallback**: the FxTwitter search
+    endpoints are unreliable — `from:` tweet search returns 404 for any query
+    and name-based `search --type user` can return empty even for existing
+    accounts — while the handle-based endpoints (`profile`, `user`, `get`)
+    work reliably. When a task needs a specific account, resolve the handle
+    first (from the user, a mention, a profile URL, or a followed account) and
+    go straight to `profile <HANDLE>`; only fall back to `search --type user`
+    when no handle can be established, and treat an empty search result as
+    "unknown", not as proof the account does not exist.
 
 ## Media delivery for agents
 
