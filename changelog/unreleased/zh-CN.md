@@ -32,4 +32,5 @@
 
 ## 修复
 
+- **watch 在 fx 后端下静默拉到 0 条**：user/tag/list 源取数传 `limit 0`（意为 all），而 Fx 快车道把 `count <= 0` 当成 0 条且不报错——每个 cycle 都静默记成空基线（`seen=0`）、不发推。源取数改为发送正数的 all 哨兵值（nitter 后端语义不变；Fx 客户端的提前分配已钳制，无界 count 不再预留 GB 级内存）。
 ## 安全

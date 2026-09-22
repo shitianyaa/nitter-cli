@@ -32,4 +32,5 @@
 
 ## Fixed
 
+- **watch silently fetched nothing under the fx backend**: the user/tag/list source fetches passed `limit 0` (= all) and the Fx fast lane treats `count <= 0` as ZERO tweets with a nil error — every cycle recorded an empty baseline (`seen=0`) and emitted nothing. Source fetches now send a positive all-tweets sentinel (nitter semantics unchanged; the Fx client's eager allocation is clamped so an unbounded count no longer reserves gigabytes).
 ## Security

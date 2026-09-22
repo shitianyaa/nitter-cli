@@ -214,7 +214,15 @@ func (c *Client) FetchUserTimeline(
 		pagesLimit = 3
 	}
 
-	accumulated := make([]sdk.Tweet, 0, count)
+	// capacityHint clamps the eager allocation: the count doubles as the
+	// accumulated slice's capacity, and an unbounded "all" count (watch's
+	// math.MaxInt sentinel) must not reserve gigabytes up front — the slice
+	// grows on append instead.
+	capacityHint := count
+	if capacityHint > 1000 {
+		capacityHint = 1000
+	}
+	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
 	pagesFetched := 0
 	var lastCursor string
@@ -308,7 +316,15 @@ func (c *Client) FetchUserMedia(
 		perPage = 100
 	}
 
-	accumulated := make([]sdk.Tweet, 0, count)
+	// capacityHint clamps the eager allocation: the count doubles as the
+	// accumulated slice's capacity, and an unbounded "all" count (watch's
+	// math.MaxInt sentinel) must not reserve gigabytes up front — the slice
+	// grows on append instead.
+	capacityHint := count
+	if capacityHint > 1000 {
+		capacityHint = 1000
+	}
+	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
 	pagesFetched := 0
 	var lastCursor string
