@@ -1,9 +1,11 @@
 // Package client is the CLI wiring layer: it composes, once per invocation,
-// everything a command needs to acquire data from the configured Nitter
-// instances, and hands capabilities to commands.
+// everything a command needs to acquire data — through the FxTwitter fast
+// lane and/or the configured Nitter instances, per `fetch_backend` — and
+// hands capabilities to commands.
 //
 // Package boundary (ruling R11, frozen): this is the ONLY CLI-layer package
-// allowed to import internal/nitter/{appapi,protocol/httpx} and internal/media.
+// allowed to import internal/nitter/{appapi,protocol/httpx},
+// internal/fxtwitter and internal/media.
 // Command packages consume data exclusively through sdk (package nitter)
 // models plus the capability types exported here (InstanceTester, TestOptions)
 // — they never import internal/nitter/* or internal/media themselves.
@@ -13,14 +15,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/nitter-cli/internal/config/paths"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 	"github.com/shitianyaa/nitter-cli/internal/media"
 	"github.com/shitianyaa/nitter-cli/internal/nitter/appapi"
 	"github.com/shitianyaa/nitter-cli/internal/nitter/protocol/httpx"
@@ -53,24 +60,42 @@ type InstanceTester interface {
 	TestInstance(ctx context.Context, baseURL string, opts TestOptions) (nitter.InstanceReport, error)
 }
 
+// TimelineOptions configures timeline acquisition.
+type TimelineOptions struct {
+	WithReplies bool
+	MediaOnly   bool
+}
+
+// TimelineOption sets an option on TimelineOptions.
+type TimelineOption func(*TimelineOptions)
+
+// WithReplies includes replies in user timeline when true.
+func WithReplies(v bool) TimelineOption {
+	return func(o *TimelineOptions) { o.WithReplies = v }
+}
+
+// WithMediaOnly requests fast-lane media-only retrieval when true.
+func WithMediaOnly(v bool) TimelineOption {
+	return func(o *TimelineOptions) { o.MediaOnly = v }
+}
+
 // TimelineSource is the user-timeline acquisition capability a command
 // consumes. Parameters are primitives — no appapi type reaches a command
-// package (R11). Backed by *appapi.Client through timelineAdapter, because
-// the appapi method's options-struct signature cannot satisfy this
-// interface directly.
+// package (R11). Backed by Wiring through timelineAdapter.
 //
 // The second return value is the base URL of the instance that produced the
-// result ("" on error): NDJSON meta.instance needs the provenance, and only
-// the acquisition layer knows which instance won the rotation.
+// result ("" on error), or "FxTwitter" when FxTwitter produced the result:
+// NDJSON meta.instance needs the provenance.
 type TimelineSource interface {
-	Timeline(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error)
+	Timeline(ctx context.Context, handle string, limit, maxPages int, opts ...TimelineOption) ([]nitter.Tweet, string, error)
 }
 
 // SearchSource is the search acquisition capability a command consumes
 // (same provenance contract as TimelineSource). Backed by *appapi.Client
-// through searchAdapter.
+// and *fxtwitter.Client through searchAdapter.
 type SearchSource interface {
 	Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error)
+	SearchUsers(ctx context.Context, query string, count int) ([]nitter.Profile, error)
 }
 
 // ListSource is the list-timeline acquisition capability a command consumes
@@ -82,9 +107,39 @@ type ListSource interface {
 
 // StatusSource is the single-status acquisition capability a command
 // consumes (same provenance contract as TimelineSource). Backed by
-// *appapi.Client through statusAdapter.
+// *fxtwitter.Client and *appapi.Client through statusAdapter.
 type StatusSource interface {
 	Status(ctx context.Context, ref string) (nitter.Tweet, string, error)
+}
+
+// QuotesSource is the quote-tweets acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through quotesAdapter.
+type QuotesSource interface {
+	Quotes(ctx context.Context, statusID string, count int, cursor string) ([]nitter.Tweet, string, error)
+}
+
+// TrendsSource is the trending-topics acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through trendsAdapter.
+type TrendsSource interface {
+	Trends(ctx context.Context) ([]nitter.Trend, error)
+}
+
+// ProfileSource is the user-profile acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through profileAdapter.
+type ProfileSource interface {
+	Profile(ctx context.Context, handle string) (*nitter.Profile, error)
+}
+
+// FollowingSource is the user-following acquisition capability a command
+// consumes. Backed by *fxtwitter.Client through followingAdapter.
+type FollowingSource interface {
+	Following(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error)
+}
+
+// ConversationSource is the conversation acquisition capability a command
+// consumes. Backed by *fxtwitter.Client through conversationAdapter.
+type ConversationSource interface {
+	Conversation(ctx context.Context, statusID string, rankingMode string, cursor string) (*nitter.Conversation, error)
 }
 
 // MediaResolver is the media-resolution capability a command consumes. The
@@ -177,10 +232,12 @@ func ExistsPath(err error) (string, bool) {
 // chooser is the wiring chooser. The media resolver shares the transport too,
 // so the third-party media requests ride the same pacing, retries and proxy.
 type Wiring struct {
-	AppAPI    *appapi.Client
-	Transport *httpx.Client
-	Chooser   *nitter.Chooser
-	Instances []nitter.Instance
+	AppAPI       *appapi.Client
+	Fx           *fxtwitter.Client
+	FetchBackend string
+	Transport    *httpx.Client
+	Chooser      *nitter.Chooser
+	Instances    []nitter.Instance
 
 	// now and nitterBase feed the lazily built media resolver (Media()):
 	// the resolver clock, and the instance base the nitter strategy fetches
@@ -195,53 +252,274 @@ type Wiring struct {
 // commands consume (R11: commands never import appapi).
 func (w *Wiring) Tester() InstanceTester { return w.AppAPI }
 
-// timelineAdapter bridges the primitive-parameter TimelineSource to the
-// appapi method's PageOptions signature.
-type timelineAdapter struct{ app *appapi.Client }
+var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
 
-func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.app.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+// timelineAdapter bridges TimelineSource to the hybrid dispatcher.
+type timelineAdapter struct{ w *Wiring }
+
+func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, maxPages int, opts ...TimelineOption) ([]nitter.Tweet, string, error) {
+	if !handleRe.MatchString(handle) {
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, "client.Timeline", "handle must be 1-15 letters, digits or underscores (without the @)")
+	}
+
+	var opt TimelineOptions
+	for _, fn := range opts {
+		fn(&opt)
+	}
+
+	backend := a.w.FetchBackend
+	if backend == "" {
+		backend = "mix"
+	}
+
+	switch backend {
+	case "nitter":
+		return a.timelineNitter(ctx, handle, limit, maxPages)
+	case "fx":
+		return a.timelineFx(ctx, handle, limit, maxPages, opt)
+	case "mix":
+		tweets, instance, err := a.timelineFx(ctx, handle, limit, maxPages, opt)
+		if err == nil {
+			return tweets, instance, nil
+		}
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, "", err
+		}
+		return a.timelineNitter(ctx, handle, limit, maxPages)
+	default:
+		return a.timelineNitter(ctx, handle, limit, maxPages)
+	}
+}
+
+func (a timelineAdapter) timelineNitter(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error) {
+	return a.w.AppAPI.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+}
+
+func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, maxPages int, opt TimelineOptions) ([]nitter.Tweet, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Timeline", "no fxtwitter client wired")
+	}
+
+	var tweets []nitter.Tweet
+	var err error
+
+	if opt.MediaOnly {
+		tweets, _, err = a.w.Fx.FetchUserMedia(ctx, handle, limit, "", maxPages)
+	} else {
+		tweets, _, err = a.w.Fx.FetchUserTimeline(ctx, handle, limit, "", maxPages, false, false)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	if !opt.WithReplies {
+		filtered := make([]nitter.Tweet, 0, len(tweets))
+		for _, tw := range tweets {
+			if tw.ReplyTo == "" {
+				filtered = append(filtered, tw)
+			}
+		}
+		tweets = filtered
+	}
+
+	// Deterministic order: sort by tweet ID descending (timeline order) so
+	// the same input always produces the same output sequence — the Fx media
+	// endpoint's page composition may fluctuate between runs, but the result
+	// set is stable once ordered. Truncate to limit afterwards (limit 0 =
+	// all). Purely client-side and documented in the CLI reference.
+	sort.SliceStable(tweets, func(i, j int) bool {
+		a, b := tweetIDNum(tweets[i].ID), tweetIDNum(tweets[j].ID)
+		if a != b {
+			return a > b
+		}
+		return tweets[i].ID > tweets[j].ID
+	})
+	if limit > 0 && len(tweets) > limit {
+		tweets = tweets[:limit]
+	}
+
+	return tweets, "FxTwitter", nil
+}
+
+// tweetIDNum parses a numeric status ID as an unsigned integer; unparsable
+// IDs sort as zero (ties then fall back to the string comparison).
+func tweetIDNum(id string) uint64 {
+	v, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // Timeline returns the user-timeline acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
-func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w.AppAPI} }
+func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w: w} }
 
-// searchAdapter bridges the primitive-parameter SearchSource to the appapi
-// method's PageOptions signature.
-type searchAdapter struct{ app *appapi.Client }
+// searchAdapter bridges SearchSource to the hybrid dispatcher.
+type searchAdapter struct{ w *Wiring }
 
 func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.app.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+	if strings.TrimSpace(query) == "" {
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, "client.Search", "query cannot be empty")
+	}
+
+	backend := a.w.FetchBackend
+	if backend == "" {
+		backend = "mix"
+	}
+
+	switch backend {
+	case "nitter":
+		return a.searchNitter(ctx, query, limit, maxPages)
+	case "fx":
+		return a.searchFx(ctx, query, limit)
+	case "mix":
+		tweets, instance, err := a.searchFx(ctx, query, limit)
+		if err == nil {
+			return tweets, instance, nil
+		}
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, "", err
+		}
+		return a.searchNitter(ctx, query, limit, maxPages)
+	default:
+		return a.searchNitter(ctx, query, limit, maxPages)
+	}
+}
+
+func (a searchAdapter) searchNitter(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error) {
+	return a.w.AppAPI.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+}
+
+func (a searchAdapter) searchFx(ctx context.Context, query string, limit int) ([]nitter.Tweet, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Search", "no fxtwitter client wired")
+	}
+	tweets, _, err := a.w.Fx.SearchTweets(ctx, query, limit, "", "latest")
+	if err != nil {
+		return nil, "", err
+	}
+	return tweets, "FxTwitter", nil
+}
+
+func (a searchAdapter) SearchUsers(ctx context.Context, query string, count int) ([]nitter.Profile, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nitter.Errorf(nitter.KindInvalidArg, "client.SearchUsers", "query cannot be empty")
+	}
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.SearchUsers", "no fxtwitter client wired")
+	}
+	return a.w.Fx.SearchUsers(ctx, query, count)
 }
 
 // Search returns the search acquisition capability as the narrow interface
 // commands consume (R11: commands never import appapi).
-func (w *Wiring) Search() SearchSource { return searchAdapter{w.AppAPI} }
+func (w *Wiring) Search() SearchSource { return searchAdapter{w: w} }
 
 // listAdapter bridges the primitive-parameter ListSource to the appapi
 // method's PageOptions signature.
-type listAdapter struct{ app *appapi.Client }
+type listAdapter struct{ w *Wiring }
 
 func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.app.ListTimeline(ctx, listID, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+	return a.w.AppAPI.ListTimeline(ctx, listID, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
 }
 
 // List returns the list-timeline acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
-func (w *Wiring) List() ListSource { return listAdapter{w.AppAPI} }
+func (w *Wiring) List() ListSource { return listAdapter{w: w} }
 
-// statusAdapter bridges the primitive-parameter StatusSource to the appapi
-// method (same shape — kept for symmetry with the other adapters).
-type statusAdapter struct{ app *appapi.Client }
+// statusAdapter bridges the primitive-parameter StatusSource to the hybrid dispatcher.
+type statusAdapter struct{ w *Wiring }
 
 func (a statusAdapter) Status(ctx context.Context, ref string) (nitter.Tweet, string, error) {
-	return a.app.Status(ctx, ref)
+	backend := a.w.FetchBackend
+	if backend == "" {
+		backend = "mix"
+	}
+
+	if backend == "mix" || backend == "fx" {
+		statusID, _, err := ParseStatusRef(ref)
+		if err != nil {
+			return nitter.Tweet{}, "", err
+		}
+		if a.w.Fx != nil {
+			tw, err := a.w.Fx.FetchStatus(ctx, statusID)
+			if err == nil && tw != nil {
+				return *tw, "FxTwitter", nil
+			}
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nitter.Tweet{}, "", err
+			}
+		}
+		return a.w.AppAPI.Status(ctx, ref)
+	}
+
+	return a.w.AppAPI.Status(ctx, ref)
 }
 
 // Status returns the single-status acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
-func (w *Wiring) Status() StatusSource { return statusAdapter{w.AppAPI} }
+func (w *Wiring) Status() StatusSource { return statusAdapter{w: w} }
+
+type quotesAdapter struct{ w *Wiring }
+
+func (a quotesAdapter) Quotes(ctx context.Context, statusID string, count int, cursor string) ([]nitter.Tweet, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Quotes", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchQuotes(ctx, statusID, count, cursor)
+}
+
+// Quotes returns the quotes acquisition capability.
+func (w *Wiring) Quotes() QuotesSource { return quotesAdapter{w: w} }
+
+type trendsAdapter struct{ w *Wiring }
+
+func (a trendsAdapter) Trends(ctx context.Context) ([]nitter.Trend, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Trends", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchTrends(ctx)
+}
+
+// Trends returns the trends acquisition capability.
+func (w *Wiring) Trends() TrendsSource { return trendsAdapter{w: w} }
+
+type profileAdapter struct{ w *Wiring }
+
+func (a profileAdapter) Profile(ctx context.Context, handle string) (*nitter.Profile, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Profile", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchUserProfile(ctx, handle)
+}
+
+// Profile returns the profile acquisition capability.
+func (w *Wiring) Profile() ProfileSource { return profileAdapter{w: w} }
+
+type followingAdapter struct{ w *Wiring }
+
+func (a followingAdapter) Following(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Following", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchUserFollowing(ctx, handle, limit, cursor)
+}
+
+// Following returns the following acquisition capability.
+func (w *Wiring) Following() FollowingSource { return followingAdapter{w: w} }
+
+type conversationAdapter struct{ w *Wiring }
+
+func (a conversationAdapter) Conversation(ctx context.Context, statusID string, rankingMode string, cursor string) (*nitter.Conversation, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Conversation", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchConversation(ctx, statusID, rankingMode, cursor)
+}
+
+// Conversation returns the conversation acquisition capability.
+func (w *Wiring) Conversation() ConversationSource { return conversationAdapter{w: w} }
 
 // mediaAdapter bridges the primitive-parameter MediaResolver to the
 // internal/media resolver's typed Options signature.
@@ -418,13 +696,47 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 	if len(instances) > 0 {
 		nitterBase = instances[0].URL
 	}
+
+	fetchBackend := cfg.FetchBackend
+	if fetchBackend == "" {
+		fetchBackend = "mix"
+	}
+	if rootOpts != nil && rootOpts.Instance != "" {
+		fetchBackend = "nitter"
+	}
+	switch fetchBackend {
+	case "mix", "nitter", "fx":
+	default:
+		return nil, fmt.Errorf("invalid fetch_backend %q (allowed: mix, nitter, fx)", fetchBackend)
+	}
+
+	var fxOpts []fxtwitter.Option
+	fxOpts = append(fxOpts, fxtwitter.WithTimeout(wiringTimeout))
+	if fxtwitter.EndpointOverrides.BaseURL != "" {
+		fxOpts = append(fxOpts, fxtwitter.WithBaseURL(fxtwitter.EndpointOverrides.BaseURL))
+	}
+	fxHTTPClient := &http.Client{
+		Timeout: wiringTimeout,
+	}
+	if proxy != "" {
+		if u, err := url.Parse(proxy); err == nil {
+			fxHTTPClient.Transport = &http.Transport{
+				Proxy: http.ProxyURL(u),
+			}
+		}
+	}
+	fxOpts = append(fxOpts, fxtwitter.WithHTTPClient(fxHTTPClient))
+	fxClient := fxtwitter.NewClient(fxOpts...)
+
 	return &Wiring{
-		AppAPI:     &appapi.Client{HTTP: transport, Chooser: chooser, Now: now},
-		Transport:  transport,
-		Chooser:    chooser,
-		Instances:  instances,
-		now:        now,
-		nitterBase: nitterBase,
+		AppAPI:       &appapi.Client{HTTP: transport, Chooser: chooser, Now: now},
+		Fx:           fxClient,
+		FetchBackend: fetchBackend,
+		Transport:    transport,
+		Chooser:      chooser,
+		Instances:    instances,
+		now:          now,
+		nitterBase:   nitterBase,
 	}, nil
 }
 
@@ -486,4 +798,14 @@ func AsUsageError(err error) error {
 		return &invocation.UsageError{Err: err}
 	}
 	return err
+}
+
+// SetFxBaseURLForTesting sets the FxTwitter base URL override for unit tests.
+// The returned cleanup function restores the previous value.
+func SetFxBaseURLForTesting(rawURL string) func() {
+	prev := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = rawURL
+	return func() {
+		fxtwitter.EndpointOverrides.BaseURL = prev
+	}
 }

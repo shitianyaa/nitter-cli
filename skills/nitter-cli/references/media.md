@@ -24,7 +24,7 @@ the installed binary's `nitter media --help`.
 
 ## Strategies (`--strategy`)
 
-`auto` (default) tries, in order: **fx → vx → syndication → nitter → xdown**
+`auto` (default) tries, in order: **fx → nitter → xdown**
 and returns the first strategy that yields media; its name is stamped in
 `source`. A strategy whose response parses but carries no media counts as
 "empty" and the chain moves on; only when every strategy is exhausted does
@@ -35,12 +35,10 @@ message.
 | Strategy | Backend | Where the tweet URL goes |
 | --- | --- | --- |
 | `fx` | api.fxtwitter.com JSON | third-party service |
-| `vx` | api.vxtwitter.com JSON | third-party service |
-| `syndication` | cdn.syndication.twimg.com tweet-result | third-party service |
 | `nitter` | your own instance's status page | your instance only |
 | `xdown` | xdown.app ajaxSearch (POST) | third-party service |
 
-Trust boundary: fx/vx/syndication/xdown are third-party public services that
+Trust boundary: fx/xdown are third-party public services that
 receive the tweet URL — resolve only public statuses the user is fine
 sharing; never feed them private or sensitive links. `nitter` keeps
 everything on your own infrastructure and is the only strategy whose links

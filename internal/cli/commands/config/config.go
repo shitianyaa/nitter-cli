@@ -29,6 +29,7 @@ var knownKeys = []string{
 	"retry_attempts",
 	"retry_delay",
 	"instance_cooldown",
+	"fetch_backend",
 	"proxy",
 	"log_level",
 	"log_format",
@@ -45,6 +46,7 @@ var getters = map[string]func(settings.Settings) string{
 	"retry_attempts":     func(s settings.Settings) string { return strconv.Itoa(s.RetryAttempts) },
 	"retry_delay":        func(s settings.Settings) string { return s.RetryDelay },
 	"instance_cooldown":  func(s settings.Settings) string { return s.InstanceCooldown },
+	"fetch_backend":      func(s settings.Settings) string { return s.FetchBackend },
 	"proxy":              func(s settings.Settings) string { return s.Proxy },
 	"log_level":          func(s settings.Settings) string { return s.LogLevel },
 	"log_format":         func(s settings.Settings) string { return s.LogFormat },
@@ -272,6 +274,11 @@ func validateAndCoerce(key, raw string) (any, error) {
 	case "log_format":
 		if raw != "text" && raw != "json" {
 			return nil, invocation.Usagef("config set log_format: %q is invalid; must be text or json", raw)
+		}
+		return raw, nil
+	case "fetch_backend":
+		if raw != "mix" && raw != "nitter" && raw != "fx" {
+			return nil, invocation.Usagef("config set fetch_backend: %q is invalid; must be mix, nitter or fx", raw)
 		}
 		return raw, nil
 	default: // "proxy", "download_path" — any string is accepted

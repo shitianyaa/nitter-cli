@@ -82,10 +82,10 @@ func TestParseStatusRefInvalid(t *testing.T) {
 }
 
 // TestStatusBareIDFetchesUserlessRouteDirectly: a bare numeric ID has no
-// user, so the user-less route is used directly — exactly one request.
+// user, so the /i/status/<id> route is used directly — exactly one request.
 func TestStatusBareIDFetchesUserlessRouteDirectly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
 	)
 	tw, instance, err := newTimelineClient(t, srv.URL).Status(context.Background(), "2070000000000000010")
 	if err != nil {
@@ -97,8 +97,8 @@ func TestStatusBareIDFetchesUserlessRouteDirectly(t *testing.T) {
 	if tw.ID != "2070000000000000010" || tw.Author.Handle != "nasa" || tw.Text != "status body 2070000000000000010" {
 		t.Errorf("tweet = %+v, want the fixture status", tw)
 	}
-	if got := rec.requests(); !slices.Equal(got, []string{"/status/2070000000000000010"}) {
-		t.Errorf("requests = %v, want the single user-less fetch", got)
+	if got := rec.requests(); !slices.Equal(got, []string{"/i/status/2070000000000000010"}) {
+		t.Errorf("requests = %v, want the single /i/ user-less fetch", got)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestStatusUserRouteServesDirectly(t *testing.T) {
 func TestStatusUserRoute404FallsBackToUserless(t *testing.T) {
 	srv, rec := newTimelineFake(t,
 		timelineRoute{"/nasa/status/2070000000000000010", 404, "gone"},
-		timelineRoute{"/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
 	)
 	tw, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err != nil {
@@ -130,8 +130,8 @@ func TestStatusUserRoute404FallsBackToUserless(t *testing.T) {
 	if tw.ID != "2070000000000000010" {
 		t.Errorf("ID = %q, want the requested status", tw.ID)
 	}
-	if got := rec.requests(); !slices.Equal(got, []string{"/nasa/status/2070000000000000010", "/status/2070000000000000010"}) {
-		t.Errorf("requests = %v, want the user route then the user-less fallback", got)
+	if got := rec.requests(); !slices.Equal(got, []string{"/nasa/status/2070000000000000010", "/i/status/2070000000000000010"}) {
+		t.Errorf("requests = %v, want the user route then the /i/ user-less fallback", got)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestStatusUserRoute404FallsBackToUserless(t *testing.T) {
 func TestStatusUserRouteEmptyPageFallsBackToUserless(t *testing.T) {
 	srv, rec := newTimelineFake(t,
 		timelineRoute{"/nasa/status/2070000000000000010", 200, `<div class="timeline"></div>`},
-		timelineRoute{"/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
 	)
 	tw, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err != nil {
@@ -150,8 +150,8 @@ func TestStatusUserRouteEmptyPageFallsBackToUserless(t *testing.T) {
 	if tw.ID != "2070000000000000010" {
 		t.Errorf("ID = %q, want the requested status", tw.ID)
 	}
-	if got := rec.requests(); !slices.Equal(got, []string{"/nasa/status/2070000000000000010", "/status/2070000000000000010"}) {
-		t.Errorf("requests = %v, want the user route then the user-less fallback", got)
+	if got := rec.requests(); !slices.Equal(got, []string{"/nasa/status/2070000000000000010", "/i/status/2070000000000000010"}) {
+		t.Errorf("requests = %v, want the user route then the /i/ user-less fallback", got)
 	}
 }
 

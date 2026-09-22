@@ -5,17 +5,18 @@ package appapi
 // Ref contract (ParseStatusRef, pure and network-free): a bare numeric
 // status ID, an https://(x|nitter).com/<user>/status/<id> URL (optional
 // /photo/N or /video/1 suffix), or a nitter-style URL of the same path
-// shape — where the user segment is optional (stock Nitter also serves the
-// user-less /status/<id> route). A scheme-less ref whose first path segment
+// shape — where the user segment is optional (the user-less route is
+// /i/status/<id>, which is what Nitter serves; the bare /status/<id> route
+// 404s on the deployed instance). A scheme-less ref whose first path segment
 // looks like a host ("nitter.example/…", "x.com/…") is normalized onto
 // https. Everything else is KindInvalidArg.
 //
 // Fetch strategy: with a known user the page <base>/<user>/status/<id> is
 // tried first; on HTTP 404 or an unidentifiable/empty page (or a page whose
-// main status is not the requested one) the user-less <base>/status/<id>
-// route is retried — Nitter serves both. With an unknown user the user-less
-// route is used directly. Any other classification (challenge, 5xx, …)
-// fails the attempt instead of falling through.
+// main status is not the requested one) the user-less <base>/i/status/<id>
+// route is retried. With an unknown user the user-less route is used
+// directly. Any other classification (challenge, 5xx, …) fails the attempt
+// instead of falling through.
 //
 // Instance rotation is identical to the other fetches: the Chooser walks
 // the configured instances, an instance whose attempt fails is marked
@@ -51,7 +52,7 @@ func isStatusSegment(seg string) bool {
 }
 
 // ParseStatusRef parses one status reference into (id, user). user is ""
-// for a bare ID or a user-less URL — the caller then fetches the user-less
+// for a bare ID or a user-less URL — the caller then fetches the /i/status
 // route. Errors are KindInvalidArg; parsing never touches the network.
 func ParseStatusRef(s string) (id, user string, err error) {
 	s = strings.TrimSpace(s)
@@ -209,7 +210,10 @@ func (c *Client) statusFromInstance(ctx context.Context, base, id, user string) 
 		}
 		// Fall through to the user-less route.
 	}
-	tw, err := c.fetchStatusPage(ctx, base, "/status/"+id)
+	// The user-less route is /i/status/<id>: this is what Nitter serves for a
+	// status without a user segment (the deployed instance 404s on the bare
+	// /status/<id> route, while GET on /i/ returns the full page).
+	tw, err := c.fetchStatusPage(ctx, base, "/i/status/"+id)
 	if err != nil {
 		return nitter.Tweet{}, err
 	}

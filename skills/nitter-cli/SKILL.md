@@ -1,8 +1,8 @@
 ---
 slug: nitter-cli
-version: 0.6.1
+version: 0.7.0
 displayName: Nitter CLI
-summary: Safely operate public-tweet retrieval through the nitter binary and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
+summary: Safely operate public-tweet retrieval through the nitter binary, FxTwitter fast-lane, and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
 homepage: https://github.com/shitianyaa/nitter-cli
 tags: [nitter, cli, agent]
@@ -20,14 +20,18 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.6.1`). If the binary is
+  `nitter version <v>` (for example `nitter version 0.7.0`). If the binary is
   missing or not executable, state the blocker. Install only when the user
   explicitly asked for installation; then read
   [references/install.md](references/install.md) and follow its approved
   sources. Otherwise do not install or guess installation steps.
 - Instances come from the user's config (`nitter config path` prints the
-  location, typically `~/.nitter-cli/config.toml`). When no instance is
-  configured, ask the user whether they run their own Nitter instance:
+  location, typically `~/.nitter-cli/config.toml`). The default
+  `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
+  `comments`, `following`, `profile`, `quotes`, `trends` and `search --type
+  user` (FxTwitter fast lane); instances are required for `list`, for the
+  fully self-hosted `nitter` mode, and as the fallback when Fx is unavailable.
+  When the user wants those, ask whether they run their own Nitter instance:
   yes → find and verify its URL
   ([references/deploy.md](references/deploy.md), "Finding an existing
   instance"); no → offer the Docker deployment from
@@ -85,8 +89,8 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `media`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
-| Local write | `config set`, `config unset`, `seen clear` | Confirm every single time; authorization does not carry over |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle suggest`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
@@ -96,27 +100,29 @@ the product — exit 0); treat the report, not the exit code, as the diagnostic.
 `seen clear` requires `--confirm` and operates on the state location it is
 given (default `~/.nitter-cli/state`, or `--state-dir DIR`).
 `media` is read-only too, but its auto chain hands the tweet URL to third-party
-public resolvers (fx/vx/syndication/xdown) — use it only for public statuses
+public resolvers (fx/xdown) — use it only for public statuses
 the user is fine sharing (see trap 16).
 
 ## Output and piping
 
 - For humans on a TTY: the default tab-separated text.
 - For programs: when stdout is NOT a TTY (a pipe or a redirect) the data
-  commands (`user` `search` `list` `get` `media` `download` `instances test`)
+  commands (`user` `search` `list` `get` `media` `download` `instances test`
+  `following` `comments` `trends` `quotes` `profile` `circle run`)
   emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
   needed; `--ndjson` selects the same stream explicitly (also on a TTY).
   An empty result in a pipe prints nothing at all — no `(empty)` hint; do not
   read silence as failure, check the exit code.
   Envelope kinds: `tweet` or `error` (plus `instance_report` for
-  `instances test`, `media` for `media`, `download` for `download`).
+  `instances test`, `media` for `media`, `download` for `download`,
+  `profile` for `following`/`profile`/`search --type user`, `trend` for `trends`).
   `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
   stream. `seen list`, `config`, `update` are unchanged.
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
-  `update --check`; `--ndjson` on `user` `search` `list` `get` `media`
-  `download` `instances test` and `watch`; `watch --json` only with `--once`
+  `update --check` `following` `comments` `trends` `quotes` `profile`; `--ndjson` on `user` `search` `list` `get` `media`
+  `download` `instances test` `following` `comments` `trends` `quotes` `profile` and `watch`; `watch --json` only with `--once`
   (one `{"tweets","errors"}` document); `config`/`seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
@@ -157,6 +163,7 @@ nitter instances test http://nitter.internal:8080 --full # +search probe; --list
 nitter instances test URL --ndjson                      # one instance_report envelope per instance
 
 nitter user NASA --limit 5                              # timeline, RSS first, HTML fallback
+nitter user NASA --with-replies --limit 5                # include user replies and interactions
 nitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
 nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
 nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
@@ -165,8 +172,25 @@ nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounde
 nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
+nitter following NASA --limit 10                        # fetch accounts followed by handle (profile table or NDJSON)
+nitter profile NASA                                     # display creator profile card (bio, follower count, stats)
+nitter profile NASA --json                              # profile object JSON
+nitter comments 2100031016471818431 --limit 10          # fetch replies/thread for tweet (extract hidden links/threads)
+nitter quotes 2100031016471818431 --limit 10            # fetch quote tweets / second-creation mining for status
+nitter quotes 2100031016471818431 --media-only --json   # quote tweets with media attachments
+nitter trends --limit 10                                # fetch real-time Twitter/X trends (#, topic, context, tweet count)
+nitter trends --json                                    # array of trend objects
+nitter circle list                                      # list configured creator circles
+nitter circle show shaoluo                              # show handles in circle
+nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
+nitter circle suggest NewCreator --limit 20             # read-only: candidates from following + retweet authors (add via circle add)
+nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
+nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
+nitter circle add shaoluo NewCreator                    # add handle to circle
+
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
+nitter search "digital art" --type user --limit 10      # search user profiles / illustrators by name/bio
 nitter search "moon landing" --limit 10                 # plain phrase
 
 nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
@@ -175,7 +199,7 @@ nitter get 2081668333762687236 --json                   # bare numeric ID also w
 echo https://x.com/NASA/status/2081668333762687236 | nitter get   # one ref from non-TTY stdin
 
 nitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
-nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→vx→syndication→nitter→xdown)
+nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→nitter→xdown)
 nitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
 nitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
 
@@ -211,11 +235,11 @@ nitter update --check --prerelease                      # admit prereleases into
 
 ## Config keys
 
-Twelve scalar keys in `~/.nitter-cli/config.toml`, managed with
+Thirteen scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
-`instance_cooldown` (60s), `proxy` (empty), `log_level` (info), `log_format`
+`instance_cooldown` (60s), `fetch_backend` (`mix` — mix|nitter|fx), `proxy` (empty), `log_level` (info), `log_format`
 (text), `download_path` (`./nitter-media`, cwd-relative — where `download`
 writes media; `download --output` overrides it per call), `filename_template`
 (`{id}-{seq}` — the download filename, placeholders
@@ -223,17 +247,22 @@ writes media; `download --output` overrides it per call), `filename_template`
 `--filename-template` overrides per call), `directory_template` (empty =
 flat; download subdirectory from `{id}`/`{user}`/`{kind}`). An invalid
 template warns on stderr and falls back to the default at download time. Env
-overrides exist for three keys only: `NITTER_DEFAULT_LIMIT`,
-`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`. Two array tables are hand-edited
+overrides exist for four keys: `NITTER_DEFAULT_LIMIT`,
+`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`, `NITTER_FETCH_BACKEND`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and
-`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md).
+`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md). Creator circles are managed in `~/.nitter-cli/circles.toml` via `nitter circle` commands.
 
 ## Key semantics and traps
 
-1. **Fetch layering**: user timelines try RSS first and fall back to the HTML
-   user page on failure or empty results — same instance list, no switch to
-   disable. `search`/`list`/`get` are HTML-only.
+1. **Fetch layering & hybrid dispatch (`fetch_backend`)**: `fetch_backend`
+   controls user timeline and search routing (`mix` default, `nitter`, `fx`).
+   In `mix` mode, FxTwitter fast-lane is tried first without credentials; on
+   failure (network error, rate-limit 429, or SafeSearch 404) or when an
+   explicit `--instance` flag is provided, it falls back smoothly to the
+   configured Nitter instance pool (RSS first, then HTML user page). `list`
+   timeline is strictly isolated and ALWAYS fetches from Nitter instances
+   (Fx has no List endpoint).
 2. **RSS is single-page.** A user timeline returns at most ~20 tweets per
    fetch even with a larger `--limit`; `--limit 40` legitimately stops at the
    RSS page. Deeper scans: use `watch` cycles, or rely on the HTML fallback —
@@ -302,15 +331,16 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     unconfigured, and a `--instance URL` override carries no credentials
     (use the config entry for a credentialed instance).
 15. **Field filters run before dedup in watch**: `--no-reposts`, `--media-only`
-    and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`)
+    and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`, and
+    `--media-type` on `circle run`)
     apply right after the fetch, before selection/dedup — filtered tweets are
     not marked seen and are re-fetched (never re-emitted) each cycle, and
     `--max-new` counts only filtered-through tweets. An invalid
     `--media-type` value exits 2. Note `--no-reposts` acts on the HTML
     retweet header only: RSS-sourced data carries no repost marker.
 16. **`media` strategies and the privacy boundary**: `--strategy auto` tries
-    fx → vx → syndication → nitter → xdown and returns the FIRST strategy
-    that yields media (`source` stamps the winner). fx/vx/syndication/xdown
+    fx → nitter → xdown and returns the FIRST strategy
+    that yields media (`source` stamps the winner). fx/xdown
     are THIRD-PARTY public services that receive the tweet URL — only resolve
     public statuses the user is fine sharing, and never feed them private or
     sensitive links; `nitter` instead reads the status page from the user's
@@ -334,6 +364,41 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     will not); state the chosen quality when it matters, and use `--probe`
     for real sizes. Every variant stays in `variants` either way, so a
     consumer can still pick another tier from `media` output.
+19. **`following` is FxTwitter-powered**: fetches accounts followed by `HANDLE`
+    with avatar, bio, and follower/following counts. In non-TTY pipes it emits
+    `kind: "profile"` NDJSON envelopes; `--limit 0` fetches all available pages.
+20. **`comments` extracts conversation trees & hidden author links**: returns
+    the root status, parent thread ancestors, and replies (sorted by `--sort likes`
+    or `recency`). This is the primary mechanism for discovering author self-replies
+    containing full-res download links, Fantia/Gumroad passwords, or reading
+    serialized manga threads.
+21. **`circle` manages curated creator rosters (`~/.nitter-cli/circles.toml`)**:
+    distinct from resident `watch` polling, circles categorize favorite creators
+    by theme/style for on-demand discovery (`circle show`, `--min-followers N`
+    filters members by follower count — one profile fetch per member, a failed
+    member is skipped with a warning, all failing exits 1) and pipeline streaming
+    (`circle run <name> | nitter download -o DIR`).
+22. **`trends` retrieves real-time Twitter/X trending topics**: FxTwitter-powered;
+    returns trending topic rank, name, context category, tweet count, and grouped topics.
+    Emits tab-separated table on TTY or `kind: "trend"` NDJSON in pipes.
+23. **`quotes` uncovers quote tweets and second-creations**: status quote tweets retrieval;
+    supports `--media-only` and `--no-reposts` filters, emitting tweet rows on TTY or
+    `kind: "tweet"` NDJSON in pipes.
+24. **`profile` and `search --type user` for creator discovery**: `profile <HANDLE>`
+    displays a structured user card on TTY or `kind: "profile"` NDJSON in pipes.
+    `search <QUERY> --type user` discovers creators, artists, and topic influencers
+    matching keyword/bio.
+25. **`get` fast-lane dispatch**: `nitter get` uses FxTwitter fast-lane first under `mix`
+    (default) and `fx` modes, falling back to configured Nitter instances on failure.
+26. **Profile-first discovery, search as the fallback**: the FxTwitter search
+    endpoints are unreliable — `from:` tweet search returns 404 for any query
+    and name-based `search --type user` can return empty even for existing
+    accounts — while the handle-based endpoints (`profile`, `user`, `get`)
+    work reliably. When a task needs a specific account, resolve the handle
+    first (from the user, a mention, a profile URL, or a followed account) and
+    go straight to `profile <HANDLE>`; only fall back to `search --type user`
+    when no handle can be established, and treat an empty search result as
+    "unknown", not as proof the account does not exist.
 
 ## Media delivery for agents
 
@@ -344,8 +409,8 @@ and the exact refs with the user before each invocation (full details:
 references/download.md).
 
 - Resolved URLs are direct links — fetch them with a plain GET (curl, wget,
-  or the host's HTTP client); no cookies or sign-in involved. fx/vx/
-  syndication/xdown serve https; the `nitter` strategy may serve plain
+  or the host's HTTP client); no cookies or sign-in involved. fx/
+  xdown serve https; the `nitter` strategy may serve plain
   http:// links from the user's own instance.
 - If the main URL fails, retry `fallback_url`, then the other `variants`.
 - Deliver downloaded files through the host attachment API; if the host

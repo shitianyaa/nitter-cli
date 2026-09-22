@@ -25,7 +25,7 @@ func TestMediaTTYDefaultStaysTextRows(t *testing.T) {
 		fxRoute100:                            {status: 200, body: fxVideo("https://video.twimg.com/x.mp4")},
 		"/fx/nasa/status/2070000000000000200": {status: 500, body: "boom"},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	var out, errOut strings.Builder

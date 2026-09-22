@@ -2,19 +2,28 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Documentation](docs/index.md)
 
-<p><a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/e2e.yml"><img alt="e2e" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/e2e.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/shitianyaa/nitter-cli?style=flat-square"></a> <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/shitianyaa/nitter-cli?style=flat-square"></a> <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/shitianyaa/nitter-cli?style=flat-square"></a></p>
+<p><a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/shitianyaa/nitter-cli?style=flat-square"></a> <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/shitianyaa/nitter-cli?style=flat-square"></a> <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/shitianyaa/nitter-cli?style=flat-square"></a></p>
 
-`nitter` is an unofficial command-line client for **public tweets**, served through
-**Nitter instances you run yourself**. It fetches user timelines, search results,
-list timelines and single statuses, watches sources with persistent dedup state,
-and downloads media — a flexible CLI built for agents and schedulers (cron,
-systemd timers, Hermes), consumed as NDJSON.
+`nitter` is an unofficial command-line client for **public tweets**. Data comes
+from **FxTwitter's public API** (the default fast lane — no account, no
+credentials) with **Nitter instances you run yourself** as the private
+fallback, the List path, and the fully self-hosted mode. It fetches user
+timelines, search results, list timelines, single statuses, conversations,
+following lists, profiles, quote tweets and trends, watches sources with
+persistent dedup state, and downloads media — a flexible CLI built for agents
+and schedulers (cron, systemd timers, Hermes), consumed as NDJSON.
 
 It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 `nitter`) with a stable, additive-only data model.
 
 ## Why nitter-cli?
 
+- **FxTwitter fast lane, Nitter depth** — `fetch_backend` chooses the routing:
+  `mix` (default) tries FxTwitter's public API first — no account, no
+  credentials — and falls back to your own instances on failure; `nitter`
+  keeps every fetch on instances you control; `fx` pins the fast lane. List
+  always needs Nitter. Handles and queries go to `api.fxtwitter.com` in
+  mix/fx modes — pick `nitter` for a fully self-hosted setup.
 - **Flexible instance policy** — point it at any Nitter instance you control:
   configure a rotation set (`[[instances]]`, tried strictly in config order,
   failed entries cool down), override per command with `--instance`, and
@@ -22,8 +31,21 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   `password` set). Credentials can only ever ride requests addressed to their
   own instance — third-party endpoints never see them.
 - **Public-tweet retrieval** — `user` (RSS first, HTML user page as fallback),
-  `search`, `list`, and single statuses via `get`, through your own instances
-  only. No bundled instances, no login, no bypassing of access controls.
+  `search`, `list`, and single statuses via `get`. `list` is strictly isolated:
+  every list fetch always runs on your own instances (FxTwitter has no List
+  endpoint). No bundled instances, no login, no bypassing of access controls.
+- **Social graph & discovery** — `following` lists who an account follows,
+  `profile` prints an account card, `search --type user` finds creators and
+  artists by name, `trends` shows what X is talking about right now, and
+  `quotes` digs up the quote-tweet derivatives of a status — all credential-free.
+- **Conversations & reply trees** — `comments` pulls a status's thread and
+  replies (sorted by likes or recency), the fast way to reach an author's
+  self-replies with hidden links or to read a serialized thread.
+- **Creator circles** — `nitter circle` curates themed rosters in
+  `~/.nitter-cli/circles.toml` (`list` / `show` / `suggest` / `add` / `run`):
+  `suggest` mines a handle's following list and retweet authors for new
+  candidate members, then on-demand discovery and pipeline streaming,
+  distinct from scheduled `watch` subscriptions.
 - **Composable pipelines** — data commands emit `nitter.pipeline/v1` NDJSON
   automatically whenever stdout is a pipe, so
   `nitter search "..." | nitter download` needs no flags; `--json` extracts
@@ -39,15 +61,15 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 - **Observable instances** — `instances test` probes RSS / user timeline /
   search / list capabilities with one report line each; the report is the
   product.
-- **Manageable state** — `config path/get/set/unset` for the twelve scalar
+- **Manageable state** — `config path/get/set/unset` for the thirteen scalar
   keys, `seen list/clear [--state-dir]` for the watch dedup state; atomic
   writes, a corrupt state file is a hard error (never a silent reset).
 - **Honest update checks** — `update --check [--prerelease] [--json]` compares
   against the latest GitHub release by strict semver and performs no
   self-install.
-- **Public Go SDK** — typed models whose JSON keys never disappear, a narrow
-  `Transport` boundary, and redacted errors; the CLI's commands consume the
-  same surface.
+- **Public Go SDK** — typed models (`Tweet`, `Profile`, `Conversation`, `Trend`,
+  …) whose JSON keys never disappear, a narrow `Transport` boundary, and
+  redacted errors; the CLI's commands consume the same surface.
 
 ## Install
 
@@ -70,7 +92,7 @@ Requires Go 1.27+:
 
 ```bash
 sh scripts/build.sh          # produces ./nitter
-./nitter --version           # nitter version 0.6.1 (or a dev line)
+./nitter --version           # nitter version 0.7.0 (or a dev line)
 ```
 
 ### Install with an AI agent
@@ -86,10 +108,14 @@ Also install the `nitter-cli` Skill that matches the same stable release tag (ne
 
 ## 60-second quick start
 
-nitter-cli ships without instances: **you point it at a Nitter instance you
-control**. Nothing is fetched until you configure one. Don't have one? Deploy
-your own with Docker — see the [upstream wiki](https://github.com/zedeus/nitter/wiki)
-or the community [self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
+nitter-cli ships without instances, and the default `mix` mode already works:
+`user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
+and `search --type user` run through FxTwitter's public endpoint out of the
+box. Configure a Nitter instance you control for `list`, for the fully
+self-hosted `nitter` mode, and as the fallback when Fx is unavailable. Don't
+have one? Deploy your own with Docker — see the
+[upstream wiki](https://github.com/zedeus/nitter/wiki) or the community
+[self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
 an AI agent can follow the skill's [deploy reference](skills/nitter-cli/references/deploy.md).
 
 ```bash
@@ -108,6 +134,14 @@ nitter instances test http://nitter.internal:8080 --full
 
 # Fetch a timeline as JSON for Hermes or any agent
 nitter user NASA --limit 10 --json
+
+# Discovery extras — no instance or account needed
+nitter trends --limit 10 --json                   # what X is talking about now
+nitter following NASA --limit 10                  # who an account follows
+nitter profile NASA                               # account card
+nitter comments 2100031016471818431 --limit 10    # reply tree (author self-replies live here)
+nitter quotes <STATUS_ID> --media-only | nitter download   # derivative media from quote tweets
+nitter circle run coser_acgn --limit 1            # stream a curated creator roster
 
 # Piped output needs no flags — data commands emit NDJSON on their own,
 # so the stream feeds the downloader directly
@@ -174,27 +208,30 @@ pagination, and error kinds.
 `nitter config set KEY VALUE` writes (value may also be piped on stdin);
 `nitter config unset KEY` removes a key. The `[[instances]]` and
 `[[watch.sources]]` array tables are managed by editing the file directly —
-`config set` refuses them.
+`config set` refuses them. Creator circles (the `nitter circle` rosters) live
+in a separate file, `~/.nitter-cli/circles.toml`, managed by the `circle`
+subcommands.
 
-### Scalar keys (all twelve)
+### Scalar keys (all thirteen)
 
 | Key | Type | Default | Env override | Meaning |
 | --- | --- | --- | --- | --- |
-| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Tweets per manual command when `--limit` is not given (`0` = all) |
-| `max_pages` | int | `5` | — | Pagination cap per fetch (on `user`, an explicit `--max-pages 0` instead removes the cap) |
-| `request_interval` | duration | `1s` | — | Global minimum interval between the starts of consecutive requests |
-| `retry_attempts` | int | `2` | — | Extra attempts after the first, for network errors and 5xx |
-| `retry_delay` | duration | `1s` | — | Linear backoff base: the n-th retry waits `retry_delay × n` |
+| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Item cap when a command receives no `--limit` (`0` = all) |
+| `max_pages` | int | `5` | — | Upper bound on pagination (on `user`, `--max-pages 0` lifts the cap) |
+| `request_interval` | duration | `1s` | — | Global floor on delay between request start times |
+| `retry_attempts` | int | `2` | — | Extra attempts on network errors and 5xx |
+| `retry_delay` | duration | `1s` | — | Linear backoff base: attempt n waits `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
-| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = environment proxies (`HTTPS_PROXY`/`ALL_PROXY`) |
-| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr, never stdout |
-| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or `json` (single-line) |
-| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media (cwd-relative; created on demand; `download --output DIR` overrides it per invocation) |
-| `filename_template` | string | `{id}-{seq}` | — | Download filename for regular media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = the pre-template `<id>-<seq>.<ext>` naming; covers always `<id>-cover.<ext>`; `download --filename-template` overrides per invocation; invalid templates warn and fall back) |
-| `directory_template` | string | `""` | — | Download subdirectory below `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates levels; `{seq}`/`{ext}` forbidden; empty = flat) |
+| `fetch_backend` | enum | `mix` | `NITTER_FETCH_BACKEND` | Fetch backend strategy: `mix` (default, FxTwitter fast-lane with Nitter fallback), `nitter` (pure Nitter), `fx` (pure FxTwitter) |
+| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = fall back to environment (`HTTPS_PROXY`/`ALL_PROXY`) |
+| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr only, stdout stays pure data |
+| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or single-line `json` |
+| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media files (cwd-relative; created on demand; overridden per call by `download --output DIR`) |
+| `filename_template` | string | `{id}-{seq}` | — | Filename template for non-cover media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = legacy `<id>-<seq>.<ext>` naming; covers are always `<id>-cover.<ext>`; overridden per call by `download --filename-template`; invalid template warns and falls back to default) |
+| `directory_template` | string | `""` | — | Subdirectory under `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates nesting; `{seq}`/`{ext}` forbidden; empty = flat) |
 
-Environment overrides apply on top of the file for exactly these three keys:
-`NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`.
+Environment variables win over the file: `NITTER_DEFAULT_LIMIT` (integer),
+`NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`, `NITTER_FETCH_BACKEND`.
 
 ### Array tables
 
@@ -212,7 +249,7 @@ Note: when an `[[instances]]` entry sets **both** `username` and `password`,
 requests to that instance carry HTTP basic auth. The credential policy is
 host-scoped inside the transport — a credential is only ever attached to a
 request addressed to its own configured instance, so the third-party media
-endpoints (`media`/`download` resolvers such as fx/vx/syndication/xdown and
+endpoints (`media`/`download` resolvers such as fx/xdown and
 twimg) can never receive it; credentials also never enter errors, logs, or
 responses. An incomplete pair (only one half set) is treated as unconfigured.
 A one-off `--instance URL` override is a plain URL and carries **no**
@@ -222,6 +259,7 @@ you cannot credential behind your own network-layer access control instead.
 ## Output modes
 
 Every data command (`user`, `search`, `list`, `get`, `media`, `download`,
+`following`, `comments`, `trends`, `quotes`, `profile`, `circle run`,
 `instances test`) resolves its output mode the same way:
 
 | Mode | How | Shape |
@@ -245,6 +283,11 @@ Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 ```json
 {"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
+
+`meta.instance` records the provenance of the fetch: `"FxTwitter"` when the
+fast lane answered, otherwise the URL of the instance that did. `meta.source`
+names the operation and its input (`user:NASA`, `search:#AI`, `following:NASA`,
+`comments:<id>`, `quotes:<id>`, `trends`, `circle:<name>`, …).
 
 In-place error envelopes (currently emitted by `watch` per failed source):
 
@@ -325,10 +368,21 @@ by your instance; the two are indistinguishable from the outside. Neither is an
 error.
 
 **Where is everything stored?**
-`~/.nitter-cli/config.toml` (configuration) and `~/.nitter-cli/state/seen.json`
-(watch dedup state). On Windows both live under your user profile directory
+`~/.nitter-cli/config.toml` (configuration), `~/.nitter-cli/circles.toml`
+(creator-circle rosters) and `~/.nitter-cli/state/seen.json` (watch dedup
+state). On Windows these live under your user profile directory
 (`nitter config path` prints the exact location). Writes are atomic; a corrupt
 state file is a hard error (exit 1), never a silent reset.
+
+**What does the default `mix` mode send where?**
+`user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
+and `search --type user` try FxTwitter's public endpoint
+(`api.fxtwitter.com`) first — the handle or query goes to that third-party
+service, with no credentials of yours attached. On failure the request falls
+back to your own instances. `list` always runs on your instances (FxTwitter
+has no List endpoint), `--instance URL` forces the Nitter path for a command,
+and `fetch_backend = "nitter"` keeps every fetch on infrastructure you
+control.
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
@@ -344,8 +398,11 @@ writes them to disk, and `nitter media` resolves links without downloading.
 ## Disclaimer
 
 1. **Public tweets only.** nitter-cli fetches exclusively publicly accessible
-   tweets through Nitter. It bundles no instances, performs no login, and provides
-   no capability to bypass access controls or solve challenges.
+   tweets — through the public FxTwitter API (the default `mix` / `fx`
+   backends) and through Nitter instances you run yourself (the `nitter`
+   backend, the fallback path, and every `list` fetch). It bundles no
+   instances, performs no login, and provides no capability to bypass access
+   controls or solve challenges.
 2. **Only use instances you control and trust.** The CLI follows the media and
    redirect URLs returned by the configured instance. Isolate your internal
    services (Redis, cloud metadata endpoints, admin panels) from the network path

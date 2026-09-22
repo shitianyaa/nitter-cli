@@ -44,11 +44,13 @@ const Schema = "nitter.pipeline/v1"
 const (
 	KindTweet          = "tweet"
 	KindUser           = "user"
+	KindProfile        = "profile"
 	KindList           = "list"
 	KindInstanceReport = "instance_report"
 	KindSeenEntry      = "seen_entry"
 	KindMedia          = "media"
 	KindDownload       = "download"
+	KindTrend          = "trend"
 	KindError          = "error"
 )
 
@@ -80,11 +82,14 @@ func ResolveOutputMode(ndjson, json bool, outIsTTY bool) (Mode, error) {
 
 // Meta carries per-record provenance. Empty fields are omitted; FetchedAt is
 // an RFC3339 UTC timestamp. Input holds the batch input a record (typically
-// an error envelope) refers to.
+// an error envelope) refers to. Filter names the media filter in effect when
+// the record was fetched ("media_only" or a --media-type value); the key is
+// omitted when no media filter applied.
 type Meta struct {
 	Source    string `json:"source,omitempty"`
 	Instance  string `json:"instance,omitempty"`
 	FetchedAt string `json:"fetched_at,omitempty"`
+	Filter    string `json:"filter,omitempty"`
 	Input     string `json:"input,omitempty"`
 }
 

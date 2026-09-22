@@ -145,3 +145,161 @@ func TestInstanceReportJSONShapeIsTheDataContract(t *testing.T) {
 		t.Errorf("InstanceReport JSON mismatch:\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestProfileJSONShapeIsTheDataContract(t *testing.T) {
+	p := nitter.Profile{
+		ID:             "44196397",
+		Handle:         "elonmusk",
+		Name:           "Elon Musk",
+		Bio:            "technoking",
+		FollowersCount: 200000000,
+		FollowingCount: 500,
+		TweetsCount:    50000,
+		MediaCount:     3000,
+		AvatarURL:      "https://pbs.twimg.com/profile_images/avatar.jpg",
+		BannerURL:      "https://pbs.twimg.com/profile_banners/banner.jpg",
+		IsProtected:    false,
+	}
+
+	got := marshalNDJSON(t, p)
+	want := `{"id":"44196397","handle":"elonmusk","name":"Elon Musk","bio":"technoking",` +
+		`"followers_count":200000000,"following_count":500,"tweets_count":50000,"media_count":3000,` +
+		`"avatar_url":"https://pbs.twimg.com/profile_images/avatar.jpg",` +
+		`"banner_url":"https://pbs.twimg.com/profile_banners/banner.jpg",` +
+		`"is_protected":false}`
+	if got != want {
+		t.Errorf("Profile JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+
+	var decoded nitter.Profile
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("Unmarshal(Profile) = error %v", err)
+	}
+	if decoded != p {
+		t.Errorf("Profile roundtrip mismatch:\n got %+v\nwant %+v", decoded, p)
+	}
+}
+
+func TestProfileZeroValueMarshalsEveryContractKey(t *testing.T) {
+	b, err := json.Marshal(nitter.Profile{})
+	if err != nil {
+		t.Fatalf("Marshal(zero Profile) = error %v", err)
+	}
+	got := string(b)
+	want := `{"id":"","handle":"","name":"","bio":"","followers_count":0,"following_count":0,"tweets_count":0,"media_count":0,"avatar_url":"","banner_url":"","is_protected":false}`
+	if got != want {
+		t.Errorf("zero Profile JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+
+	var decoded nitter.Profile
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("Unmarshal(zero Profile) = error %v", err)
+	}
+	if decoded != (nitter.Profile{}) {
+		t.Errorf("zero Profile unmarshal mismatch:\n got %+v\nwant zero", decoded)
+	}
+}
+
+func TestConversationJSONShapeIsTheDataContract(t *testing.T) {
+	published := time.Date(2026, 7, 27, 9, 9, 40, 0, time.UTC)
+	conv := nitter.Conversation{
+		Status: nitter.Tweet{
+			ID:          "100",
+			URL:         "https://x.com/user/status/100",
+			Text:        "main status",
+			PublishedAt: published,
+		},
+		Thread: []nitter.Tweet{
+			{
+				ID:          "99",
+				URL:         "https://x.com/user/status/99",
+				Text:        "parent status",
+				PublishedAt: published,
+			},
+		},
+		Replies: []nitter.Tweet{
+			{
+				ID:          "101",
+				URL:         "https://x.com/replyer/status/101",
+				Text:        "reply status",
+				PublishedAt: published,
+			},
+		},
+		Cursor: "cursor_123",
+	}
+
+	got := marshalNDJSON(t, conv)
+	var decoded nitter.Conversation
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("Unmarshal(Conversation) = error %v", err)
+	}
+	if decoded.Status.ID != "100" || decoded.Status.Text != "main status" {
+		t.Errorf("decoded.Status = %+v, want ID 100", decoded.Status)
+	}
+	if len(decoded.Thread) != 1 || decoded.Thread[0].ID != "99" {
+		t.Errorf("decoded.Thread = %+v, want 1 item with ID 99", decoded.Thread)
+	}
+	if len(decoded.Replies) != 1 || decoded.Replies[0].ID != "101" {
+		t.Errorf("decoded.Replies = %+v, want 1 item with ID 101", decoded.Replies)
+	}
+	if decoded.Cursor != "cursor_123" {
+		t.Errorf("decoded.Cursor = %q, want %q", decoded.Cursor, "cursor_123")
+	}
+}
+
+func TestConversationZeroValueMarshalsEveryContractKey(t *testing.T) {
+	b, err := json.Marshal(nitter.Conversation{})
+	if err != nil {
+		t.Fatalf("Marshal(zero Conversation) = error %v", err)
+	}
+	got := string(b)
+	for _, key := range []string{`"status":`, `"thread":null`, `"replies":null`, `"cursor":""`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("zero Conversation missing expected key pattern %q: %s", key, got)
+		}
+	}
+
+	var decoded nitter.Conversation
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("Unmarshal(zero Conversation) = error %v", err)
+	}
+	if decoded.Cursor != "" || decoded.Thread != nil || decoded.Replies != nil {
+		t.Errorf("decoded zero Conversation mismatch: %+v", decoded)
+	}
+}
+
+func TestTrendJSONShapeIsTheDataContract(t *testing.T) {
+	trend := nitter.Trend{
+		Name:          "#GoLang",
+		Rank:          1,
+		Context:       "Technology · Trending",
+		TweetCount:    15200,
+		GroupedTopics: []string{"Programming", "Software"},
+	}
+
+	got := marshalNDJSON(t, trend)
+	want := `{"name":"#GoLang","rank":1,"context":"Technology · Trending","tweet_count":15200,"grouped_topics":["Programming","Software"]}`
+	if got != want {
+		t.Errorf("Trend JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+
+	var decoded nitter.Trend
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("Unmarshal(Trend) = error %v", err)
+	}
+	if decoded.Name != "#GoLang" || decoded.Rank != 1 || decoded.Context != "Technology · Trending" || decoded.TweetCount != 15200 || len(decoded.GroupedTopics) != 2 {
+		t.Errorf("decoded Trend mismatch: %+v", decoded)
+	}
+}
+
+func TestTrendZeroValueMarshalsEveryContractKey(t *testing.T) {
+	b, err := json.Marshal(nitter.Trend{})
+	if err != nil {
+		t.Fatalf("Marshal(zero Trend) = error %v", err)
+	}
+	got := string(b)
+	want := `{"name":"","rank":0,"context":"","tweet_count":0,"grouped_topics":null}`
+	if got != want {
+		t.Errorf("zero Trend JSON mismatch:\n got %s\nwant %s", got, want)
+	}
+}

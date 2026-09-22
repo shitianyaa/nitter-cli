@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -534,18 +535,30 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 	return failed, nil
 }
 
-// fetchSource dispatches one fetch by source kind. Limit is 0 (= all): the
-// cycle fetches everything within the MaxPages budget and lets Select dedup
-// (ruling R18). The returned string is the base URL of the instance that
-// produced the result (NDJSON meta.instance provenance).
+// fetchSource dispatches one fetch by source kind. Limit is the
+// allTweetsSentinel (= all): the cycle fetches everything within the
+// MaxPages budget and lets Select dedup (ruling R18). The sentinel matters:
+// the Fx fast lane treats count <= 0 as ZERO tweets with a nil error
+// (fxtwitter.FetchUserTimeline's count guard), so the historical limit-0
+// call silently fetched nothing and watch recorded an empty baseline.
+// allTweetsSentinel must stay far below math.MaxInt: the Fx client uses the
+// count as a slice capacity (make([]sdk.Tweet, 0, count)) and a MaxInt cap
+// overflows the allocator; it must also stay above the Fx per-page cap
+// (100) so the accumulated[:count] truncation never bites, and appapi
+// treats limit <= 0 as unbounded, so any positive sentinel keeps the
+// nitter backend's semantics unchanged. The returned string is the base
+// URL of the instance that produced the result (NDJSON meta.instance
+// provenance).
+const allTweetsSentinel = math.MaxInt
+
 func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, maxPages int) ([]nitter.Tweet, string, error) {
 	switch src.Kind {
 	case watchengine.KindUser:
-		return w.Timeline().Timeline(ctx, src.Ref, 0, maxPages)
+		return w.Timeline().Timeline(ctx, src.Ref, allTweetsSentinel, maxPages)
 	case watchengine.KindTag:
-		return w.Search().Search(ctx, src.Ref, 0, maxPages)
+		return w.Search().Search(ctx, src.Ref, allTweetsSentinel, maxPages)
 	case watchengine.KindList:
-		return w.List().ListTimeline(ctx, src.Ref, 0, maxPages)
+		return w.List().ListTimeline(ctx, src.Ref, allTweetsSentinel, maxPages)
 	default:
 		// Unreachable through this command (ParseSource validates the kind
 		// at the flag level); kept as the engine contract's backstop.

@@ -39,6 +39,22 @@ or any URL that is not an official GitHub Release asset of this repository.
    `nitter version <v>`. Report the installed version, the binary path, and
    the PATH action (added / already reachable / none needed), plus any
    warning, exactly.
+7. Post-install backend briefing: configure NOTHING automatically. Before
+   the first data fetch, explain the three `fetch_backend` modes and ask the
+   user to pick one; configure only what that mode needs:
+   - `mix` (default): the FxTwitter fast-lane commands work out of the box;
+     say explicitly that handles and queries are sent to the third-party
+     `api.fxtwitter.com` (credentials never are); `list` and the fallback
+     need a self-hosted instance.
+   - `fx`: fast lane only, no Nitter fallback — when Fx fails the command
+     fails. `config set fetch_backend fx` (a state change: consent each
+     time) or the `NITTER_FETCH_BACKEND` env override.
+   - `nitter`: fully self-hosted, nothing leaves the user's facilities;
+     an instance is required first — route to deploy.md's
+     "Finding an existing instance" flow.
+   Red line (all modes): never fill in a public instance on your own;
+   an `[[instances]]` entry is written only after `instances test` passes
+   against the user's own instance.
 
 ## Skill installation
 

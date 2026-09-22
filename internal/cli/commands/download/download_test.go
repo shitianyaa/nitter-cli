@@ -35,7 +35,7 @@ import (
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -45,7 +45,7 @@ func tempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, key := range []string{
-		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT",
+		"NITTER_DEFAULT_LIMIT", "NITTER_LOG_LEVEL", "NITTER_LOG_FORMAT", "NITTER_FETCH_BACKEND",
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
 	} {
 		t.Setenv(key, "")
@@ -773,6 +773,8 @@ func TestDownloadUsageErrorsExit2BeforeNetwork(t *testing.T) {
 
 	for _, tc := range [][]string{
 		{"--strategy", "bogus"},
+		{"--strategy", "vx"},
+		{"--strategy", "syndication"},
 		{"--quality", "ultra"},
 		{"--kind", "audio"},
 		{"--on-exists", "replace"},
@@ -787,6 +789,20 @@ func TestDownloadUsageErrorsExit2BeforeNetwork(t *testing.T) {
 		}
 		if out != "" {
 			t.Errorf("%v: stdout = %q, want nothing", tc, out)
+		}
+	}
+
+	// vx and syndication are removed strategies: the usage error names the
+	// remaining ones (fx/nitter/xdown).
+	for _, name := range []string{"vx", "syndication"} {
+		code, _, errOut := runCLI(t, "download", ref100, "--strategy", name, "--output", outDir)
+		if code != 2 {
+			t.Errorf("--strategy %s: exit = %d, want 2 (stderr %q)", name, code, errOut)
+		}
+		for _, want := range []string{"fx", "nitter", "xdown"} {
+			if !strings.Contains(errOut, want) {
+				t.Errorf("--strategy %s: stderr %q, want it to name %q", name, errOut, want)
+			}
 		}
 	}
 	for _, args := range [][]string{

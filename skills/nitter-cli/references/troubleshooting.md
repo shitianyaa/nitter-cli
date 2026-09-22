@@ -13,7 +13,7 @@ successful output; **stderr is never JSON**.
 | Symptom (stderr) | Exit | Meaning | Fix |
 | --- | --- | --- | --- |
 | `instances test: no instances configured; add an [[instances]] table to config.toml or pass a URL` | 2 | No instance in config and no URL argument | Have the user add their own Nitter instance (`[[instances]]`) or pass `--instance URL`; never substitute a public instance |
-| `chooser: upstream_unavailable: no instances configured` | 1 | A fetch ran but the wiring had no instance (e.g. `watch` source with empty config) | Same as above: configure an instance first |
+| `chooser: upstream_unavailable: no instances configured` | 1 | A Nitter-path fetch ran with an empty instance set — `list`/`watch`, an explicit `--instance`-less `nitter` backend fetch, or a mix-mode fallback after FxTwitter failed | Same as above: configure an instance first. Note that mix mode (default) serves `user`/`search`/`get`/`comments`/`following`/`profile`/`quotes`/`trends` without any instance |
 | `chooser: upstream_unavailable: all instances cooling down` | 1 | Every instance recently failed (429/network) and is cooling | Wait out the cooldown (default 60s), fix instance health, or add a healthy instance; `markSuccess` resets on the next successful fetch |
 | `... rate_limited` (429) | 1 | Instance rate-limited the client; a `Retry-After` is honored once automatically | Slow down (raise `request_interval`), reduce poll frequency or `--limit`; do not hammer retries |
 | `... challenge_required` (login/maintenance/challenge page) | 1 | The instance served a login or challenge page instead of content | Check the instance in a browser; redeploy or replace it — the CLI never solves challenges |
@@ -30,7 +30,7 @@ successful output; **stderr is never JSON**.
 | `list: "..." is not a valid list ID (non-empty, no whitespace, ?, # or /)` | 2 | Bad list ID | Use the numeric ID (or a ref the instance accepts) |
 | `get: status reference given both as an argument and on stdin` | 2 | Ambiguous ref input | Pass the ref one way only |
 | `appapi.ParseStatusRef: invalid_argument: not a status reference ...` | 2 | Unparseable `get` ref | Use a bare numeric ID or a `<user>/status/<id>` URL (`/photo/N`, `/video/1` suffixes allowed) |
-| `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The twelve scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML |
+| `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The thirteen scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML (creator circles live in `circles.toml`) |
 | `config set <key>: "..." is not an integer / not a duration / is invalid` | 2 | Value failed schema validation | Follow the documented shapes: ints >= 0, durations >= 0 (`500ms`, `2s`), `log_level` debug|info, `log_format` text|json |
 | `watch: invalid config [[watch.sources]] entry ...` | 2 | Malformed source id in config | Fix the entry to `user:<handle>`, `tag:<query>` (raw query), or `list:<id>` |
 | `unsupported .../seen.json schema version N (want 1); refusing to reset state` or a parse error on state | 1 | Corrupt or foreign state file | Hard error by design (never a silent reset). With user consent, move the file away or start from a fresh `--state-dir`; report it as a bug if it corrupted on its own |

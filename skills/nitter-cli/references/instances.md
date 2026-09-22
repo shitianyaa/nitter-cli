@@ -26,7 +26,7 @@ their health. Command semantics are governed by the installed binary's
   to that instance (probes and fetches alike) carry HTTP basic auth. The
   credential policy is host-scoped inside the transport — a credential is
   only ever attached to a request addressed to its own configured instance,
-  so the third-party media resolvers (fx/vx/syndication/xdown, twimg) can
+  so the third-party media resolvers (fx/xdown, twimg) can
   never receive it, and it never enters errors or logs. An incomplete pair
   (only one half set) is treated as unconfigured. If you cannot credential
   the instance, put network-layer access control around it instead.

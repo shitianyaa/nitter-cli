@@ -91,40 +91,122 @@ successful output; stderr is never JSON.
 
 ```bash
 nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+  [--with-replies] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Fetches the timeline of `HANDLE` — 1–15 letters, digits or underscores, without
-the `@` (bad shape exits 2 before any network). The RSS feed (`<HANDLE>/rss`) is
-tried first; when it fails or yields no tweets the HTML user page is fetched,
-following its load-more cursor. NDJSON `meta.source` is `user:<HANDLE>`.
-`--max-pages 0` lets the HTML fallback paginate without a page bound (until
-upstream exhaustion); see the shared fetch behavior above.
+the `@` (bad shape exits 2 before any network). When `fetch_backend=mix` (default)
+FxTwitter fast-lane is tried first without credentials, falling back smoothly to
+configured Nitter instances on failure or when `--instance` is specified.
+`--max-pages 0` removes the pagination cap.
 
-Field filters apply **after the fetch, before output** (the three combine
-freely; an invalid `--media-type` value exits 2):
+- `--with-replies` includes the user's reply tweets.
+- `--no-reposts` drops pure retweets.
+- `--media-only` drops tweets carrying no media attachments (uses Fx `/media` endpoint when active).
+- `--media-type image|video|gif` keeps only tweets with at least one matching media entry.
 
-- `--no-reposts` drops pure retweets (the retweet header only exists on the
-  HTML parse path; on user timelines the RSS path additionally flags them by
-  author mismatch — a retweeted item links the original author, never the
-  requested handle. Search/list have no RSS layer, so that signal does not
-  extend to them).
-- `--media-only` drops tweets that carry no media attachments.
-- `--media-type image|video|gif` keeps only tweets carrying at least one media
-  entry of that type.
+## nitter following
+
+```bash
+nitter following <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+Fetches accounts followed by `HANDLE` via FxTwitter API v2.
+- Renders as formatted table on TTY: `@<handle>  <name>  <followers>  <bio>`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelopes in pipe mode.
+- `--json` outputs the array of `Profile` objects.
+
+## nitter comments
+
+```bash
+nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--ndjson]
+```
+
+Fetches the root tweet, context thread chain, and user replies for a status.
+- Essential for extracting author self-replies with hidden download links or reading long multi-part threads.
+- `--sort` selects reply ordering (`likes` default or `recency`).
+
+## nitter circle
+
+```bash
+nitter circle list [--json]
+nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
+nitter circle add <NAME> <HANDLE>
+nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
+```
+
+Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
+- `list`: lists configured circles with user counts.
+- `show`: lists handles in a circle.
+  - **`--min-followers N`**: keeps only members with at least N followers, printing `@<handle>\t<followers>` per row (TSV for piping); `--json` outputs a JSON array of `{handle, followers_count}` objects instead. Each member's profile is fetched (one request per member); a failed profile is skipped with a one-line stderr warning while the others continue, and when every member fails the command exits 1. A negative N is a usage error (exit 2) before any network. Without the flag the command performs zero network requests and lists plain handles as before.
+- `suggest`: read-only candidate discovery for building a new circle, merging two existing data lanes — `HANDLE`'s **following list** (static relation) and the **authors of the retweets** in its timeline (behavioral relation). Output is ranked by co-occurrence count (a handle appearing in both lanes ranks first), then by follower count descending, then handle ascending (deterministic).
+  - `--limit N` (default 20, **must be >= 1**): per-lane fetch cap. `--limit 0` is a usage error (exit 2) on purpose — the two lanes give `0` opposite, useless meanings (timeline: empty; following: one server-side page). The following lane ignores `limit`/`count` upstream and returns one page of ~50–67 accounts regardless, so the client truncates; the actual count may therefore be below `N`.
+  - `--min-followers N` (default 0): filters only the trailing `top matches` summary section, never the main table or `--json` output.
+  - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
+  - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
+- `add`: adds handle to a circle (creates file/circle on demand).
+- `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
+  - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
+  - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
+  - **Filter marker**: when `--media-only` or `--media-type` is in effect, NDJSON envelopes carry `meta.filter` (`"media_only"` or the media-type value) so consumers can verify filtering; without a filter the key is absent.
+  - **Media-endpoint pagination**: `--media-only` fetches through the Fx media endpoint with a doubled per-page count to compensate for non-media entries — the result set may therefore reach deeper into the member's timeline than the plain fetch (documented behavior, not an error).
+
+## nitter profile
+
+```bash
+nitter profile <HANDLE> [--json|--ndjson]
+```
+
+Fetches user profile card and metadata for `HANDLE`.
+- Renders formatted user card on TTY: handle, name, bio, follower count, following count, tweet count, media count, avatar, banner, and protected status.
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelope in pipe mode.
+- `--json` outputs the Profile JSON object.
+
+## nitter quotes
+
+```bash
+nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
+```
+
+Fetches quote tweets for a tweet status ID or URL.
+- Renders tweet rows on TTY: `<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "tweet"`) NDJSON envelopes in pipe mode with `meta.source` set to `quotes:<id>`.
+- `--limit`: caps number of quotes to fetch (default: 20, 0 = all).
+- `--media-only`: keeps only quotes carrying media attachments.
+- `--no-reposts`: filters out retweets.
+- `--json`: outputs JSON document.
+
+## nitter trends
+
+```bash
+nitter trends [--limit N] [--json|--ndjson]
+```
+
+Fetches real-time trending topics on Twitter/X via FxTwitter.
+- Renders formatted table on TTY: `#  TREND TOPIC  CONTEXT  TWEETS`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "trend"`) NDJSON envelopes in pipe mode.
+- `--limit`: caps number of trends to display (default: 0, 0 = all).
+- `--json`: outputs array of `Trend` objects.
 
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
-Runs `QUERY` against the configured instances. The query is passed through to
+Runs `QUERY` against the configured instances or FxTwitter.
+When `--type tweet` (default), the query is passed through to
 Nitter unchanged (URL-escaped once by the HTTP layer), so Nitter's own query
 syntax applies: a leading `#` searches a hashtag, `from:user` a user's posts,
 anything else is a plain phrase search. An empty (whitespace-only) query exits 2.
 NDJSON `meta.source` is `search:<query as typed>`.
+
+When `--type user`, searches for user profiles, artists, and creators matching the query:
+- Renders user table on TTY: `@<handle>  <name>  <followers>  <bio>`.
+- Emits `kind: "profile"` NDJSON envelopes in pipe mode.
+- `--json` outputs Profile objects.
 
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
@@ -152,7 +234,8 @@ The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 nitter get <REF> [--json|--ndjson]
 ```
 
-Fetches one single status. `REF` is a bare numeric status ID, or a status URL —
+Fetches one single status. In `mix` (default) and `fx` modes, tries FxTwitter fast-lane first, smoothly falling back to Nitter instances on failure.
+`REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
 and `/video/1` suffixes are accepted. With no argument and a non-TTY stdin the
@@ -160,7 +243,7 @@ reference is read from one stdin line; giving it both ways is an ambiguity
 error (exit 2). There are no pagination flags. The quoted tweet, when present,
 is summarized in the `quote` field (visible in `--json`/`--ndjson`); interaction
 counts are not reported — none are fabricated. NDJSON `meta.source` is
-`status:<numeric ID>`.
+`status:<numeric ID>`. When served by FxTwitter, `meta.instance` is recorded as `FxTwitter`.
 
 Example (`--json` prints exactly one object for the single status; shape
 illustrative):
@@ -172,7 +255,7 @@ illustrative):
 ## nitter media
 
 ```bash
-nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
@@ -186,14 +269,14 @@ an ambiguity error (exit 2). The download itself is the caller's job — the
 command resolves links, it does not fetch media.
 
 **Strategies** (`--strategy`, default `auto`): `auto` tries the chain
-fx → vx → syndication → nitter → xdown in order and returns the FIRST
+fx → nitter → xdown in order and returns the FIRST
 strategy that yields media (`source` stamps which one won); an explicit name
 runs only that one. A strategy whose payload parses but carries no media is
 skipped for the next one; when every strategy comes up empty the status
 resolves as a `not_found` error — a status without media is a normal
 classified outcome, not a crash.
 
-**Trust boundary**: fx, vx, syndication and xdown are **third-party public
+**Trust boundary**: fx and xdown are **third-party public
 services** — resolving a status sends its tweet URL to them, so only resolve
 public statuses you are fine sharing; their failures are reported with the
 real strategy name and are never silently swapped for another source's
@@ -246,7 +329,7 @@ arguments and on stdin) exit 2.
 
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
-  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
   [--json|--ndjson]
 ```
@@ -311,10 +394,10 @@ across refs the `--on-exists` semantics apply unchanged. An empty template
 value means the default.
 
 **Strategies and trust boundary** (`--strategy`, default `auto`): the media
-command's chain — `auto` tries fx → vx → syndication → nitter → xdown and
+command's chain — `auto` tries fx → nitter → xdown and
 the first strategy that yields media wins (`source` stamps which one); an
 explicit name runs only that one. For download the boundary is stricter than
-for `media`, because the fetch happens too: fx, vx, syndication and xdown
+for `media`, because the fetch happens too: fx and xdown
 are **third-party public services** — resolving AND downloading sends the
 tweet URL through them, so only use them for public statuses you are fine
 sharing. `--strategy nitter` is the fully private path: resolution and
@@ -408,23 +491,24 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-Manages the twelve scalar keys of `~/.nitter-cli/config.toml` (defaults, env
+Manages the thirteen scalar keys of `~/.nitter-cli/config.toml` (defaults, env
 overrides and the array tables are documented in the
 [README](../../README.md#configuration)):
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path,
+instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
 filename_template, directory_template
 ```
 
 - `config path` prints the config file path. Takes no arguments (else exit 2).
-- `config get` without a key prints all twelve keys as `key = value`; with a
+- `config get` without a key prints all thirteen keys as `key = value`; with a
   key it prints that one. Unknown keys are rejected (exit 2) before the file
   is read.
 - `config set KEY [VALUE]` validates and coerces the value **before any disk
   write** (integers `>= 0` for `default_limit`/`max_pages`/`retry_attempts`;
   durations `>= 0` for `request_interval`/`retry_delay`/`instance_cooldown`;
+  `fetch_backend` is `mix|nitter|fx`;
   `log_level` is `debug|info`; `log_format` is `text|json`; `proxy`,
   `download_path` and the two naming templates accept any string). Without a
   VALUE, one line is read from piped stdin (secrets should not need argv); on

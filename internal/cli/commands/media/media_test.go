@@ -70,20 +70,15 @@ func runCLIStdin(t *testing.T, stdin string, args ...string) (int, string, strin
 	return code, out.String(), errOut.String()
 }
 
-// overrideEndpoints points the third-party backends at the fake bases and
-// restores the seam after the test. The bases carry a path prefix so ONE
-// httptest server can play every backend (the real endpoints differ by host;
-// the resolver builds <base>/<user>/status/<id>, so the prefix keeps the
-// routes distinct and lets the recorder pin cross-backend request order).
-func overrideEndpoints(t *testing.T, fx, vx, syndication string) {
+// overrideEndpoints points the fx backend at the fake base and restores the
+// seam after the test. The base carries a path prefix so ONE httptest server
+// can play the fx backend (the resolver builds <base>/<user>/status/<id>, so
+// the prefix keeps the routes distinct).
+func overrideEndpoints(t *testing.T, fx, _ string) {
 	t.Helper()
 	media.EndpointOverrides.Fx = fx
-	media.EndpointOverrides.Vx = vx
-	media.EndpointOverrides.Syndication = syndication
 	t.Cleanup(func() {
 		media.EndpointOverrides.Fx = ""
-		media.EndpointOverrides.Vx = ""
-		media.EndpointOverrides.Syndication = ""
 	})
 }
 
@@ -134,11 +129,9 @@ func newFakeBackend(t *testing.T, answers map[string]answer) *fakeBackend {
 }
 
 const (
-	ref100      = "https://x.com/nasa/status/2070000000000000100"
-	id100       = "2070000000000000100"
-	fxRoute100  = "/fx/nasa/status/" + id100
-	vxRoute100  = "/vx/nasa/status/" + id100
-	syndRoute10 = "/synd/tweet-result?id=" + id100 + "&token=x"
+	ref100     = "https://x.com/nasa/status/2070000000000000100"
+	id100      = "2070000000000000100"
+	fxRoute100 = "/fx/nasa/status/" + id100
 )
 
 // fxTwoMedia is an fx payload with one photo and one three-variant video
@@ -160,8 +153,6 @@ func fxVideo(base string) string {
 		`}]}}}`
 }
 
-const vxOneVideo = `{"media_extended":[{"type":"video","url":"https://video.twimg.com/exv.mp4"}]}`
-
 // mp4Box assembles one ISO-BMFF box (32-bit size) for the probe head window.
 func mp4Box(boxType string, payload []byte) []byte {
 	buf := make([]byte, 8, 8+len(payload))
@@ -180,15 +171,14 @@ func probeHead() []byte {
 	return mp4Box("moov", mp4Box("mvhd", mvhd))
 }
 
-func TestMediaAutoChainFallsThroughToVx(t *testing.T) {
+func TestMediaAutoChainFallsThroughToNitter(t *testing.T) {
 	home := tempHome(t)
 	fake := newFakeBackend(t, map[string]answer{
-		fxRoute100:  {status: 500, body: "boom"},
-		vxRoute100:  {status: 200, body: vxOneVideo},
-		syndRoute10: {status: 200, body: `{}`},
+		fxRoute100:              {status: 500, body: "boom"},
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
-	writeConfig(t, home, fastTOML) // no instances needed: the public backends win
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
 	code, out, errOut := runCLI(t, "media", ref100, "--json")
 	if code != 0 {
@@ -198,17 +188,16 @@ func TestMediaAutoChainFallsThroughToVx(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &obj); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
-	if obj.Source != "vx" || obj.Kind != "video" || obj.URL != "https://video.twimg.com/exv.mp4" {
-		t.Errorf("resolution = %+v, want the vx-served video", obj)
+	if obj.Source != "nitter" || obj.Kind != "video" {
+		t.Errorf("resolution = %+v, want the nitter-served video", obj)
 	}
 	// Ref echoes the raw input (Task 1 review minor #5, Task 4 ruling).
 	if obj.Ref != ref100 {
 		t.Errorf("Ref = %q, want the raw input ref", obj.Ref)
 	}
-	// Request order pinned: fx first, then vx; syndication and xdown never
-	// reached.
-	if got := fake.requests(); !slices.Equal(got, []string{fxRoute100, vxRoute100}) {
-		t.Errorf("requests = %v, want fx then vx", got)
+	// Request order pinned: fx first, then the nitter status page.
+	if got := fake.requests(); !slices.Equal(got, []string{fxRoute100, "/nasa/status/" + id100}) {
+		t.Errorf("requests = %v, want fx then the nitter status page", got)
 	}
 }
 
@@ -217,7 +206,7 @@ func TestMediaSingleStrategyRunsOnlyThatOne(t *testing.T) {
 	fake := newFakeBackend(t, map[string]answer{
 		fxRoute100: {status: 200, body: fxTwoMedia},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, errOut := runCLI(t, "media", ref100, "--strategy", "fx", "--quality", "medium", "--json")
@@ -280,7 +269,7 @@ func TestMediaProbeFillsVideoMetadata(t *testing.T) {
 		body:    string(probeHead()),
 		headers: map[string]string{"Content-Range": "bytes 0-1048575/24000"},
 	}
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
 	code, out, errOut := runCLI(t, "media", ref100, "--strategy", "nitter", "--probe", "--json")
@@ -310,7 +299,7 @@ func TestMediaProbeFailureKeepsZerosAndSucceeds(t *testing.T) {
 	// The probe target is gone: the enrichment fails, the command must still
 	// emit the resolution with zero duration/size and exit 0.
 	answers["/video/exv.mp4"] = answer{status: 404, body: "gone"}
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
 	code, out, errOut := runCLI(t, "media", ref100, "--strategy", "nitter", "--probe", "--ndjson")
@@ -342,7 +331,7 @@ func TestMediaBatchPartialFailureEmitsErrorEnvelopeAndExitsOne(t *testing.T) {
 		fxRoute100:                            {status: 200, body: fxVideo("https://video.twimg.com/x.mp4")},
 		"/fx/nasa/status/2070000000000000200": {status: 404, body: "gone"},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, errOut := runCLI(t, "media", ref100, refB, "--strategy", "fx", "--ndjson")
@@ -413,7 +402,7 @@ func TestMediaBatchPipeDefaultStreamsEnvelopes(t *testing.T) {
 		fxRoute100:                            {status: 200, body: fxVideo("https://video.twimg.com/x.mp4")},
 		"/fx/nasa/status/2070000000000000200": {status: 500, body: "boom"},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, errOut := runCLI(t, "media", ref100, refB, "--strategy", "fx")
@@ -506,10 +495,13 @@ func TestMediaNitterStrategyUsesConfiguredInstance(t *testing.T) {
 	}
 }
 
+// TestMediaInvalidStrategyAndQualityExit2: an unknown --strategy (vx and
+// syndication removed, fx/nitter/xdown remain) and an invalid --quality are
+// usage errors (exit 2) before any network.
 func TestMediaInvalidStrategyAndQualityExit2(t *testing.T) {
 	home := tempHome(t)
 	fake := newFakeBackend(t, map[string]answer{})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	for _, args := range [][]string{
@@ -529,10 +521,34 @@ func TestMediaInvalidStrategyAndQualityExit2(t *testing.T) {
 	}
 }
 
+// TestMediaStrategyRemoved: vx and syndication are no longer valid --strategy
+// values — a usage error (exit 2) naming the remaining strategies.
+func TestMediaStrategyRemoved(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{})
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
+	writeConfig(t, home, fastTOML)
+
+	for _, name := range []string{"vx", "syndication"} {
+		code, _, errOut := runCLI(t, "media", ref100, "--strategy", name)
+		if code != 2 {
+			t.Errorf("--strategy %s: exit = %d, want 2 (stderr %q)", name, code, errOut)
+		}
+		for _, want := range []string{"fx", "nitter", "xdown"} {
+			if !strings.Contains(errOut, want) {
+				t.Errorf("--strategy %s: stderr %q, want it to name %q", name, errOut, want)
+			}
+		}
+	}
+	if got := fake.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+}
+
 func TestMediaInvalidRefExit2BeforeNetwork(t *testing.T) {
 	home := tempHome(t)
 	fake := newFakeBackend(t, map[string]answer{})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, errOut := runCLI(t, "media", "not-a-ref")
@@ -552,7 +568,7 @@ func TestMediaStdinRef(t *testing.T) {
 	fake := newFakeBackend(t, map[string]answer{
 		fxRoute100: {status: 200, body: fxVideo("https://video.twimg.com/x.mp4")},
 	})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, errOut := runCLIStdin(t, ref100+"\n", "media", "--strategy", "fx", "--json")
@@ -571,7 +587,7 @@ func TestMediaStdinRef(t *testing.T) {
 func TestMediaRefBothArgAndStdinIsUsageError(t *testing.T) {
 	home := tempHome(t)
 	fake := newFakeBackend(t, map[string]answer{})
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	code, out, _ := runCLIStdin(t, ref100+"\n", "media", id100)
@@ -608,7 +624,7 @@ func TestMediaJSONCardinality(t *testing.T) {
 	home := tempHome(t)
 	answers := map[string]answer{}
 	fake := newFakeBackend(t, answers)
-	overrideEndpoints(t, fake.addr+"/fx", fake.addr+"/vx", fake.addr+"/synd")
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
 
 	// Two media entries from one ref: an array.

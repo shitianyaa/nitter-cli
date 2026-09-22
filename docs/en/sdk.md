@@ -21,12 +21,12 @@ import "github.com/shitianyaa/nitter-cli/sdk"
 - **Additive-only.** Exported identifiers, the `Kind` values and the JSON keys
   of every model may only be extended — never removed, renamed or repurposed.
 - **No `omitempty` on data models.** Every field of `Tweet`/`Author`/`Media`/
-  `Quoted`/`Page` marshals unconditionally, so consumers can rely on key
-  presence in every JSON line; empty values render as zero JSON values
-  (`media` is `null` when the source carried no media). The media-pipeline
-  types below (`MediaVariant`/`MediaResolution`/`DownloadRecord`) are the
-  documented exception: their sparse optional fields use `omitempty`, so key
-  presence is guaranteed only for the keys listed with each struct.
+  `Quoted`/`Page`/`Profile`/`Conversation`/`Trend` marshals unconditionally, so
+  consumers can rely on key presence in every JSON line; empty values render as
+  zero JSON values (`media` is `null` when the source carried no media). The
+  media-pipeline types below (`MediaVariant`/`MediaResolution`/`DownloadRecord`)
+  are the documented exception: their sparse optional fields use `omitempty`,
+  so key presence is guaranteed only for the keys listed with each struct.
 - **Producers never fabricate data.** Fields a source does not carry stay at
   their zero value.
 - **Redaction contract.** Neither the `*Error` struct nor any wrapped error
@@ -172,6 +172,57 @@ type Probe struct {
 One instance's per-capability result: RSS feed, user HTML timeline, search,
 list. `Latency` marshals as a Go duration string (for example `"212ms"`).
 
+### Profile (following / profile / search --type user)
+
+```go
+type Profile struct {
+    ID             string // pure-numeric user ID carried as a string
+    Handle         string // without the @
+    Name           string
+    Bio            string
+    FollowersCount int
+    FollowingCount int
+    TweetsCount    int    // 0 when the source does not carry it
+    MediaCount     int
+    AvatarURL      string
+    BannerURL      string
+    IsProtected    bool
+}
+```
+
+A creator's profile card. The same model backs `nitter following`
+(`kind: "profile"` envelopes, `id` is the handle), `nitter profile` and
+`nitter search --type user`.
+
+### Conversation (comments)
+
+```go
+type Conversation struct {
+    Status  Tweet   // the root status
+    Thread  []Tweet // ancestor chain above it (possibly nil)
+    Replies []Tweet // the reply tree below it
+    Cursor  string  // pagination cursor for more replies; empty = no more
+}
+```
+
+The full conversation projection of `nitter comments`: root + ancestors +
+replies.
+
+### Trend (trends)
+
+```go
+type Trend struct {
+    Name          string   // topic name
+    Rank          int      // 1-based rank; defensively numbered when the source omits it
+    Context       string   // e.g. "Gaming · Trending", "Trending in United States"
+    TweetCount    int      // 0 when the source does not carry it
+    GroupedTopics []string // grouped topics (possibly nil)
+}
+```
+
+One real-time trending topic from `nitter trends`; envelopes carry
+`kind: "trend"` with the topic name as `id`.
+
 ### MediaResolution and DownloadRecord (media / download commands)
 
 The media pipeline extends the data contract additively with two sparse
@@ -189,7 +240,7 @@ type MediaVariant struct {
 
 type MediaResolution struct {
     Ref             string         // canonical https://x.com/<user>/status/<id>
-    Source          string         // strategy: "fx", "vx", "syndication", "nitter" or "xdown"
+    Source          string         // strategy: "fx", "nitter" or "xdown"
     Kind            string         // "image", "video" or "gif"
     URL             string         // direct download link — always https for third-party strategies; plain http only ever from the user's own nitter instance
     FallbackURL     string         // alternative link for the same media (omitempty)
@@ -214,7 +265,7 @@ type DownloadRecord struct {
 
 `CoverURL` (added for the download command, additive) carries the
 poster/thumbnail of a video or GIF entry — fx's `thumbnail_url`,
-syndication's `video.poster`, the xdown cover-image entry; empty for images
+the xdown cover-image entry; empty for images
 and whenever the source carries no cover. It is an https link or empty (the
 no-plain-http rule applies).
 

@@ -83,35 +83,118 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
 
 ```bash
 nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+  [--with-replies] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
-网络动作前退出 2）。先尝试 RSS 源（`<HANDLE>/rss`）；失败或空结果时改为抓取
-HTML 用户页，并跟随其 load-more 游标翻页。NDJSON 的 `meta.source` 为
-`user:<HANDLE>`。`--max-pages 0` 让 HTML 回退路径无页数上限地翻页（直至上游
-穷尽）；见上方「共同抓取行为」。
+网络动作前退出 2）。默认 `fetch_backend=mix` 时优先通过 FxTwitter 极速免登通道拉取，
+遇到故障或指定 `--instance` 时平滑走 Nitter 实例。`--max-pages 0` 表示不设页数上限。
 
-字段过滤在**抓取之后、输出之前**应用（三者可自由组合；`--media-type` 值不合法
-退出 2）：
-
-- `--no-reposts` 丢弃纯转推（转推标记只存在于 HTML 解析路径；在用户时间线上
-  RSS 路径还会按作者不一致识别转推——被转推条目链接的是原作者，绝不会是请求的
-  句柄。search/list 没有 RSS 层，该信号不适用于它们）。
-- `--media-only` 丢弃不带任何媒体附件的推文。
+- `--with-replies` 包含用户自身发布的回复推文。
+- `--no-reposts` 丢弃纯转推。
+- `--media-only` 丢弃不带任何媒体附件的推文（Fx 激活时走 `/media` 高速专线）。
 - `--media-type image|video|gif` 只保留携带至少一个该类型媒体条目的推文。
+
+## nitter following
+
+```bash
+nitter following <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+通过 FxTwitter 接口拉取 `HANDLE` 关注的用户列表（扩列与找同好）。
+- TTY 默认渲染排版表格：`@<handle>  <name>  <followers>  <bio>`。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
+- `--json` 输出完整 `Profile` 数组。
+
+## nitter comments
+
+```bash
+nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--ndjson]
+```
+
+获取某条推文的主楼、上下文对话链（`thread`）以及评论区回复（`replies`）。
+- 典型场景：提取博主首条自评隐藏链接/网盘、追更 1/N 连环长推/漫画串。
+- `--sort`：可选 `likes`（默认高赞排序）或 `recency`（最新回复排序）。
+
+## nitter circle
+
+```bash
+nitter circle list [--json]
+nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
+nitter circle add <NAME> <HANDLE>
+nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
+```
+
+管理与遍历保存在 `~/.nitter-cli/circles.toml` 的私人精选创作者圈子名单。
+- `list`：列出所有圈子名称、描述及博主数。
+- `show`：查看指定圈子内的博主 handle 列表。
+  - **`--min-followers N`**：只显示粉丝数 ≥ N 的成员，每行输出 `@<handle>\t<粉丝数>`（TSV 便于管道）；与 `--json` 组合时输出 `{handle, followers_count}` 对象的 JSON 数组。每个成员各发一次 profile 请求；单个成员拉取失败不硬失败——stderr 一行 warning 并跳过该成员，其他成员继续；全部失败时退出 1。N 为负数是 usage error（退出 2），先于任何网络。不带该 flag 时行为完全不变（只列 handle，零网络请求）。
+- `suggest`：只读的圈子候选发现，为新建圈子服务；聚合两路现成数据——`HANDLE` 的**关注列表**（静态关系）与其时间线中**被转推的原作者**（行为关系）。输出按同现次数降序（两路都命中的排最前），再按粉丝数降序，再按 handle 字母序（确定性）。
+  - `--limit N`（默认 20，**必须 ≥ 1**）：每路取数上限。`--limit 0` 是 usage error（退出 2），故意如此——两路对 `0` 的语义相反且都无用（timeline：空；following：服务端单页）。following 路在上游忽略 `limit`/`count`，恒定返回一页约 50–67 个账号，因此由客户端截断；实际条数可能少于 `N`。
+  - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。
+  - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
+  - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
+- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
+- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
+  - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。
+  - **确定性顺序**：Fx 快车道下结果按推文 ID 降序（时间线序）排序后再按 `--limit` 截断，即使上游翻页组成在多次运行间波动，同输入也产生同输出序列。
+  - **过滤标注**：`--media-only` 或 `--media-type` 生效时，NDJSON 信封携带 `meta.filter`（`"media_only"` 或媒体类型值），消费者可验证过滤；无过滤时无该字段。
+  - **媒体端点翻页**：`--media-only` 走 Fx media 端点，每页数量翻倍以补偿非媒体推文——结果集可能比普通拉取探得更深（文档化行为，非错误）。
+
+## nitter profile
+
+```bash
+nitter profile <HANDLE> [--json|--ndjson]
+```
+
+获取博主个人名片卡与详细元数据。
+- TTY 默认渲染排版名片卡：包含 Handle、昵称、Bio、关注数、粉丝数、发推数、媒体数、头像/背景横幅直链及受保护状态。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
+- `--json`：输出单条 Profile JSON 对象。
+
+## nitter quotes
+
+```bash
+nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
+```
+
+挖掘指定推文（ID 或 URL）的引用推文（Quotes，二创及转发点评）。
+- TTY 默认渲染推文行：`<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`。
+- 管道模式（`!isatty`）自动输出 `kind: "tweet"` 单行 NDJSON 信封，`meta.source` 标记为 `quotes:<id>`。
+- `--limit`：限制条数（默认 20，0 表示无限制）。
+- `--media-only`：仅保留带媒体附件的引用推文。
+- `--no-reposts`：过滤纯转推。
+- `--json`：输出 JSON 文档。
+
+## nitter trends
+
+```bash
+nitter trends [--limit N] [--json|--ndjson]
+```
+
+获取实时 Twitter/X 热搜榜单趋势。
+- TTY 默认渲染排版表格：`#  TREND TOPIC  CONTEXT  TWEETS`。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "trend"`）单行 NDJSON 信封。
+- `--limit`：限制展示条数（默认 0，表示全量展示）。
+- `--json`：输出完整 `Trend` 数组。
 
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
+nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
   [--media-type image|video|gif] [--json|--ndjson]
 ```
 
-对配置的实例运行 `QUERY`。查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
+对配置的实例或 FxTwitter 运行 `QUERY`。当 `--type tweet`（默认）时，查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
 适用 Nitter 自身的查询语法：前导 `#` 搜话题标签，`from:user` 搜某用户的帖子，
 其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
 `search:<按原样输入的查询>`。
+
+当 `--type user` 时，按关键词搜索推主、画师、KOL 账号：
+- TTY 渲染用户表格：`@<handle>  <name>  <followers>  <bio>`。
+- 管道模式（`!isatty`）自动输出 `kind: "profile"` NDJSON 信封。
+- `--json` 输出 Profile 对象或数组。
 
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
@@ -137,13 +220,14 @@ nitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] 
 nitter get <REF> [--json|--ndjson]
 ```
 
-抓取单条推文。`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
+抓取单条推文。默认 `fetch_backend=mix` 与 `fx` 模式下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例。
+`REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
 `/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
 stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出是歧义错误（退出 2）。
 没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/
 `--ndjson` 可见）；互动数不予报告——绝不虚构。NDJSON 的 `meta.source` 为
-`status:<数字 ID>`。
+`status:<数字 ID>`。当由 FxTwitter 提供时，NDJSON 的 `meta.instance` 标为 `FxTwitter`。
 
 示例（`--json` 对单条推文只输出一个对象；形态为示意）：
 
@@ -154,7 +238,7 @@ stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出�
 ## nitter media
 
 ```bash
-nitter media <REF>... [--strategy auto|fx|vx|syndication|nitter|xdown] \
+nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
   [--quality high|medium|low] [--probe] [--json|--ndjson]
 ```
 
@@ -165,13 +249,12 @@ GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitte
 空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
 调用方完成——本命令只解析直链，不抓取媒体。
 
-**策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → vx → syndication
-→ nitter → xdown 依次尝试，返回**第一个**产出媒体的策略（`source` 标明胜出
-者）；显式指定名称则只运行该策略。payload 能解析但不含媒体的策略会被跳过、
+**策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → nitter → xdown 依次尝试，
+返回**第一个**产出媒体的策略（`source` 标明胜出者）；显式指定名称则只运行该策略。payload 能解析但不含媒体的策略会被跳过、
 继续下一个；所有策略都为空时按 `not_found` 错误解析——「推文没有媒体」是
 正常的分类结果，不是崩溃。
 
-**信任边界**：fx、vx、syndication、xdown 是**第三方公共服务**——解析请求会
+**信任边界**：fx、xdown 是**第三方公共服务**——解析请求会
 把推文 URL 发送给它们，因此只解析你愿意分享的公开推文；它们的失败会以真实
 策略名上报，绝不静默换成其他来源的成功结果。`nitter` 则从**你自己的**配置
 实例读取 status 页（`[[instances]]` 的第一个条目，或 `--instance`）；未配置
@@ -215,7 +298,7 @@ failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--stra
 
 ```bash
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
-  [--quality high|medium|low] [--strategy auto|fx|vx|syndication|nitter|xdown] \
+  [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
   [--json|--ndjson]
 ```
@@ -264,9 +347,9 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 跨 ref 沿用原有 `--on-exists` 语义。空模板值即默认值。
 
 **策略与信任边界**（`--strategy`，默认 `auto`）：与 `media` 命令相同的链路
-——`auto` 依次尝试 fx → vx → syndication → nitter → xdown，首个产出媒体的
+——`auto` 依次尝试 fx → nitter → xdown，首个产出媒体的
 策略胜出（`source` 标明）；显式指定名称则只运行该策略。对 download 而言边界
-比 `media` 更严格，因为抓取本身也会发生：fx、vx、syndication、xdown 是
+比 `media` 更严格，因为抓取本身也会发生：fx、xdown 是
 **第三方公共服务**——解析与下载都会把推文 URL 发送给它们，因此只用于你愿意
 分享的公开推文。`--strategy nitter` 是完全私有路径：解析与下载都留在**你自己**
 配置的实例上（`[[instances]]` 的第一个条目，或 `--instance`）；其直链可能是
@@ -348,21 +431,22 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-管理 `~/.nitter-cli/config.toml` 的十二个标量键（默认值、环境变量覆盖与数组表见
+管理 `~/.nitter-cli/config.toml` 的十三个标量键（默认值、环境变量覆盖与数组表见
 [README](../../README.zh-CN.md#配置)）：
 
 ```text
 default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, proxy, log_level, log_format, download_path,
+instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
 filename_template, directory_template
 ```
 
 - `config path` 打印配置文件路径。不接受参数（否则退出 2）。
-- `config get` 不带键时按 `key = value` 打印全部十二个键；带键时只打印该键。
+- `config get` 不带键时按 `key = value` 打印全部十三个键；带键时只打印该键。
   未知键在读取文件之前即被拒绝（退出 2）。
 - `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
   `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
   `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
+  `fetch_backend` 取 `mix|nitter|fx`；
   `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
   `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
   读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。

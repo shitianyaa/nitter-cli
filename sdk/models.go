@@ -76,6 +76,41 @@ type Quoted struct {
 	Author Author `json:"author"`
 }
 
+// Profile is the SDK's outward projection of a user profile. Fields are the
+// NDJSON data contract (additive-only).
+type Profile struct {
+	ID             string `json:"id"`
+	Handle         string `json:"handle"`
+	Name           string `json:"name"`
+	Bio            string `json:"bio"`
+	FollowersCount int    `json:"followers_count"`
+	FollowingCount int    `json:"following_count"`
+	TweetsCount    int    `json:"tweets_count"`
+	MediaCount     int    `json:"media_count"`
+	AvatarURL      string `json:"avatar_url"`
+	BannerURL      string `json:"banner_url"`
+	IsProtected    bool   `json:"is_protected"`
+}
+
+// Conversation is the SDK's outward projection of a status conversation thread.
+// Fields are the NDJSON data contract (additive-only).
+type Conversation struct {
+	Status  Tweet   `json:"status"`
+	Thread  []Tweet `json:"thread"`
+	Replies []Tweet `json:"replies"`
+	Cursor  string  `json:"cursor"`
+}
+
+// Trend is the SDK's outward projection of a trending topic.
+// Fields are the NDJSON data contract (additive-only).
+type Trend struct {
+	Name          string   `json:"name"`
+	Rank          int      `json:"rank"`
+	Context       string   `json:"context"`
+	TweetCount    int      `json:"tweet_count"`
+	GroupedTopics []string `json:"grouped_topics"`
+}
+
 // Probe is one capability check of an InstanceReport: OK for success, or the
 // HTTP status and a short redacted error description on failure.
 type Probe struct {

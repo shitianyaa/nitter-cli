@@ -503,3 +503,33 @@ func TestPlanDownloadHTTPPolicyIsTheResolveLayer(t *testing.T) {
 		}
 	}
 }
+
+// TestExtFromURL: the extension comes from the URL path, percent-decoded, and
+// only a plausible extension survives — the nitter strategy's wrapped link
+// (/video/<token>/<encoded inner URL>) must not leak "?tag=29" into the
+// filename.
+func TestExtFromURL(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"plain mp4", "https://video.twimg.com/a/b/x.mp4", ".mp4"},
+		{"plain jpg", "https://pbs.twimg.com/media/x.jpg", ".jpg"},
+		{"query tag ignored", "https://video.twimg.com/a/b/x.mp4?tag=29", ".mp4"},
+		{
+			"nitter wrapped link",
+			"http://127.0.0.1:8080/video/DB49775EE674B/" +
+				"https%3A%2F%2Fvideo.twimg.com%2Famplify_video%2F1%2Fvid%2Favc1%2F720x1280%2FZNXx.mp4%3Ftag%3D29",
+			".mp4",
+		},
+		{"no extension", "https://example.com/path/noext", ""},
+		{"trailing encoded query only", "https://example.com/x%3Ftag%3D29", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extFromURL(tc.url); got != tc.want {
+				t.Errorf("extFromURL(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}

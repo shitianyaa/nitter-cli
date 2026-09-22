@@ -33,22 +33,20 @@ import (
 const opDownload = "download"
 
 // Strategy names accepted by --strategy. auto is the ordered chain
-// fx → vx → syndication → nitter → xdown (the media command's expansion);
+// fx → nitter → xdown (the media command's expansion);
 // an explicit name runs only that one.
 var validStrategies = map[string]bool{
-	"auto":        true,
-	"fx":          true,
-	"vx":          true,
-	"syndication": true,
-	"nitter":      true,
-	"xdown":       true,
+	"auto":   true,
+	"fx":     true,
+	"nitter": true,
+	"xdown":  true,
 }
 
 // autoStrategies is the chain --strategy auto expands to (identical to the
 // media command's: nitter is included verbatim and reports a clear
 // local-state failure when no instance is configured — never silently
 // skipped).
-var autoStrategies = []string{"fx", "vx", "syndication", "nitter", "xdown"}
+var autoStrategies = []string{"fx", "nitter", "xdown"}
 
 var validQualities = map[string]bool{
 	"high":   true,
@@ -187,8 +185,8 @@ the --on-exists semantics apply unchanged. An empty template value means the
 default.
 
 Strategies (--strategy, default auto) are the media command's: auto tries
-fx → vx → syndication → nitter → xdown and the first strategy that yields
-media wins (source stamps which one). Trust boundary: fx/vx/syndication/
+fx → nitter → xdown and the first strategy that yields
+media wins (source stamps which one). Trust boundary: fx and
 xdown are THIRD-PARTY public services — resolving AND downloading sends the
 tweet URL through them, so only use them for public statuses you are fine
 sharing; their failures are reported with the real strategy name.
@@ -237,7 +235,7 @@ refs, refs given both as arguments and on stdin, malformed stdin envelopes,
 	cmd.Flags().StringVar(&opts.quality, "quality", "high",
 		"Media quality tier: high, medium or low")
 	cmd.Flags().StringVar(&opts.strategy, "strategy", "auto",
-		"Resolution strategy: auto (fx→vx→syndication→nitter→xdown) or one of fx, vx, syndication, nitter, xdown")
+		"Resolution strategy: auto (fx→nitter→xdown) or one of fx, nitter, xdown")
 	cmd.Flags().StringVar(&opts.onExists, "on-exists", "refuse",
 		"When the target file already exists: refuse (error), skip (keep, report with the on-disk size) or overwrite")
 	cmd.Flags().StringVar(&opts.filenameTemplate, "filename-template", "",
@@ -261,7 +259,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options
 		return err
 	}
 	if !validStrategies[opts.strategy] {
-		return invocation.Usagef("download: unknown --strategy %q (want auto, fx, vx, syndication, nitter or xdown)", opts.strategy)
+		return invocation.Usagef("download: unknown --strategy %q (want auto, fx, nitter or xdown)", opts.strategy)
 	}
 	if !validQualities[opts.quality] {
 		return invocation.Usagef("download: unknown --quality %q (want high, medium or low)", opts.quality)

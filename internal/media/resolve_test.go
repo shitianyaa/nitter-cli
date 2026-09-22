@@ -110,9 +110,8 @@ const (
 )
 
 var (
-	fxURL100  = "https://api.fxtwitter.com/nasa/status/" + id100
-	vxURL100  = "https://api.vxtwitter.com/nasa/status/" + id100
-	syndURL10 = "https://cdn.syndication.twimg.com/tweet-result?id=" + id100 + "&token=x"
+	fxURL100        = "https://api.fxtwitter.com/nasa/status/" + id100
+	xdownEmptyRoute = "https://xdown.app/api/ajaxSearch"
 )
 
 // TestParseStatusRefDelegatesToAppapi pins the wrapper: it must accept the
@@ -193,63 +192,18 @@ func TestSelectVariant(t *testing.T) {
 	}
 }
 
-// TestResolveStatusStopsAtFirstSuccessWithStrategiesInOrder: fx returns a
-// text-only payload (empty) so the resolver moves on to vx, which succeeds;
-// syndication must never be requested and every entry carries source "vx".
-func TestResolveStatusStopsAtFirstSuccessWithStrategiesInOrder(t *testing.T) {
-	routes := map[string]fakeResp{
-		fxURL100: {body: readFixture(t, "fx_text_only.json"), status: 200},
-		vxURL100: {body: readFixture(t, "vx_status.json"), status: 200},
-	}
-	r, fake := newTestResolver(routes)
-	res, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
-	})
-	if err != nil {
-		t.Fatalf("ResolveStatus: %v", err)
-	}
-	if len(res) != 3 {
-		t.Fatalf("resolutions = %d, want 3 (image, video, gif)", len(res))
-	}
-	for _, m := range res {
-		if m.Source != "vx" {
-			t.Errorf("source = %q, want vx", m.Source)
-		}
-		if m.Ref != statusURL100 {
-			t.Errorf("ref = %q, want %q", m.Ref, statusURL100)
-		}
-	}
-	wantKinds := []string{"image", "video", "gif"}
-	for i, kind := range wantKinds {
-		if res[i].Kind != kind {
-			t.Errorf("res[%d].kind = %q, want %q", i, res[i].Kind, kind)
-		}
-	}
-	if res[0].URL != "https://pbs.twimg.com/media/Gy1abc.jpg?name=orig" {
-		t.Errorf("image URL = %q, want pbs orig rewrite", res[0].URL)
-	}
-	if res[1].URL != "https://video.twimg.com/ext_tw_video/200/pu/vid/720x1280/2176.mp4" {
-		t.Errorf("video URL = %q, want the direct mp4", res[1].URL)
-	}
-	if len(fake.calls) != 2 {
-		t.Errorf("requests = %v, want fx then vx only (syndication never reached)", fake.calls)
-	}
-}
-
 // TestResolveStatusRequestURLShapesAndHeaders pins the backend endpoints and
 // the JSON request headers, including the /i/ user segment for user-less refs.
 func TestResolveStatusRequestURLShapesAndHeaders(t *testing.T) {
 	r, fake := newTestResolver(nil) // every backend answers 404
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, "2070000000000000100"), Options{
-		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
+		Strategies: []Strategy{StrategyFx, StrategyXdown},
 	})
 	if err == nil {
 		t.Fatalf("ResolveStatus: want an aggregate error")
 	}
 	want := []string{
 		"https://api.fxtwitter.com/i/status/" + id100,
-		"https://api.vxtwitter.com/i/status/" + id100,
-		"https://cdn.syndication.twimg.com/tweet-result?id=" + id100 + "&token=x",
 	}
 	if len(fake.calls) != len(want) {
 		t.Fatalf("calls = %v, want %v", fake.calls, want)
@@ -274,19 +228,19 @@ func TestResolveStatusRequestURLShapesAndHeaders(t *testing.T) {
 func TestResolveStatusAllFailedNamesEveryStrategy(t *testing.T) {
 	r, _ := newTestResolver(nil)
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
+		Strategies: []Strategy{StrategyFx, StrategyNitter},
 	})
 	var terr *nitter.Error
 	if !errors.As(err, &terr) {
 		t.Fatalf("err = %v (%T), want *nitter.Error", err, err)
 	}
 	msg := err.Error()
-	for _, part := range []string{"fx: not_found", "vx: not_found", "syndication: not_found"} {
+	for _, part := range []string{"fx: not_found", "nitter: local_state_error"} {
 		if !strings.Contains(msg, part) {
 			t.Errorf("message %q misses %q", msg, part)
 		}
 	}
-	for _, leaked := range []string{"api.fxtwitter.com", "api.vxtwitter.com", "syndication.twimg.com", "token=x"} {
+	for _, leaked := range []string{"api.fxtwitter.com", "token=x"} {
 		if strings.Contains(msg, leaked) {
 			t.Errorf("message %q leaks %q", msg, leaked)
 		}
@@ -322,21 +276,19 @@ func TestResolveStatusMalformedPayloadIsKindMalformed(t *testing.T) {
 // fine but carries no media the aggregate is KindNotFound (the status has no
 // downloadable media), with each strategy reported as empty.
 func TestResolveStatusEmptyEverywhereIsNotFound(t *testing.T) {
-	textOnly := []byte(`{"code": 200, "tweet": {"text": "no media"}}`)
 	routes := map[string]fakeResp{
-		fxURL100:  {body: readFixture(t, "fx_text_only.json"), status: 200},
-		vxURL100:  {body: textOnly, status: 200},
-		syndURL10: {body: []byte(`{"text": "no media"}`), status: 200},
+		fxURL100: {body: readFixture(t, "fx_text_only.json"), status: 200},
 	}
-	r, _ := newTestResolver(routes)
+	r, fake := newTestResolver(routes)
+	fake.postRoutes = map[string]fakeResp{xdownEmptyRoute: {body: []byte(`{}`), status: 200}}
 	_, err := r.ResolveStatus(context.Background(), mustRef(t, statusURL100), Options{
-		Strategies: []Strategy{StrategyFx, StrategyVx, StrategySyndication},
+		Strategies: []Strategy{StrategyFx, StrategyXdown},
 	})
 	var terr *nitter.Error
 	if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
 		t.Fatalf("err = %v, want KindNotFound", err)
 	}
-	for _, part := range []string{"fx: empty", "vx: empty", "syndication: empty"} {
+	for _, part := range []string{"fx: empty", "xdown: empty"} {
 		if !strings.Contains(err.Error(), part) {
 			t.Errorf("message %q misses %q", err.Error(), part)
 		}

@@ -18,9 +18,10 @@ import "github.com/shitianyaa/nitter-cli/sdk"
 
 - **只增不改。** 导出标识符、`Kind` 取值与所有模型的 JSON 键只能扩展——绝不
   删除、重命名或改作他用。
-- **数据模型不用 `omitempty`。** `Tweet`/`Author`/`Media`/`Quoted`/`Page` 的
-  每个字段无条件输出，消费方可以信赖每条 JSON 行的键一定存在；空值输出为零值
-  JSON（来源没有媒体时 `media` 为 `null`）。本节后文的媒体管道类型
+- **数据模型不用 `omitempty`。** `Tweet`/`Author`/`Media`/`Quoted`/`Page`/
+  `Profile`/`Conversation`/`Trend` 的每个字段无条件输出，消费方可以信赖每条
+  JSON 行的键一定存在；空值输出为零值 JSON（来源没有媒体时 `media` 为
+  `null`）。本节后文的媒体管道类型
   （`MediaVariant`/`MediaResolution`/`DownloadRecord`）是文档化的例外：其
   稀疏可选字段使用 `omitempty`，键必然存在与否以各结构体处的列表为准。
 - **生产方绝不虚构数据。** 来源不携带的字段保持零值。
@@ -158,6 +159,54 @@ type Probe struct {
 单个实例的分能力结果：RSS 源、用户 HTML 时间线、搜索、List。`Latency` 序列化
 为 Go duration 字符串（例如 `"212ms"`）。
 
+### Profile（following / profile / search --type user）
+
+```go
+type Profile struct {
+    ID             string // 纯数字用户 ID，以字符串承载
+    Handle         string // 不含 @
+    Name           string
+    Bio            string
+    FollowersCount int
+    FollowingCount int
+    TweetsCount    int    // 来源未携带时为 0
+    MediaCount     int
+    AvatarURL      string
+    BannerURL      string
+    IsProtected    bool
+}
+```
+
+推主档案。同一模型用于 `nitter following`（`kind: "profile"` 信封，`id` 为
+handle）、`nitter profile` 与 `nitter search --type user`。
+
+### Conversation（comments）
+
+```go
+type Conversation struct {
+    Status  Tweet   // 根推文
+    Thread  []Tweet // 上下文祖先链（可能为 nil）
+    Replies []Tweet // 评论区回复
+    Cursor  string  // 回复翻页游标；为空表示没有更多
+}
+```
+
+`nitter comments` 的完整对话投影：主楼 + 追根溯源的祖先链 + 楼中楼回复。
+
+### Trend（trends）
+
+```go
+type Trend struct {
+    Name          string   // 话题名称
+    Rank          int      // 1-based 名次；来源未携带时按顺序防御性编号
+    Context       string   // 例如 "Gaming · Trending"、"Trending in United States"
+    TweetCount    int      // 来源未携带时为 0
+    GroupedTopics []string // 分组话题（可能为 nil）
+}
+```
+
+`nitter trends` 的实时热搜条目；信封 `kind: "trend"`，`id` 为话题名。
+
 ### MediaResolution 与 DownloadRecord（media / download 命令）
 
 媒体管道以只增方式为数据契约扩展了两个稀疏类型：与上面的模型不同，它们的
@@ -174,7 +223,7 @@ type MediaVariant struct {
 
 type MediaResolution struct {
     Ref             string         // 规范形式 https://x.com/<user>/status/<id>
-    Source          string         // 策略："fx"、"vx"、"syndication"、"nitter" 或 "xdown"
+    Source          string         // 策略："fx"、"nitter" 或 "xdown"
     Kind            string         // "image"、"video" 或 "gif"
     URL             string         // 直接下载链接——第三方策略恒为 https；纯 http 只可能来自用户自己的 nitter 实例
     FallbackURL     string         // 同一媒体的备选链接（omitempty）
@@ -198,7 +247,7 @@ type DownloadRecord struct {
 ```
 
 `CoverURL`（为 download 命令新增的只增字段）承载视频/GIF 条目的封面/缩略图
-——fx 的 `thumbnail_url`、syndication 的 `video.poster`、xdown 的封面图
+——fx 的 `thumbnail_url`、xdown 的封面图
 条目；图片条目为空，来源不携带封面时也为空。它是 https 链接或空串（禁纯
 http 规则同样适用）。
 

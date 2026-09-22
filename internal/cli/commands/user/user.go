@@ -39,11 +39,12 @@ var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
 // exit 2.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
-		limitFlag    int
-		maxPagesFlag int
-		asJSON       bool
-		asNDJSON     bool
-		filters      tweetfilter.Filters
+		limitFlag       int
+		maxPagesFlag    int
+		asJSON          bool
+		asNDJSON        bool
+		withRepliesFlag bool
+		filters         tweetfilter.Filters
 	)
 	cmd := &cobra.Command{
 		Use:   "user <HANDLE>",
@@ -79,7 +80,7 @@ and the (empty) hint on stderr in the default modes.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd, s, args[0], limitFlag, maxPagesFlag, asJSON, asNDJSON, filters)
+			return run(cmd, s, args[0], limitFlag, maxPagesFlag, asJSON, asNDJSON, withRepliesFlag, filters)
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
@@ -90,6 +91,8 @@ and the (empty) hint on stderr in the default modes.`,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
 		"Print one nitter.pipeline/v1 envelope per tweet (kind tweet)")
+	cmd.Flags().BoolVar(&withRepliesFlag, "with-replies", false,
+		"Include user replies in the timeline")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false,
 		"Drop pure retweets (retweet-header detection) from the output")
 	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false,
@@ -103,7 +106,7 @@ and the (empty) hint on stderr in the default modes.`,
 // flag wins over the config value; a negative flag is a usage error while a
 // negative config value keeps its documented "0 semantics = all" pixiv
 // heritage (appapi treats limit <= 0 as unbounded).
-func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
+func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, maxPagesFlag int, asJSON, asNDJSON, withReplies bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
 		return err
@@ -150,7 +153,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, ma
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	tweets, instance, err := w.Timeline().Timeline(ctx, handle, limit, maxPages)
+	opts := []client.TimelineOption{
+		client.WithReplies(withReplies),
+		client.WithMediaOnly(filters.MediaOnly),
+	}
+	tweets, instance, err := w.Timeline().Timeline(ctx, handle, limit, maxPages, opts...)
 	if err != nil {
 		// Invalid-argument classifications (none expected past the local
 		// validation) map to usage errors; acquisition failures exit 1.

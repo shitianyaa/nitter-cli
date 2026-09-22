@@ -16,6 +16,7 @@ request_interval  = "1s"      # global minimum request interval
 retry_attempts    = 2
 retry_delay       = "1s"
 instance_cooldown = "60s"     # cooldown after an instance failure
+fetch_backend     = "mix"     # mix|nitter|fx
 proxy             = ""        # empty = use HTTPS_PROXY/ALL_PROXY env
 log_level         = "info"    # debug|info
 log_format        = "text"    # text|json

@@ -1,22 +1,18 @@
 // Package media resolves a status reference into directly downloadable media
 // links (video mp4 variants, original images, GIFs) using the third-party
-// public services the user's reference plugin proved in daily use:
-// fxtwitter, vxtwitter, Twitter's syndication endpoint and xdown.app. It is
-// the implementation layer behind the `nitter media` command; the command
-// layer owns strategy orchestration over the sdk projection produced here.
+// public services the user's reference plugin proved in daily use: fxtwitter
+// and xdown.app. It is the implementation layer behind the `nitter media`
+// command; the command layer owns strategy orchestration over the sdk
+// projection produced here.
 //
-// Trust boundary: fx/vx/syndication/xdown are THIRD-PARTY public services
-// (unlike the self-hosted Nitter instances). Resolving a status sends its
-// URL to them; docs and skill state this, and failures are reported with the
-// real strategy name — never silently swapped for another source's success.
+// Trust boundary: fx/xdown are THIRD-PARTY public services (unlike the
+// self-hosted Nitter instances). Resolving a status sends its URL to them;
+// docs and skill state this, and failures are reported with the real
+// strategy name — never silently swapped for another source's success.
 //
 // Semantics are a faithful port of the plugin's media_support/status_resolve.py:
 //   - fx  media.all[]: photo→image, video→video, gif/animated_gif→gif; video
 //     URLs come from variants (or video_info.variants) by bitrate.
-//   - vx  media_extended[] direct links; legacy mediaURLs/media_urls lists
-//     as an image-only fallback used only when media_extended yields nothing.
-//   - syndication photos[] images; video.variants by bitrate, gif detected
-//     via the "tweet_video_thumb" marker or a gif video type.
 //   - xdown ajaxSearch page: download-button anchors, kind by label text
 //     then URL suffix (xdown.py); snapcdn token payloads yield the direct
 //     twimg link with the proxy link kept as the fallback.
@@ -39,12 +35,11 @@
 // a short redacted reason.
 //
 // Cover extraction (plan M9): the moving-media entries carry their source's
-// poster link as CoverURL — fx's item thumbnail_url, syndication's
-// video.poster (the legacy tweet_video_thumb string match as fallback) and
-// the xdown page's cover-image entry (which itself stays a regular image
-// resolution, ruling R-M9-1). The nitter page parse carries no poster
-// metadata, so that strategy's CoverURL stays empty. Covers are https links
-// or empty; nothing is fabricated.
+// poster link as CoverURL — fx's item thumbnail_url and the xdown page's
+// cover-image entry (which itself stays a regular image resolution, ruling
+// R-M9-1). The nitter page parse carries no poster metadata, so that
+// strategy's CoverURL stays empty. Covers are https links or empty; nothing
+// is fabricated.
 //
 // Selection (selection.go) is the pure decision layer behind the M9 download
 // command: PlanDownload converges a status's moving media to one ranked file
@@ -75,11 +70,9 @@ const opResolve = "media.ResolveStatus"
 type Strategy string
 
 const (
-	StrategyFx          Strategy = "fx"
-	StrategyVx          Strategy = "vx"
-	StrategySyndication Strategy = "syndication"
-	StrategyNitter      Strategy = "nitter" // resolved by the command layer (M8 Task 4)
-	StrategyXdown       Strategy = "xdown"  // parsed from xdown.app's ajaxSearch page (xdown.go)
+	StrategyFx     Strategy = "fx"
+	StrategyNitter Strategy = "nitter" // resolved by the command layer (M8 Task 4)
+	StrategyXdown  Strategy = "xdown"  // parsed from xdown.app's ajaxSearch page (xdown.go)
 )
 
 // Media kinds, matching nitter.Media's wire values.
@@ -93,7 +86,7 @@ const (
 type Options struct {
 	// Strategies is the ordered backend list to try. Empty is a
 	// KindInvalidArg error; the command layer supplies the auto order
-	// fx → vx → syndication → nitter → xdown.
+	// fx → nitter → xdown.
 	Strategies []Strategy
 	// Quality selects the image pbs tier (high=orig, medium=large, low=small)
 	// and which video variant becomes the main URL. "" or an unknown value
@@ -118,12 +111,12 @@ type StatusRef struct {
 
 // String renders the canonical x.com permalink used to stamp
 // MediaResolution.Ref. User-less references use the /i/status/<id> route
-// (the same segment the fx/vx endpoints receive).
+// (the same segment the fx endpoint receives).
 func (r StatusRef) String() string {
 	return "https://x.com/" + userSegment(r) + "/status/" + r.ID
 }
 
-// userSegment is the URL user segment the fx/vx endpoints expect: the handle
+// userSegment is the URL user segment the fx endpoint expects: the handle
 // when known, the /i/ placeholder otherwise (plugin: link.username or "i").
 func userSegment(r StatusRef) string {
 	if r.User == "" {
@@ -339,18 +332,6 @@ func (r *Resolver) resolveOne(ctx context.Context, s Strategy, ref StatusRef, op
 			return nil, err
 		}
 		cands, err = parseFx(body)
-	case StrategyVx:
-		var body []byte
-		if body, _, err = r.get(ctx, vxStatusURL(ref), jsonHeaders()); err != nil {
-			return nil, err
-		}
-		cands, err = parseVx(body)
-	case StrategySyndication:
-		var body []byte
-		if body, _, err = r.get(ctx, syndicationURL(ref.ID), jsonHeaders()); err != nil {
-			return nil, err
-		}
-		cands, err = parseSyndication(body)
 	case StrategyNitter:
 		// ResolveNitter fetches and finalizes itself: the page's media keeps
 		// instance-served (possibly plain-http) links the shared https-only
