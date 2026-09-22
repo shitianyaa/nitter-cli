@@ -1,4 +1,5 @@
 /nitter
+/nitter.exe
 /nitter-cli
 /dist/
 *.db
@@ -7,6 +8,9 @@
 # Planning documents stay local only (SDD specs/plans, ledgers)
 docs/superpowers/
 /.codegraph/
+
+# Local session progress logs (AGENTS.md: never committed)
+/Progress/
 
 # Local dump for messy media-test artifacts
 /Testignore/
