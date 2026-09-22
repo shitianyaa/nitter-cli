@@ -163,7 +163,7 @@ func dataOf(t *testing.T, env map[string]any) map[string]any {
 func TestGetPipeDefaultEmitsNDJSONEnvelope(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -186,7 +186,7 @@ func TestGetPipeDefaultEmitsNDJSONEnvelope(t *testing.T) {
 	if !ok || meta["source"] != "status:101" || meta["instance"] != fake.addr {
 		t.Errorf("meta = %v, want source/instance provenance", env["meta"])
 	}
-	if got := fake.rec.requests(); !slices.Equal(got, []string{"/status/101"}) {
+	if got := fake.rec.requests(); !slices.Equal(got, []string{"/i/status/101"}) {
 		t.Errorf("requests = %v, want the single user-less fetch", got)
 	}
 }
@@ -215,7 +215,7 @@ func TestGetURLRef404FallsBackToUserless(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/nasa/status/101": {404, "gone"},
-		"/status/101":      {200, statusPage("nasa", "101")},
+		"/i/status/101":    {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -227,7 +227,7 @@ func TestGetURLRef404FallsBackToUserless(t *testing.T) {
 	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
 		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
 	}
-	if got := fake.rec.requests(); !slices.Equal(got, []string{"/nasa/status/101", "/status/101"}) {
+	if got := fake.rec.requests(); !slices.Equal(got, []string{"/nasa/status/101", "/i/status/101"}) {
 		t.Errorf("requests = %v, want the user route then the user-less fallback", got)
 	}
 }
@@ -235,7 +235,7 @@ func TestGetURLRef404FallsBackToUserless(t *testing.T) {
 func TestGetJSONSingleObject(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -255,7 +255,7 @@ func TestGetJSONSingleObject(t *testing.T) {
 func TestGetNDJSONSingleEnvelope(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -308,7 +308,7 @@ func TestGetNDJSONSingleEnvelope(t *testing.T) {
 func TestGetStdinRef(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -354,7 +354,7 @@ func TestGetRefBothArgAndStdinIsUsageError(t *testing.T) {
 func TestGetEmptyStdinLineWithArgUsesArg(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -400,7 +400,7 @@ func TestGetInvalidRefIsUsageErrorBeforeNetwork(t *testing.T) {
 func TestGetAllInstancesFailExitsOne(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {503, "down"},
+		"/i/status/101": {503, "down"},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
@@ -450,7 +450,7 @@ func TestGetExtraArgsAreUsageError(t *testing.T) {
 func TestGetInstanceFlagNeedsNoConfiguredInstance(t *testing.T) {
 	tempHome(t) // baseline config with zero instances
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 
 	code, out, errOut := runCLI(t, "get", "101", "--instance", fake.addr)

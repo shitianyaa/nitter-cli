@@ -19,7 +19,7 @@ import (
 func TestGetTTYDefaultStaysTextRow(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
-		"/status/101": {200, statusPage("nasa", "101")},
+		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 

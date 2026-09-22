@@ -2,9 +2,9 @@ package media
 
 // The nitter strategy: the user's OWN Nitter instance is the trusted media
 // source. The strategy fetches the status page
-// (<base>/<user>/status/<id>, or the user-less /status/<id> route when the
-// reference carries no user segment), classifies it through the shared page
-// gate, and parses it with the shared HTML status parser
+// (<base>/<user>/status/<id>, or the user-less <base>/i/status/<id> route
+// when the reference carries no user segment), classifies it through the
+// shared page gate, and parses it with the shared HTML status parser
 // (internal/nitter/html — internal-to-internal reuse, the same way this
 // package already reuses the httpx transport). The page's media is projected
 // onto MediaResolution:
@@ -48,9 +48,12 @@ func (r *Resolver) ResolveNitter(ctx context.Context, ref StatusRef, opts Option
 	if base == "" {
 		return nil, nitter.Errorf(nitter.KindLocalState, opNitter, "no nitter instance configured for the nitter strategy")
 	}
-	path := "/status/" + ref.ID
+	// The user-less route is /i/status/<id> — the same route StatusRef.String
+	// renders and the one Nitter actually serves (the bare /status/<id> route
+	// 404s on the deployed instance).
+	path := "/i/status/" + ref.ID
 	if ref.User != "" {
-		path = "/" + ref.User + path
+		path = "/" + ref.User + "/status/" + ref.ID
 	}
 	body, _, err := r.get(ctx, base+path, nil)
 	if err != nil {

@@ -82,7 +82,7 @@ func TestResolveNitterPlainHTTPBaseKept(t *testing.T) {
 	// user's own instance).
 	page := nitterStatusPage(`<a class="video-container" href="/video/EXVmp4.mp4">video</a>`)
 	r, _ := newTestResolver(map[string]fakeResp{
-		"http://127.0.0.1:8080/status/" + id100: {body: []byte(page), status: 200},
+		"http://127.0.0.1:8080/i/status/" + id100: {body: []byte(page), status: 200},
 	})
 	res, err := r.ResolveNitter(context.Background(), mustRef(t, id100), Options{NitterBase: "http://127.0.0.1:8080/"})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestResolveNitterPlainHTTPBaseKept(t *testing.T) {
 func TestResolveNitterUserlessRouteAndQualityRewrite(t *testing.T) {
 	page := nitterStatusPage(`<a class="still-image" href="https://pbs.twimg.com/media/BBB.jpg?format=jpg&name=small">orig</a>`)
 	r, fake := newTestResolver(map[string]fakeResp{
-		"https://nitter.internal:8080/status/" + id100: {body: []byte(page), status: 200},
+		"https://nitter.internal:8080/i/status/" + id100: {body: []byte(page), status: 200},
 	})
 	res, err := r.ResolveNitter(context.Background(), mustRef(t, id100), Options{NitterBase: "https://nitter.internal:8080", Quality: "high"})
 	if err != nil {
@@ -108,8 +108,8 @@ func TestResolveNitterUserlessRouteAndQualityRewrite(t *testing.T) {
 	if len(res) != 1 || res[0].URL != "https://pbs.twimg.com/media/BBB.jpg?format=jpg&name=orig" {
 		t.Fatalf("res = %+v, want the pbs link rewritten to name=orig", res)
 	}
-	if got := fake.calls; len(got) != 1 || got[0] != "https://nitter.internal:8080/status/"+id100 {
-		t.Errorf("calls = %v, want the user-less route only", got)
+	if got := fake.calls; len(got) != 1 || got[0] != "https://nitter.internal:8080/i/status/"+id100 {
+		t.Errorf("calls = %v, want the /i/ user-less route only", got)
 	}
 }
 
