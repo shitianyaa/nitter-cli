@@ -131,6 +131,7 @@ Fetches the root tweet, context thread chain, and user replies for a status.
 ```bash
 nitter circle list [--json]
 nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
@@ -139,6 +140,11 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `list`: lists configured circles with user counts.
 - `show`: lists handles in a circle.
   - **`--min-followers N`**: keeps only members with at least N followers, printing `@<handle>\t<followers>` per row (TSV for piping); `--json` outputs a JSON array of `{handle, followers_count}` objects instead. Each member's profile is fetched (one request per member); a failed profile is skipped with a one-line stderr warning while the others continue, and when every member fails the command exits 1. A negative N is a usage error (exit 2) before any network. Without the flag the command performs zero network requests and lists plain handles as before.
+- `suggest`: read-only candidate discovery for building a new circle, merging two existing data lanes — `HANDLE`'s **following list** (static relation) and the **authors of the retweets** in its timeline (behavioral relation). Output is ranked by co-occurrence count (a handle appearing in both lanes ranks first), then by follower count descending, then handle ascending (deterministic).
+  - `--limit N` (default 20, **must be >= 1**): per-lane fetch cap. `--limit 0` is a usage error (exit 2) on purpose — the two lanes give `0` opposite, useless meanings (timeline: empty; following: one server-side page). The following lane ignores `limit`/`count` upstream and returns one page of ~50–67 accounts regardless, so the client truncates; the actual count may therefore be below `N`.
+  - `--min-followers N` (default 0): filters only the trailing `top matches` summary section, never the main table or `--json` output.
+  - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
+  - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
 - `add`: adds handle to a circle (creates file/circle on demand).
 - `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.

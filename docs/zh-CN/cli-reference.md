@@ -121,6 +121,7 @@ nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--
 ```bash
 nitter circle list [--json]
 nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
@@ -129,6 +130,11 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 - `list`：列出所有圈子名称、描述及博主数。
 - `show`：查看指定圈子内的博主 handle 列表。
   - **`--min-followers N`**：只显示粉丝数 ≥ N 的成员，每行输出 `@<handle>\t<粉丝数>`（TSV 便于管道）；与 `--json` 组合时输出 `{handle, followers_count}` 对象的 JSON 数组。每个成员各发一次 profile 请求；单个成员拉取失败不硬失败——stderr 一行 warning 并跳过该成员，其他成员继续；全部失败时退出 1。N 为负数是 usage error（退出 2），先于任何网络。不带该 flag 时行为完全不变（只列 handle，零网络请求）。
+- `suggest`：只读的圈子候选发现，为新建圈子服务；聚合两路现成数据——`HANDLE` 的**关注列表**（静态关系）与其时间线中**被转推的原作者**（行为关系）。输出按同现次数降序（两路都命中的排最前），再按粉丝数降序，再按 handle 字母序（确定性）。
+  - `--limit N`（默认 20，**必须 ≥ 1**）：每路取数上限。`--limit 0` 是 usage error（退出 2），故意如此——两路对 `0` 的语义相反且都无用（timeline：空；following：服务端单页）。following 路在上游忽略 `limit`/`count`，恒定返回一页约 50–67 个账号，因此由客户端截断；实际条数可能少于 `N`。
+  - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。
+  - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
+  - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
   - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。

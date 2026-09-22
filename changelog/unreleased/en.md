@@ -19,6 +19,7 @@
 - **SDK `Trend` model and `KindTrend` protocol constant**: added `Trend` struct and `KindTrend = "trend"`.
 - **`nitter circle run --media-type`**: keep only tweets carrying at least one media entry of the given type (`image|video|gif`) when traversing a circle — flag parity with the `user` command; an invalid value is a usage error (exit 2) before any network.
 - **`nitter circle show --min-followers`**: filter circle members by follower count (`--min-followers N` keeps only members with ≥ N followers, printing `@<handle>\t<followers>` per row, or JSON `{handle, followers_count}` objects with `--json`); a failed member profile is skipped with a stderr warning while others continue, all failing exits 1, and a negative N is a usage error (exit 2) before any network.
+- **`nitter circle suggest`**: read-only circle-candidate discovery that merges a handle's following list (static) with the authors of the retweets in its timeline (behavioral), ranking candidates by co-occurrence then follower count; human output is a stats header, a ranked table (`@handle\tfollowers\tbio\tsource`) and a `--min-followers`-filtered `top matches` summary, with `--json` for `{handle, followers_count, bio, source}` arrays. `--limit` caps each lane and must be ≥ 1 (0 is a usage error, since the two lanes give 0 opposite, useless meanings); a missing seed exits 1, a single lane failure degrades with a stderr warning, and `suggest` never writes the circle file.
 
 ## Changed
 

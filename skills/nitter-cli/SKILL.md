@@ -89,7 +89,7 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle suggest`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
 | Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
@@ -183,6 +183,7 @@ nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
 nitter circle show shaoluo                              # show handles in circle
 nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
+nitter circle suggest NewCreator --limit 20             # read-only: candidates from following + retweet authors (add via circle add)
 nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
 nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
 nitter circle add shaoluo NewCreator                    # add handle to circle

@@ -36,7 +36,8 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
 - **对话与回复树**——`comments` 拉取某条推文的对话链与评论区（可按高赞或
   最新排序），是找到博主自评隐藏链接、追更连环长推的最快路径。
 - **创作者圈子**——`nitter circle` 在 `~/.nitter-cli/circles.toml` 维护主题
-  花名册（`list` / `show` / `add` / `run`）：按需发现与管道流式拉取，与调度
+  花名册（`list` / `show` / `suggest` / `add` / `run`）：`suggest` 从某博主的
+  关注列表与转推原作者中挖出新候选成员，再按需发现与管道流式拉取，与调度
   型的 `watch` 订阅各司其职。
 - **可组合的管道**——stdout 是管道时，数据命令自动输出 `nitter.pipeline/v1`
   NDJSON，`nitter search "..." | nitter download` 无需任何 flag；`--json`

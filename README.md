@@ -42,9 +42,10 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   replies (sorted by likes or recency), the fast way to reach an author's
   self-replies with hidden links or to read a serialized thread.
 - **Creator circles** — `nitter circle` curates themed rosters in
-  `~/.nitter-cli/circles.toml` (`list` / `show` / `add` / `run`): on-demand
-  discovery and pipeline streaming, distinct from scheduled `watch`
-  subscriptions.
+  `~/.nitter-cli/circles.toml` (`list` / `show` / `suggest` / `add` / `run`):
+  `suggest` mines a handle's following list and retweet authors for new
+  candidate members, then on-demand discovery and pipeline streaming,
+  distinct from scheduled `watch` subscriptions.
 - **Composable pipelines** — data commands emit `nitter.pipeline/v1` NDJSON
   automatically whenever stdout is a pipe, so
   `nitter search "..." | nitter download` needs no flags; `--json` extracts
