@@ -3,6 +3,13 @@
 The flow for a user who has no Nitter instance of their own. Command
 semantics are governed by the installed binary's `nitter <command> --help`.
 
+> Context first: with the default `fetch_backend = mix`, `user` / `search` /
+> `get` / `comments` / `following` / `profile` / `quotes` / `trends` all work
+> **without any instance** through the FxTwitter fast lane. A Nitter instance
+> is needed for `list`, for the fully self-hosted `nitter` backend, and as the
+> fallback when Fx is unavailable — say this before proposing a deployment,
+> and let the user decide whether they want one.
+
 ## Ask first
 
 - Ask the user whether they already run their own Nitter instance. Yes →

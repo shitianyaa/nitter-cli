@@ -20,14 +20,18 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.6.1`). If the binary is
+  `nitter version <v>` (for example `nitter version 0.7.0`). If the binary is
   missing or not executable, state the blocker. Install only when the user
   explicitly asked for installation; then read
   [references/install.md](references/install.md) and follow its approved
   sources. Otherwise do not install or guess installation steps.
 - Instances come from the user's config (`nitter config path` prints the
-  location, typically `~/.nitter-cli/config.toml`). When no instance is
-  configured, ask the user whether they run their own Nitter instance:
+  location, typically `~/.nitter-cli/config.toml`). The default
+  `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
+  `comments`, `following`, `profile`, `quotes`, `trends` and `search --type
+  user` (FxTwitter fast lane); instances are required for `list`, for the
+  fully self-hosted `nitter` mode, and as the fallback when Fx is unavailable.
+  When the user wants those, ask whether they run their own Nitter instance:
   yes → find and verify its URL
   ([references/deploy.md](references/deploy.md), "Finding an existing
   instance"); no → offer the Docker deployment from
@@ -103,7 +107,8 @@ the user is fine sharing (see trap 16).
 
 - For humans on a TTY: the default tab-separated text.
 - For programs: when stdout is NOT a TTY (a pipe or a redirect) the data
-  commands (`user` `search` `list` `get` `media` `download` `instances test` `following` `comments` `trends` `quotes` `profile`)
+  commands (`user` `search` `list` `get` `media` `download` `instances test`
+  `following` `comments` `trends` `quotes` `profile` `circle run`)
   emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
   needed; `--ndjson` selects the same stream explicitly (also on a TTY).
   An empty result in a pipe prints nothing at all — no `(empty)` hint; do not

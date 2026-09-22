@@ -1,9 +1,11 @@
 // Package client is the CLI wiring layer: it composes, once per invocation,
-// everything a command needs to acquire data from the configured Nitter
-// instances, and hands capabilities to commands.
+// everything a command needs to acquire data — through the FxTwitter fast
+// lane and/or the configured Nitter instances, per `fetch_backend` — and
+// hands capabilities to commands.
 //
 // Package boundary (ruling R11, frozen): this is the ONLY CLI-layer package
-// allowed to import internal/nitter/{appapi,protocol/httpx} and internal/media.
+// allowed to import internal/nitter/{appapi,protocol/httpx},
+// internal/fxtwitter and internal/media.
 // Command packages consume data exclusively through sdk (package nitter)
 // models plus the capability types exported here (InstanceTester, TestOptions)
 // — they never import internal/nitter/* or internal/media themselves.

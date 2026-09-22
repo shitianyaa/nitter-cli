@@ -4,9 +4,11 @@
 
 <p><a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/e2e.yml"><img alt="e2e" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/e2e.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/shitianyaa/nitter-cli?style=flat-square"></a> <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/shitianyaa/nitter-cli?style=flat-square"></a> <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/shitianyaa/nitter-cli?style=flat-square"></a></p>
 
-`nitter` 是一个非官方的**公开推文**命令行客户端，数据来自**你自己部署的 Nitter
-实例**。它抓取用户时间线、搜索结果、List 时间线和单条推文，支持带持久化去重
-状态的持续监视与媒体下载——一个为 agent 与调度器（cron、systemd timer、
+`nitter` 是一个非官方的**公开推文**命令行客户端。数据来自 **FxTwitter 公共
+API**（默认快车道——无需账号、无需凭证），并以**你自己部署的 Nitter 实例**作为
+私有回退、List 数据通路与纯自托管模式。它抓取用户时间线、搜索结果、List 时间
+线、单条推文、对话评论区、关注列表、博主名片、引用推文与实时热搜，支持带持久化
+去重状态的持续监视与媒体下载——一个为 agent 与调度器（cron、systemd timer、
 Hermes）打造的灵活 CLI，以 NDJSON 消费。
 
 它同时是一个公开 Go SDK（`github.com/shitianyaa/nitter-cli/sdk`，package
@@ -14,14 +16,28 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
 
 ## 为什么选择 nitter-cli？
 
+- **FxTwitter 快车道 + Nitter 深度**——`fetch_backend` 决定路由：`mix`
+  （默认）优先尝试 FxTwitter 公共 API（无需账号、无需凭证），失败时回退到你
+  自建的实例；`nitter` 让所有抓取都留在你自控的实例上；`fx` 固定快车道。
+  List 始终需要 Nitter。`mix`/`fx` 模式下 handle 与查询词会发送至
+  `api.fxtwitter.com`——需要纯自托管请选 `nitter`。
 - **灵活的实例策略**——指向任何一个你自主控制的 Nitter 实例：配置轮换集
   （`[[instances]]`，严格按配置顺序轮换，失败实例进入冷却），单次用
   `--instance` 覆盖，并可用主机级 basic auth 认证（`username` **和**
   `password` 同时设置）。凭证只会附着在发往其所属实例的请求上——第三方
   端点永远看不到它们。
 - **公开推文检索**——`user`（RSS 优先，失败或空结果时回退 HTML 用户页）、
-  `search`、`list`，以及用 `get` 抓单条推文，全部只经你自己的实例。不内置
-  实例、不登录、不绕过访问控制。
+  `search`、`list`，以及用 `get` 抓单条推文。`list` 严格隔离：所有 List
+  抓取始终走你自己的实例（FxTwitter 没有 List 端点）。不内置实例、不登录、
+  不绕过访问控制。
+- **社交图谱与发现**——`following` 查看某账号关注了谁，`profile` 输出博主
+  名片，`search --type user` 按名字搜创作者/画师，`trends` 看 X 当下在聊
+  什么，`quotes` 挖掘某条推文的引用二创——全部无需凭证。
+- **对话与回复树**——`comments` 拉取某条推文的对话链与评论区（可按高赞或
+  最新排序），是找到博主自评隐藏链接、追更连环长推的最快路径。
+- **创作者圈子**——`nitter circle` 在 `~/.nitter-cli/circles.toml` 维护主题
+  花名册（`list` / `show` / `add` / `run`）：按需发现与管道流式拉取，与调度
+  型的 `watch` 订阅各司其职。
 - **可组合的管道**——stdout 是管道时，数据命令自动输出 `nitter.pipeline/v1`
   NDJSON，`nitter search "..." | nitter download` 无需任何 flag；`--json`
   提取完整文档，显式 flag 永远优先。
@@ -35,13 +51,14 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
   命名并放置文件。
 - **可观测的实例**——`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 /
   List 能力，每个实例一行报告；报告本身就是产品。
-- **可管理的状态**——`config path/get/set/unset` 管理十二个标量键，
+- **可管理的状态**——`config path/get/set/unset` 管理十三个标量键，
   `seen list/clear [--state-dir]` 管理 watch 去重状态；写入全部原子化，状态
   文件损坏是硬错误（绝不静默重置）。
 - **诚实的更新检查**——`update --check [--prerelease] [--json]` 按严格 semver
   与 GitHub 最新发布版比较，不做自替换安装。
-- **公开 Go SDK**——JSON 键永不消失的类型化模型、狭窄的 `Transport` 边界、
-  脱敏的错误；CLI 命令消费的就是同一套接口。
+- **公开 Go SDK**——类型化模型（`Tweet`、`Profile`、`Conversation`、`Trend`
+  等）的 JSON 键永不消失、狭窄的 `Transport` 边界、脱敏的错误；CLI 命令消费
+  的就是同一套接口。
 
 ## 安装
 
@@ -63,7 +80,7 @@ sha256sum -c checksums.txt --ignore-missing   # 或等价工具
 
 ```bash
 sh scripts/build.sh          # 生成 ./nitter
-./nitter --version           # nitter version 0.6.1（或 dev 版本行）
+./nitter --version           # nitter version 0.7.0（或 dev 版本行）
 ```
 
 ### 让 AI Agent 安装
@@ -79,9 +96,11 @@ sh scripts/build.sh          # 生成 ./nitter
 
 ## 60 秒快速上手
 
-nitter-cli 不内置任何实例：**请指向你自己控制的 Nitter 实例**。未配置实例前
-不会发起任何抓取。还没有实例？用 Docker 自建一个——参见
-[上游 wiki](https://github.com/zedeus/nitter/wiki) 或社区
+nitter-cli 不内置实例，默认的 `mix` 模式开箱即用：`user`、`search`、`get`、
+`comments`、`following`、`profile`、`quotes`、`trends` 与 `search --type user`
+都会直接走 FxTwitter 的公共端点。配置一个你自控的 Nitter 实例可用于：`list`、
+纯自托管的 `nitter` 模式，以及 Fx 不可用时的回退。还没有实例？用 Docker 自建
+一个——参见[上游 wiki](https://github.com/zedeus/nitter/wiki) 或社区
 [自建指南](https://github.com/sekai-soft/guide-nitter-self-hosting)；
 AI agent 可按 skill 的 [deploy 参考](skills/nitter-cli/references/deploy.md)执行。
 
@@ -101,6 +120,14 @@ nitter instances test http://nitter.internal:8080 --full
 
 # 抓取时间线，输出 JSON 给 Hermes 或任意 agent
 nitter user NASA --limit 10 --json
+
+# 发现类能力——无需任何实例或账号
+nitter trends --limit 10 --json                   # X 当下在聊什么
+nitter following NASA --limit 10                  # 某账号关注了谁
+nitter profile NASA                               # 博主名片卡
+nitter comments 2100031016471818431 --limit 10    # 回复树（博主自评的隐藏链接就在这）
+nitter quotes <STATUS_ID> --media-only | nitter download   # 引用推文衍生素材批量下载
+nitter circle run coser_acgn --limit 1            # 流式拉取私人圈子花名册
 
 # 管道输出无需 flag——数据命令自动输出 NDJSON，流可直接喂给下载命令
 nitter search "#AI" --limit 20 | nitter download --output ./media
@@ -161,7 +188,9 @@ client, err := nitter.New(
 `~/.nitter-cli/config.toml`（TOML，权限 0600）。优先级：CLI flag > 环境变量 >
 文件 > 内置默认。`nitter config get` 查看生效值；`nitter config set KEY VALUE`
 写入（值也可从 stdin 管道读入）；`nitter config unset KEY` 删除。`[[instances]]`
-与 `[[watch.sources]]` 数组表只能直接编辑文件——`config set` 拒绝它们。
+与 `[[watch.sources]]` 数组表只能直接编辑文件——`config set` 拒绝它们。创作者
+圈子（`nitter circle` 花名册）存放在独立文件 `~/.nitter-cli/circles.toml`，由
+`circle` 子命令管理。
 
 ### 标量键（全部十三个）
 
@@ -206,8 +235,9 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 ## 输出模式
 
-数据命令（`user`、`search`、`list`、`get`、`media`、`download`、
-`instances test`）用同一套规则解析输出模式：
+数据命令（`user`、`search`、`list`、`get`、`media`、`download`、`following`、
+`comments`、`trends`、`quotes`、`profile`、`circle run`、`instances test`）用
+同一套规则解析输出模式：
 
 | 模式 | 触发方式 | 形态 |
 | --- | --- | --- |
@@ -228,6 +258,10 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```json
 {"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
+
+`meta.instance` 记录抓取的来源：快车道应答时为 `"FxTwitter"`，否则是应答
+实例的 URL。`meta.source` 标注操作及其输入（`user:NASA`、`search:#AI`、
+`following:NASA`、`comments:<id>`、`quotes:<id>`、`trends`、`circle:<name>` 等）。
 
 就地错误信封（当前由 `watch` 对每个失败源输出）：
 
@@ -296,9 +330,18 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 外部无法区分。都不算错误。
 
 **数据都存在哪里？**
-`~/.nitter-cli/config.toml`（配置）和 `~/.nitter-cli/state/seen.json`（watch
-去重状态）。Windows 上都在用户主目录下（`nitter config path` 打印确切位置）。
-写入全部原子化；状态文件损坏是硬错误（退出 1），绝不静默重置。
+`~/.nitter-cli/config.toml`（配置）、`~/.nitter-cli/circles.toml`（创作者圈子
+花名册）和 `~/.nitter-cli/state/seen.json`（watch 去重状态）。Windows 上都在
+用户主目录下（`nitter config path` 打印确切位置）。写入全部原子化；状态文件
+损坏是硬错误（退出 1），绝不静默重置。
+
+**默认的 `mix` 模式会把什么发到哪里？**
+`user`、`search`、`get`、`comments`、`following`、`profile`、`quotes`、
+`trends` 与 `search --type user` 会优先尝试 FxTwitter 的公共端点
+（`api.fxtwitter.com`）——handle 或查询词会发送给这个第三方服务，不会附带你
+的任何凭证；失败时回退到你自己配置的实例。`list` 始终走你的实例（FxTwitter
+没有 List 端点），单次 `--instance URL` 会强制该命令走 Nitter 路径，而
+`fetch_backend = "nitter"` 则让所有抓取都留在你自控的基础设施上。
 
 **只想对一条命令换实例怎么办？**
 `nitter --instance http://nitter.internal:8080 user NASA` 只在本次调用中替换
@@ -311,8 +354,10 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 ## 免责声明
 
-1. **仅限公开推文。** nitter-cli 只经 Nitter 获取公开可访问的推文。它不内置
-   实例、不登录、不提供任何绕过访问控制或解算挑战的能力。
+1. **仅限公开推文。** nitter-cli 只获取公开可访问的推文——经由公共 FxTwitter
+   API（默认 `mix` / `fx` 后端）以及你自己运行的 Nitter 实例（`nitter` 后端、
+   回退路径与所有 `list` 抓取）。它不内置实例、不登录、不提供任何绕过访问控制
+   或解算挑战的能力。
 2. **只配置你自主控制且信任的实例。** CLI 会跟随实例返回的媒体与重定向 URL。
    请把内部服务（Redis、云 metadata、管理后台）与 nitter-cli 及其实例的网络
    路径隔离。

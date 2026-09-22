@@ -1,9 +1,10 @@
 # nitter-cli Documentation
 
 `nitter-cli` is an unofficial command-line client and public Go SDK for public
-tweets via self-hosted Nitter instances. Public interface documents are
-localized; maintainer documents have one canonical version so contributors can
-share the same architecture and delivery rules.
+tweets — through the public FxTwitter API (the default fast lane) and through
+self-hosted Nitter instances. Public interface documents are localized;
+maintainer documents have one canonical version so contributors can share the
+same architecture and delivery rules.
 
 ## User documentation
 
