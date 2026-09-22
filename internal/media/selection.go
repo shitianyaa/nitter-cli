@@ -363,13 +363,29 @@ func isPlaylistURL(u string) bool {
 // extFromURL derives a planned file's extension from the URL path (".mp4",
 // ".jpg"); empty when the path carries none — the write layer finalizes the
 // extension from the response's Content-Type.
+//
+// The nitter strategy wraps the real link inside its own path
+// (/video/<token>/<percent-encoded URL>). url.Parse decodes that path, so the
+// inner URL's own query ("?tag=29") lands in Path and an unguarded path.Ext
+// would return ".mp4?tag=29". Anything from the first '?' or '#' is therefore
+// dropped before the extension is read, and only a plausible extension
+// (1–8 alphanumerics) survives — otherwise "" hands the decision to the
+// Content-Type.
 func extFromURL(u string) string {
 	parsed, err := url.Parse(u)
 	if err != nil {
 		return ""
 	}
-	if ext := path.Ext(parsed.Path); len(ext) > 1 {
-		return strings.ToLower(ext)
+	p := parsed.Path
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	ext := strings.ToLower(path.Ext(p))
+	if extRe.MatchString(ext) {
+		return ext
 	}
 	return ""
 }
+
+// extRe is the plausible extension shape (leading dot plus 1–8 alphanumerics).
+var extRe = regexp.MustCompile(`^\.[a-z0-9]{1,8}$`)
