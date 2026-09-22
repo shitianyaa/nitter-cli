@@ -17,6 +17,7 @@
 - **User search (`nitter search --type user`)**: search creators, artists, and profiles by keywords or bio.
 - **Fast-lane dispatch for `nitter get`**: `get` connects through FxTwitter first in `mix` and `fx` modes, smoothly falling back to Nitter instances.
 - **SDK `Trend` model and `KindTrend` protocol constant**: added `Trend` struct and `KindTrend = "trend"`.
+- **`nitter circle run --media-type`**: keep only tweets carrying at least one media entry of the given type (`image|video|gif`) when traversing a circle — flag parity with the `user` command; an invalid value is a usage error (exit 2) before any network.
 
 ## Changed
 

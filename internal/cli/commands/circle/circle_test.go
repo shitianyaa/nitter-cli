@@ -355,3 +355,84 @@ func TestCircle_Run(t *testing.T) {
 		}
 	})
 }
+
+// TestCircle_RunMediaType: --media-type image keeps only tweets carrying an
+// image, video on an image-only circle yields [] (filtered-empty, success),
+// and a bogus value is a usage error (exit 2) naming the flag before any
+// network — the same semantics as the user command's --media-type.
+func TestCircle_RunMediaType(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home)
+
+	runCLI(t, "circle", "add", "media", "nasa")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.ToLower(r.URL.Path)
+		if !strings.Contains(path, "/2/profile/nasa/media") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"results": []map[string]any{
+				{
+					"id":   "101",
+					"text": "Photo tweet",
+					"author": map[string]any{
+						"screen_name": "nasa",
+						"name":        "NASA",
+					},
+					"created_at": "Sun Jul 05 09:09:40 +0000 2026",
+					"media": map[string]any{
+						"all": []map[string]any{
+							{"type": "photo", "url": "https://pbs.twimg.com/media/101.jpg"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cleanup := client.SetFxBaseURLForTesting(srv.URL)
+	defer cleanup()
+
+	// --media-type image: only the photo tweet (101) survives.
+	code, out, errOut := runCLI(t, "circle", "run", "media", "--media-type", "image", "--json")
+	if code != 0 {
+		t.Fatalf("--media-type image: exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var tweets []nitter.Tweet
+	if err := json.Unmarshal([]byte(out), &tweets); err != nil {
+		t.Fatalf("--media-type image: unmarshal: %v\n%s", err, out)
+	}
+	if len(tweets) != 1 || tweets[0].ID != "101" {
+		t.Errorf("--media-type image: tweets = %+v, want only 101", tweets)
+	}
+
+	// --media-type video: no tweet has video — filtered-empty is [] and a
+	// success.
+	code, out, _ = runCLI(t, "circle", "run", "media", "--media-type", "video", "--json")
+	if code != 0 {
+		t.Fatalf("--media-type video: exit = %d, want 0", code)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("--media-type video: output = %q, want []", out)
+	}
+
+	// --media-type bogus: usage error naming the flag, before any network.
+	// No fake server is wired here (fresh home, fx backend, no instance), so
+	// any network attempt would fail differently — exit 2 proves validation
+	// ran first.
+	home2 := tempHome(t)
+	writeConfig(t, home2)
+	runCLI(t, "circle", "add", "media", "nasa")
+	code, _, errOut = runCLI(t, "circle", "run", "media", "--media-type", "bogus")
+	if code != 2 {
+		t.Fatalf("--media-type bogus: exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "--media-type") {
+		t.Errorf("--media-type bogus: stderr = %q, want it to name --media-type", errOut)
+	}
+}

@@ -17,6 +17,7 @@
 - **推主与创作者搜索（`nitter search --type user`）**：支持在 `search` 命令中通过 `--type user` 搜索推主、画师及创作者账号画像。
 - **单推抓取（`nitter get`）接入 Fx 快道**：在 `mix` 与 `fx` 模式下优先走 FxTwitter 极速通道，遇故障平滑回退 Nitter 实例。
 - **SDK `Trend` 模型与 Protocol `KindTrend`**：新增 `Trend` 结构体及 `KindTrend = "trend"` 协议常量。
+- **`nitter circle run --media-type`**：遍历圈子时按媒体类型过滤（`image|video|gif`，只保留携带至少一个该类型 media 的推文）——与 `user` 命令的 flag 对齐；非法值为用法错误（退出 2），先于任何网络。
 
 ## 变更
 

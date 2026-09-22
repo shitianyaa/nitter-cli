@@ -122,14 +122,14 @@ nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--
 nitter circle list [--json]
 nitter circle show <NAME> [--json]
 nitter circle add <NAME> <HANDLE>
-nitter circle run <NAME> [--limit N] [--media-only] [--json|--ndjson]
+nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 管理与遍历保存在 `~/.nitter-cli/circles.toml` 的私人精选创作者圈子名单。
 - `list`：列出所有圈子名称、描述及博主数。
 - `show`：查看指定圈子内的博主 handle 列表。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
-- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
+- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
 
 ## nitter profile
 

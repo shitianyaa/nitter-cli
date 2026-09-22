@@ -132,14 +132,14 @@ Fetches the root tweet, context thread chain, and user replies for a status.
 nitter circle list [--json]
 nitter circle show <NAME> [--json]
 nitter circle add <NAME> <HANDLE>
-nitter circle run <NAME> [--limit N] [--media-only] [--json|--ndjson]
+nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `list`: lists configured circles with user counts.
 - `show`: lists handles in a circle.
 - `add`: adds handle to a circle (creates file/circle on demand).
-- `run`: traverses and streams latest tweets for all creators in the circle.
+- `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
 
 ## nitter profile
 

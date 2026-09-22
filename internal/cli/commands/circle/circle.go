@@ -18,6 +18,7 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
 	"github.com/shitianyaa/nitter-cli/internal/cli/pipeline"
 	"github.com/shitianyaa/nitter-cli/internal/cli/result"
+	"github.com/shitianyaa/nitter-cli/internal/cli/tweetfilter"
 	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
 	"github.com/shitianyaa/nitter-cli/internal/config/paths"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
@@ -242,6 +243,7 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 	var (
 		limitFlag     int
 		mediaOnlyFlag bool
+		mediaTypeFlag string
 		asJSON        bool
 		asNDJSON      bool
 	)
@@ -264,6 +266,12 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 			}
 			if limitFlag < 0 {
 				return invocation.Usagef("circle run: --limit must be >= 0")
+			}
+			// --media-type validation precedes any network (exit 2), the same
+			// placement as the user command's filter validation.
+			filters := tweetfilter.Filters{MediaType: mediaTypeFlag}
+			if err := filters.Validate(); err != nil {
+				return invocation.Usagef("circle run: %v", err)
 			}
 
 			p, err := paths.New()
@@ -306,7 +314,7 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 			}
 
 			opts := []client.TimelineOption{
-				client.WithMediaOnly(mediaOnlyFlag),
+				client.WithMediaOnly(mediaOnlyFlag || mediaTypeFlag != ""),
 			}
 
 			var allTweets []nitter.Tweet
@@ -322,6 +330,9 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 					continue
 				}
 				anySuccess = true
+				if mediaTypeFlag != "" {
+					tweets = tweetfilter.Apply(tweets, filters)
+				}
 				if mode == pipeline.ModeNDJSON {
 					for _, tw := range tweets {
 						env := pipeline.Envelope{
@@ -379,6 +390,8 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum tweets to fetch per user (default: 20, 0 = all)")
 	cmd.Flags().BoolVar(&mediaOnlyFlag, "media-only", false, "Fetch only tweets with media attachments")
+	cmd.Flags().StringVar(&mediaTypeFlag, "media-type", "",
+		"Keep only tweets with at least one media entry of this type: image, video or gif")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print tweets as a JSON array")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per tweet (kind tweet)")
 	return cmd

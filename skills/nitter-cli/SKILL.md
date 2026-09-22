@@ -183,6 +183,7 @@ nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
 nitter circle show shaoluo                              # show handles in circle
 nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
+nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
 nitter circle add shaoluo NewCreator                    # add handle to circle
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
@@ -328,7 +329,8 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     unconfigured, and a `--instance URL` override carries no credentials
     (use the config entry for a credentialed instance).
 15. **Field filters run before dedup in watch**: `--no-reposts`, `--media-only`
-    and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`)
+    and `--media-type image|video|gif` (on `user`/`search`/`list`/`watch`, and
+    `--media-type` on `circle run`)
     apply right after the fetch, before selection/dedup — filtered tweets are
     not marked seen and are re-fetched (never re-emitted) each cycle, and
     `--max-new` counts only filtered-through tweets. An invalid
