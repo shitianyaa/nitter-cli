@@ -90,7 +90,7 @@ safety boundaries, and semantics traps.
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
 | Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle suggest`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
-| Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
+| Local write | `config set`, `config unset`, `seen clear`, `circle add`, `circle refresh` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
@@ -181,8 +181,9 @@ nitter quotes 2100031016471818431 --media-only --json   # quote tweets with medi
 nitter trends --limit 10                                # fetch real-time Twitter/X trends (#, topic, context, tweet count)
 nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
-nitter circle show shaoluo                              # show handles in circle
-nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
+nitter circle show shaoluo                              # show members joined with cached profiles (local, zero network; @handle\tfollowers\trole\tname\tbio\tage)
+nitter circle show shaoluo --min-followers 5000          # filter by CACHED follower count (local; no cache = no verified count)
+nitter circle refresh shaoluo                           # fetch each member's profile into ~/.nitter-cli/profiles.toml (network; keeps role/note)
 nitter circle suggest NewCreator --limit 20             # read-only: candidates from following + retweet authors (add via circle add)
 nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
 nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
@@ -251,7 +252,7 @@ overrides exist for four keys: `NITTER_DEFAULT_LIMIT`,
 `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`, `NITTER_FETCH_BACKEND`. Two array tables are hand-edited
 TOML, not `config set` targets: `[[instances]]` (`url`, optional
 `username`/`password` — credentials, hard rule 1 applies) and
-`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md). Creator circles are managed in `~/.nitter-cli/circles.toml` via `nitter circle` commands.
+`[[watch.sources]]` (`id = "user:NASA"`; see references/watch.md). Creator circles are managed in `~/.nitter-cli/circles.toml` via `nitter circle` commands; their member profiles live in `~/.nitter-cli/profiles.toml`.
 
 ## Key semantics and traps
 
@@ -374,10 +375,16 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     serialized manga threads.
 21. **`circle` manages curated creator rosters (`~/.nitter-cli/circles.toml`)**:
     distinct from resident `watch` polling, circles categorize favorite creators
-    by theme/style for on-demand discovery (`circle show`, `--min-followers N`
-    filters members by follower count — one profile fetch per member, a failed
-    member is skipped with a warning, all failing exits 1) and pipeline streaming
-    (`circle run <name> | nitter download -o DIR`).
+    by theme/style for on-demand discovery and pipeline streaming
+    (`circle run <name> | nitter download -o DIR`). Members carry a machine-readable
+    sidecar at `~/.nitter-cli/profiles.toml` (keyed by lowercase handle) that splits
+    machine-refreshed facts (`name`, `bio`, `followers_count`, `fetched_at`) from
+    judgement you record (`role`, `note`, `noted_at`). `circle refresh <NAME>` is the
+    only networked writer and never touches the judgement fields, so a refresh never
+    erases a recorded call. `circle show` is **local-only** and joins the roster
+    against that cache — run `refresh` first, otherwise members render with `-`
+    placeholders and a stderr note. `role` is the place to record a creator/fanwork
+    judgement; the CLI never guesses it.
 22. **`trends` retrieves real-time Twitter/X trending topics**: FxTwitter-powered;
     returns trending topic rank, name, context category, tweet count, and grouped topics.
     Emits tab-separated table on TTY or `kind: "trend"` NDJSON in pipes.

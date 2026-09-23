@@ -301,7 +301,7 @@ only describe successful output; **stderr is never JSON**.
 - `0` — success (including empty results; a consumer closing the stdout pipe, and
   SIGINT/SIGTERM shutdown of `watch`, also exit 0);
 - `1` — runtime failure (every instance failed; `watch --once` with at least one
-  failed source; a corrupt `seen.json`; config file read/parse failures);
+  failed source; a corrupt `seen.json` or `profiles.toml`; config file read/parse failures);
 - `2` — usage error (bad flags or arguments, input-contract violations,
   `--json --ndjson` together, `watch --json` without `--once`, invalid config
   values; unknown *subcommand* names exit 1).
@@ -369,10 +369,18 @@ error.
 
 **Where is everything stored?**
 `~/.nitter-cli/config.toml` (configuration), `~/.nitter-cli/circles.toml`
-(creator-circle rosters) and `~/.nitter-cli/state/seen.json` (watch dedup
-state). On Windows these live under your user profile directory
+(creator-circle rosters), `~/.nitter-cli/profiles.toml` (cached circle-member
+profiles, keyed by lowercase handle) and `~/.nitter-cli/state/seen.json` (watch
+dedup state). On Windows these live under your user profile directory
 (`nitter config path` prints the exact location). Writes are atomic; a corrupt
 state file is a hard error (exit 1), never a silent reset.
+
+The profiles sidecar is filled by `nitter circle refresh <NAME>` and read by
+`nitter circle show`. It holds machine-refreshed facts (`name`, `bio`,
+`followers_count`, `fetched_at`) plus judgement you record yourself (`role`,
+`note`, `noted_at`) — a refresh overwrites the facts and never touches the
+judgement. It is machine-managed, so a rewrite drops comments; hand-edit only
+`role`/`note`.
 
 **What does the default `mix` mode send where?**
 `user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`

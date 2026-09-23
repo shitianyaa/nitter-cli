@@ -121,6 +121,7 @@ nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--
 ```bash
 nitter circle list [--json]
 nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle refresh <NAME>
 nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
@@ -128,8 +129,15 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 
 管理与遍历保存在 `~/.nitter-cli/circles.toml` 的私人精选创作者圈子名单。
 - `list`：列出所有圈子名称、描述及博主数。
-- `show`：查看指定圈子内的博主 handle 列表。
-  - **`--min-followers N`**：只显示粉丝数 ≥ N 的成员，每行输出 `@<handle>\t<粉丝数>`（TSV 便于管道）；与 `--json` 组合时输出 `{handle, followers_count}` 对象的 JSON 数组。每个成员各发一次 profile 请求；单个成员拉取失败不硬失败——stderr 一行 warning 并跳过该成员，其他成员继续；全部失败时退出 1。N 为负数是 usage error（退出 2），先于任何网络。不带该 flag 时行为完全不变（只列 handle，零网络请求）。
+- `show`：查看指定圈子的成员，并与 `~/.nitter-cli/profiles.toml` 中缓存的侧写合并展示。**纯本地，零网络请求。** 每个成员输出 `@<handle>\t<粉丝数>\t<role>\t<昵称>\t<bio>\t<数据年龄>`（bio 展平为单行并截断到 120 字节）；无数据的列输出 `-`，不会丢行。
+  - **`--min-followers N`**：只保留**缓存**粉丝数 ≥ N 的成员。无缓存的成员没有已验证数字，会被该过滤排除，但仍计入 stderr 提示。`N < 0` 是 usage error（退出 2）。
+  - 无缓存的成员保留行内 `-` 占位，同时在 stderr 输出 `note: <N> member(s) have no cached profile; run 'nitter circle refresh <NAME>'`（无论是否被 `--min-followers` 过滤掉）。先跑一次 `refresh` 填充缓存。
+  - `--json` 按名单顺序输出 `{handle, name, bio, followers_count, fetched_at, role, note}` 对象数组。`fetched_at` 为空串表示从未拉取；数据新鲜度由消费方自行派生（`noted_at` 与派生的 age 刻意不投影）。
+- `refresh`：拉取每个成员的 profile 并把结果合并进侧写文件 `~/.nitter-cli/profiles.toml`。它是该文件**唯一**的联网写入路径，也是唯一为圈子拉取 profile 的命令。
+  - 只写事实字段（`name`、`bio`、`followers_count`、`fetched_at`），**绝不触碰** `role`、`note`、`noted_at`——记在这些字段里的判断在每次刷新中都会存活。
+  - 单个成员拉取失败时 stderr 一行 `warning:` 并继续，其已有条目保留原事实（不以空值覆盖，也不会为它新建条目）。全部成员失败退出 1；圈子不存在退出 1；空圈子输出 `(empty)`、退出 0 且不创建文件。
+  - 成功时输出 `refreshed N/M members in circle <key>`。从不 prune：已不在圈子中的 handle 其侧写条目原样保留。
+  - 侧写文件以 handle 小写为键且由机器管理——重写会丢弃注释与未声明字段，手改请只动 `role`/`note`。
 - `suggest`：只读的圈子候选发现，为新建圈子服务；聚合两路现成数据——`HANDLE` 的**关注列表**（静态关系）与其时间线中**被转推的原作者**（行为关系）。输出按同现次数降序（两路都命中的排最前），再按粉丝数降序，再按 handle 字母序（确定性）。
   - `--limit N`（默认 20，**必须 ≥ 1**）：每路取数上限。`--limit 0` 是 usage error（退出 2），故意如此——两路对 `0` 的语义相反且都无用（timeline：空；following：服务端单页）。following 路在上游忽略 `limit`/`count`，恒定返回一页约 50–67 个账号，因此由客户端截断；实际条数可能少于 `N`。
   - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。

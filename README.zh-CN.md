@@ -276,7 +276,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 - `0` — 成功（含空结果；消费端关闭 stdout 管道、`watch` 收到 SIGINT/SIGTERM
   优雅关闭，同样退出 0）；
 - `1` — 运行时失败（所有实例都失败；`watch --once` 有至少一个源失败；
-  `seen.json` 损坏；配置文件读取/解析失败）；
+  `seen.json` 或 `profiles.toml` 损坏；配置文件读取/解析失败）；
 - `2` — 用法错误（flag 或参数不合法、输入契约违规、`--json --ndjson` 同时给出、
   不带 `--once` 的 `watch --json`、配置值不合法；未知**子命令**名退出 1）。
 
@@ -332,9 +332,15 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 **数据都存在哪里？**
 `~/.nitter-cli/config.toml`（配置）、`~/.nitter-cli/circles.toml`（创作者圈子
-花名册）和 `~/.nitter-cli/state/seen.json`（watch 去重状态）。Windows 上都在
+花名册）、`~/.nitter-cli/profiles.toml`（圈子成员侧写缓存，以 handle 小写为键）
+和 `~/.nitter-cli/state/seen.json`（watch 去重状态）。Windows 上都在
 用户主目录下（`nitter config path` 打印确切位置）。写入全部原子化；状态文件
 损坏是硬错误（退出 1），绝不静默重置。
+
+侧写文件由 `nitter circle refresh <NAME>` 填充、由 `nitter circle show` 读取。
+它存机器刷新的事实（`name`、`bio`、`followers_count`、`fetched_at`）加上你自己
+记录的判断（`role`、`note`、`noted_at`）——刷新只覆盖事实，绝不触碰判断。
+该文件由机器管理，重写会丢弃注释；手改请只动 `role`/`note`。
 
 **默认的 `mix` 模式会把什么发到哪里？**
 `user`、`search`、`get`、`comments`、`following`、`profile`、`quotes`、
