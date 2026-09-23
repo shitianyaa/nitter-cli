@@ -181,12 +181,12 @@ nitter quotes 2100031016471818431 --media-only --json   # quote tweets with medi
 nitter trends --limit 10                                # fetch real-time Twitter/X trends (#, topic, context, tweet count)
 nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
-nitter circle show shaoluo                              # show handles in circle
-nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
+nitter circle show ai_researchers                       # show handles in circle
+nitter circle show ai_researchers --min-followers 5000  # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
 nitter circle suggest NewCreator --limit 20             # read-only: candidates from following + retweet authors (add via circle add)
-nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
-nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
-nitter circle add shaoluo NewCreator                    # add handle to circle
+nitter circle run ai_researchers --limit 2                     # stream latest tweets for all creators in circle
+nitter circle run ai_researchers --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
+nitter circle add ai_researchers NewCreator             # add handle to circle
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
