@@ -17,7 +17,7 @@ retry_attempts    = 2
 retry_delay       = "1s"
 instance_cooldown = "60s"     # cooldown after an instance failure
 fetch_backend     = "mix"     # mix|nitter|fx
-proxy             = ""        # empty = use HTTPS_PROXY/ALL_PROXY env
+proxy             = ""        # empty = no configured proxy; HTTPS_PROXY/ALL_PROXY apply to fx+update only
 log_level         = "info"    # debug|info
 log_format        = "text"    # text|json
 download_path     = "./nitter-media"  # default, cwd-relative; nitter download --output DIR (e.g. --output /srv/media) overrides it per call

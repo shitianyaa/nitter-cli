@@ -11,7 +11,7 @@
 
 | 选项 | 含义 |
 | --- | --- |
-| `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy` > 环境变量（配置为空时走 `HTTPS_PROXY`/`ALL_PROXY`）。 |
+| `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy`。两者都为空时，环境变量 `HTTPS_PROXY`/`ALL_PROXY` 对 FxTwitter 快车道与 `update` 生效，但**不**作用于 nitter 传输——要给实例流量走代理请用 `--proxy` 或配置 `proxy`。 |
 | `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
 
 `nitter --version` 输出 `nitter version <版本号>`；裸调用 `nitter` 显示帮助。
@@ -645,7 +645,8 @@ nitter update --check [--prerelease] [--json] [--proxy URL]
   也没有可替换的对象。
 - **代理**：`--proxy`（或 `config.proxy`）对本命令的**每个请求**生效——发布查询与
   资产下载。不支持的代理 scheme 在任何网络调用之前就是用法错误（退出 2）。
-  注意：**不**读取环境变量代理（`HTTPS_PROXY`/`ALL_PROXY`）。
+  `--proxy` 与 `config proxy` 都为空时，`update` 会读取环境变量
+  `HTTPS_PROXY`/`ALL_PROXY`。
 - 检查失败——网络错误、GitHub 错误（仅报 HTTP 状态码；绝不回显响应体）、
   无可用发布版——是运行时失败（退出 1）。校验失败（checksum 不符、归档格式错误，
   或暂存二进制报告的版本不对）同样是退出 1，且现有安装保持不变。

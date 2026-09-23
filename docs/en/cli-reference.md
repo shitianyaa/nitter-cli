@@ -12,7 +12,7 @@ Every command accepts these persistent options:
 
 | Option | Meaning |
 | --- | --- |
-| `--proxy URL` | Proxy for this invocation (`http`, `https`, `socks5`, `socks5h`). Precedence: flag > config `proxy` > environment (`HTTPS_PROXY`/`ALL_PROXY` when the config value is empty). |
+| `--proxy URL` | Proxy for this invocation (`http`, `https`, `socks5`, `socks5h`). Precedence: flag > config `proxy`. When both are empty the environment variables `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and to `update`, but **not** to the nitter transport — use `--proxy` or `config proxy` to proxy instance traffic. |
 | `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
 
 `nitter --version` prints `nitter version <version>`; a bare `nitter` prints
@@ -741,8 +741,9 @@ nothing touches the target until all checks pass.
   nothing to replace.
 - **Proxy**: `--proxy` (or `config.proxy`) applies to every request this
   command makes — the release lookup and the asset downloads. An unsupported
-  proxy scheme is a usage error (exit 2) before any network call. Note the
-  environment-variable proxy (`HTTPS_PROXY`/`ALL_PROXY`) is not consulted.
+  proxy scheme is a usage error (exit 2) before any network call. When
+  `--proxy` and `config proxy` are both empty, `update` honors the
+  `HTTPS_PROXY`/`ALL_PROXY` environment variables.
 - A failed check — network failure, GitHub error (HTTP status only; response
   bodies are never echoed), or no usable release — is a runtime failure
   (exit 1). A verification failure (checksum mismatch, malformed archive, or a

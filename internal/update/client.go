@@ -38,9 +38,12 @@ func ValidateProxyScheme(proxy string) error {
 }
 
 // NewHTTPClient builds the client used for both the release lookup and the
-// asset downloads. An empty proxy disables proxying entirely (no environment
-// lookup: the CLI resolves the effective proxy itself, so honoring
-// environment variables here would silently override a deliberate choice).
+// asset downloads. An empty proxy leaves Transport nil, which makes Go fall
+// back to http.DefaultTransport — and therefore to HTTPS_PROXY/ALL_PROXY.
+// That inheritance is deliberate here (measured behavior, and the CLI's proxy
+// help text documents it for this command). The nitter transport is the
+// exception: it builds its own proxyless tls-client unless a proxy is given
+// explicitly, so instance traffic needs --proxy or config proxy.
 func NewHTTPClient(proxy string, timeout time.Duration) (*http.Client, error) {
 	if err := ValidateProxyScheme(proxy); err != nil {
 		return nil, err

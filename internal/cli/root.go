@@ -80,7 +80,7 @@ func New(s *Streams) *cobra.Command {
 	root.SetVersionTemplate("nitter version {{.Version}}\n")
 	root.SetFlagErrorFunc(invocation.WrapFlagError)
 	root.PersistentFlags().StringVar(&s.RootOptions.Proxy, "proxy", "",
-		"Proxy URL (else HTTPS_PROXY/ALL_PROXY/config)")
+		"Proxy URL for this invocation (else config proxy). FxTwitter and update also honor HTTPS_PROXY/ALL_PROXY; the nitter transport does not")
 	root.PersistentFlags().StringVar(&s.RootOptions.Instance, "instance", "",
 		"Nitter instance URL override for this invocation (else config)")
 	// Baseline config publish on first real run: ensure ~/.nitter-cli/
