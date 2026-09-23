@@ -1,6 +1,6 @@
 ---
 slug: nitter-cli
-version: 0.7.1
+version: 0.7.2
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary, FxTwitter fast-lane, and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
@@ -20,7 +20,7 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.7.1`). If the binary is
+  `nitter version <v>` (for example `nitter version 0.7.2`). If the binary is
   missing or not executable, state the blocker. Install only when the user
   explicitly asked for installation; then read
   [references/install.md](references/install.md) and follow its approved
