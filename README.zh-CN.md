@@ -9,10 +9,10 @@
 
 `nitter` 是一个非官方的**公开推文**命令行客户端。数据来自 **FxTwitter 公共
 API**（默认快车道——无需账号、无需凭证），并以**你自己部署的 Nitter 实例**作为
-私有回退、List 数据通路与纯自托管模式。它抓取用户时间线、搜索结果、List 时间
-线、单条推文、对话评论区、关注列表、博主名片、引用推文与实时热搜，支持带持久化
-去重状态的持续监视与媒体下载——一个为 agent 与调度器（cron、systemd timer、
-Hermes）打造的灵活 CLI，以 NDJSON 消费。
+私有回退、List 数据通路，以及时间线与状态取数的自托管后端。它抓取用户时间线、
+搜索结果、List 时间线、单条推文、对话评论区、关注列表、博主名片、引用推文与实时
+热搜，支持带持久化去重状态的持续监视与媒体下载——一个为 agent 与调度器
+（cron、systemd timer、Hermes）打造的灵活 CLI，以 NDJSON 消费。
 
 它同时是一个公开 Go SDK（`github.com/shitianyaa/nitter-cli/sdk`，package
 `nitter`），数据模型稳定、只增不改。
@@ -53,8 +53,9 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
   `filename_template` / `directory_template` 配置键（外加
   `--filename-template`）通过 `{id}` `{seq}` `{user}` `{kind}` `{ext}` 占位符
   命名并放置文件。
-- **可观测的实例**——`instances test` 逐实例探测 RSS / 用户时间线 / 搜索 /
-  List 能力，每个实例一行报告；报告本身就是产品。
+- **可观测的实例**——`instances test` 默认逐实例探测 RSS 与用户时间线能力
+  （`--full` 增加搜索探测，`--list-id ID` 增加 List 探测），每个实例一行报告；
+  报告本身就是产品。
 - **可管理的状态**——`config path/get/set/unset` 管理十三个标量键，
   `seen list/clear [--state-dir]` 管理 watch 去重状态；写入全部原子化，状态
   文件损坏是硬错误（绝不静默重置）。
@@ -107,7 +108,7 @@ sh scripts/build.sh          # 生成 ./nitter
 nitter-cli 不内置实例，默认的 `mix` 模式开箱即用：`user`、`search`、`get`、
 `comments`、`following`、`profile`、`quotes`、`trends` 与 `search --type user`
 都会直接走 FxTwitter 的公共端点。配置一个你自控的 Nitter 实例可用于：`list`、
-纯自托管的 `nitter` 模式，以及 Fx 不可用时的回退。还没有实例？用 Docker 自建
+`nitter` 模式（仅时间线与状态），以及 Fx 不可用时的回退。还没有实例？用 Docker 自建
 一个——参见[上游 wiki](https://github.com/zedeus/nitter/wiki) 或社区
 [自建指南](https://github.com/sekai-soft/guide-nitter-self-hosting)；
 AI agent 可按 skill 的 [deploy 参考](skills/nitter-cli/references/deploy.md)执行。
@@ -350,17 +351,13 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 该文件由机器管理，重写会丢弃注释；手改请只动 `role`/`note`。
 
 **默认的 `mix` 模式会把什么发到哪里？**
-`user`、`search`、`get`、`comments`、`following`、`profile`、`quotes`、
-`trends` 与 `search --type user` 会优先尝试 FxTwitter 的公共端点
-（`api.fxtwitter.com`）——handle 或查询词会发送给这个第三方服务，不会附带你
-的任何凭证；失败时回退到你自己配置的实例。`list` 始终走你的实例（FxTwitter
-没有 List 端点），单次 `--instance URL` 会强制该命令走 Nitter 路径。
-
-`fetch_backend` 只管时间线与状态这两类取数——`user`、`search`、`get`。`list`
-始终走你的实例（FxTwitter 没有 List 端点）。其余命令仅走 FxTwitter，无论
-`fetch_backend` 怎么设都会访问 `api.fxtwitter.com`，因为它们没有 Nitter 对应端点：
-`comments`、`profile`、`following`、`quotes`、`trends`，以及 `circle refresh`
-（它为每个圈子成员发一次 profile 请求）。
+`user`、`search`、`get` 会优先尝试 FxTwitter 的公共端点（`api.fxtwitter.com`）
+——handle 或查询词会发送给这个第三方服务，不会附带你任何凭证——失败时回退到
+你自己配置的实例。`fetch_backend` 只管这三类取数，`--instance URL` 也只对它们
+覆盖实例集。`list` 始终走你的实例（FxTwitter 没有 List 端点）。`comments`、
+`profile`、`following`、`quotes`、`trends` 与 `search --type user` 没有 Nitter
+对应端点，因此无论 `fetch_backend` 怎么设都会访问 `api.fxtwitter.com`；
+`circle refresh` 同理（它为每个圈子成员发一次 profile 请求）。
 
 **只想对一条命令换实例怎么办？**
 `nitter --instance http://nitter.internal:8080 user NASA` 只在本次调用中替换

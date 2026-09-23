@@ -11,31 +11,34 @@
 `nitter` is an unofficial command-line client for **public tweets**. Data comes
 from **FxTwitter's public API** (the default fast lane — no account, no
 credentials) with **Nitter instances you run yourself** as the private
-fallback, the List path, and the fully self-hosted mode. It fetches user
-timelines, search results, list timelines, single statuses, conversations,
-following lists, profiles, quote tweets and trends, watches sources with
-persistent dedup state, and downloads media — a flexible CLI built for agents
-and schedulers (cron, systemd timers, Hermes), consumed as NDJSON.
+fallback, the List path, and the self-hosted timeline/status backend. It
+fetches user timelines, search results, list timelines, single statuses,
+conversations, following lists, profiles, quote tweets and trends, watches
+sources with persistent dedup state, and downloads media — a flexible CLI
+built for agents and schedulers (cron, systemd timers, Hermes), consumed as
+NDJSON.
 
 It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 `nitter`) with a stable, additive-only data model.
 
 ## Why nitter-cli?
 
-- **FxTwitter fast lane, Nitter depth** — `fetch_backend` chooses the routing:
-  `mix` (default) tries FxTwitter's public API first — no account, no
-  credentials — and falls back to your own instances on failure; `nitter`
-  keeps every fetch on instances you control; `fx` pins the fast lane. List
-  always needs Nitter. Handles and queries go to `api.fxtwitter.com` in
-  mix/fx modes — pick `nitter` for a fully self-hosted setup.
+- **FxTwitter fast lane, Nitter depth** — `fetch_backend` chooses the routing
+  for the timeline and status surfaces: `mix` (default) tries FxTwitter's
+  public API first — no account, no credentials — and falls back to your own
+  instances on failure; `nitter` keeps those fetches on instances you control;
+  `fx` pins the fast lane. `list` always needs Nitter, while `comments` /
+  `profile` / `following` / `quotes` / `trends` and `circle refresh` always
+  reach `api.fxtwitter.com` instead (they have no Nitter equivalent).
 - **Flexible instance policy** — point it at any Nitter instance you control:
   configure a rotation set (`[[instances]]`, tried strictly in config order,
   failed entries cool down), override per command with `--instance`, and
   optionally authenticate with host-scoped basic auth (`username` **and**
   `password` set). Credentials can only ever ride requests addressed to their
   own instance — third-party endpoints never see them.
-- **Public-tweet retrieval** — `user` (RSS first, HTML user page as fallback),
-  `search`, `list`, and single statuses via `get`. `list` is strictly isolated:
+- **Public-tweet retrieval** — `user` (RSS first, falling back to the HTML user
+  page when the feed fails or is empty), `search`, `list`, and single statuses
+  via `get`. `list` is strictly isolated:
   every list fetch always runs on your own instances (FxTwitter has no List
   endpoint). No bundled instances, no login, no bypassing of access controls.
 - **Social graph & discovery** — `following` lists who an account follows,
@@ -62,8 +65,9 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   status to every image, `--kind cover` to just the cover; `filename_template`
   / `directory_template` config keys (plus `--filename-template`) name and
   place files via `{id}` `{seq}` `{user}` `{kind}` `{ext}` placeholders.
-- **Observable instances** — `instances test` probes RSS / user timeline /
-  search / list capabilities with one report line each; the report is the
+- **Observable instances** — `instances test` probes each instance's RSS and
+  user-timeline capabilities by default (`--full` adds the search probe,
+  `--list-id ID` the list probe), one report line each; the report is the
   product.
 - **Manageable state** — `config path/get/set/unset` for the thirteen scalar
   keys, `seen list/clear [--state-dir]` for the watch dedup state; atomic
@@ -123,8 +127,8 @@ nitter-cli ships without instances, and the default `mix` mode already works:
 and `search --type user` run through FxTwitter's public endpoint out of the
 box. `circle refresh` also always uses FxTwitter, whatever `fetch_backend` says
 (it sends every member's handle). Configure a Nitter instance you control for
-`list`, for the fully self-hosted `nitter` mode, and as the fallback when Fx is
-unavailable. Don't have one? Deploy your own with Docker — see the
+`list`, for the `nitter` mode (timeline and status only), and as the fallback
+when Fx is unavailable. Don't have one? Deploy your own with Docker — see the
 [upstream wiki](https://github.com/zedeus/nitter/wiki) or the community
 [self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
 an AI agent can follow the skill's [deploy reference](skills/nitter-cli/references/deploy.md).
@@ -394,20 +398,15 @@ judgement. It is machine-managed, so a rewrite drops comments; hand-edit only
 `role`/`note`.
 
 **What does the default `mix` mode send where?**
-`user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
-and `search --type user` try FxTwitter's public endpoint
-(`api.fxtwitter.com`) first — the handle or query goes to that third-party
-service, with no credentials of yours attached. On failure the request falls
-back to your own instances. `list` always runs on your instances (FxTwitter
-has no List endpoint), and `--instance URL` forces the Nitter path for a
-command.
-
-`fetch_backend` only governs the timeline and status surfaces — `user`, `search`
-and `get`. `list` always runs on your instances (FxTwitter has no List endpoint).
-The remaining commands are FxTwitter-only and always reach `api.fxtwitter.com`
-regardless of `fetch_backend`, because they have no Nitter equivalent:
-`comments`, `profile`, `following`, `quotes`, `trends`, and `circle refresh`
-(which sends one profile request per circle member).
+`user`, `search` and `get` try FxTwitter's public endpoint (`api.fxtwitter.com`)
+first — the handle or query goes to that third-party service, with no
+credentials of yours attached — and fall back to your own instances on failure.
+`fetch_backend` governs exactly these three surfaces, and `--instance URL`
+overrides the instance set for them. `list` always runs on your instances
+(FxTwitter has no List endpoint). `comments`, `profile`, `following`, `quotes`,
+`trends` and `search --type user` have no Nitter equivalent, so they always
+reach `api.fxtwitter.com` regardless of `fetch_backend` — `circle refresh` too,
+which sends one profile request per circle member.
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
