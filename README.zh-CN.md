@@ -349,10 +349,11 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 的任何凭证；失败时回退到你自己配置的实例。`list` 始终走你的实例（FxTwitter
 没有 List 端点），单次 `--instance URL` 会强制该命令走 Nitter 路径。
 
-`fetch_backend` 只管时间线与状态这两类取数——`user`、`search`、`list`、`get`。
-仅走 FxTwitter 的命令（`comments`、`profile`、`following`、`quotes`、`trends`，
-以及 `circle refresh`——它为每个圈子成员发一次 profile 请求）无论
-`fetch_backend` 怎么设，都会访问 `api.fxtwitter.com`，因为它们没有 Nitter 对应端点。
+`fetch_backend` 只管时间线与状态这两类取数——`user`、`search`、`get`。`list`
+始终走你的实例（FxTwitter 没有 List 端点）。其余命令仅走 FxTwitter，无论
+`fetch_backend` 怎么设都会访问 `api.fxtwitter.com`，因为它们没有 Nitter 对应端点：
+`comments`、`profile`、`following`、`quotes`、`trends`，以及 `circle refresh`
+（它为每个圈子成员发一次 profile 请求）。
 
 **只想对一条命令换实例怎么办？**
 `nitter --instance http://nitter.internal:8080 user NASA` 只在本次调用中替换

@@ -392,11 +392,12 @@ back to your own instances. `list` always runs on your instances (FxTwitter
 has no List endpoint), and `--instance URL` forces the Nitter path for a
 command.
 
-`fetch_backend` only governs the timeline and status surfaces — `user`,
-`search`, `list` and `get`. The FxTwitter-only commands (`comments`, `profile`,
-`following`, `quotes`, `trends`, and `circle refresh`, which sends one profile
-request per circle member) always reach `api.fxtwitter.com` regardless of
-`fetch_backend`, because they have no Nitter equivalent.
+`fetch_backend` only governs the timeline and status surfaces — `user`, `search`
+and `get`. `list` always runs on your instances (FxTwitter has no List endpoint).
+The remaining commands are FxTwitter-only and always reach `api.fxtwitter.com`
+regardless of `fetch_backend`, because they have no Nitter equivalent:
+`comments`, `profile`, `following`, `quotes`, `trends`, and `circle refresh`
+(which sends one profile request per circle member).
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
