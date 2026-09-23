@@ -14,6 +14,14 @@
 // source costs one request instead of the whole page budget; tag/list sources
 // keep the plain bounded fetch. Correctness is identical (no duplicates, no
 // losses); only the fetch volume differs within the bounded budget.
+//
+// Merged acquisition sits on top of that boundary without changing it: with
+// --no-reposts and at least two user sources on a backend that has a merged
+// endpoint (anything but "fx"), prefetchMerged covers them with ONE RSS
+// request per batch of handles, and any batch it could not serve is left to
+// the per-source fetch below. The merged feed is Nitter-only and cannot
+// represent a repost — Nitter attributes a reposted item to the original
+// author — which is exactly why it requires --no-reposts.
 package watch
 
 import (
@@ -25,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -463,6 +472,10 @@ type cycleOptions struct {
 // graceful exit (pipeline.IsBrokenPipe).
 func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *client.Wiring, sources []watchengine.Source, opts cycleOptions) (int, error) {
 	failed := 0
+	// One merged RSS request per eligible batch covers the cycle's user
+	// sources; a source the prefetch could not serve falls through to its
+	// own fetch below, so a failed batch never loses a source.
+	prefetched := prefetchMerged(ctx, w, store, sources, opts.filters.NoReposts, opts.maxPages)
 	for _, src := range sources {
 		if ctx.Err() != nil {
 			// Graceful shutdown: stop mid-cycle without writing error
@@ -483,7 +496,16 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 			}
 		}
 
-		tweets, instance, err := fetchSource(ctx, w, src, opts.maxPages, prev)
+		var (
+			tweets   []nitter.Tweet
+			instance string
+			err      error
+		)
+		if hit, ok := prefetched[key]; ok {
+			tweets, instance = hit.tweets, hit.instance
+		} else {
+			tweets, instance, err = fetchSource(ctx, w, src, opts.maxPages, prev)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				// The fetch died because the caller gave up (signal during
@@ -586,6 +608,120 @@ func rssStop(prev seen.SourceState) func(page []nitter.Tweet) bool {
 		}
 		return true
 	}
+}
+
+// mergedPrefetch is one source's slice of a successful merged fetch.
+type mergedPrefetch struct {
+	tweets   []nitter.Tweet
+	instance string
+}
+
+// mergedStop builds the batch-level RSS scan-stop predicate: the scan ends
+// once a page adds no tweet that ANY member of the batch has not already
+// seen. It is the batch-scoped form of the plugin's scan-boundary rule — a
+// per-member watermark would stop at the freshest member's and silently
+// truncate the others. As with the per-source predicate, a page holding
+// nothing new cannot be distinguished from "nothing older is coming"; that
+// is the same 宁丢勿重 trade the --max-new cap already makes.
+func mergedStop(store *seen.Store, batch []string, byHandle map[string]watchengine.Source) func(page []nitter.Tweet) bool {
+	known := make(map[string]map[string]bool, len(batch))
+	pending := false
+	for _, handle := range batch {
+		src, ok := byHandle[strings.ToLower(handle)]
+		if !ok {
+			continue
+		}
+		prev, _ := store.Get(src.Key())
+		ids := make(map[string]bool, len(prev.SeenIDs))
+		for _, id := range prev.SeenIDs {
+			ids[id] = true
+		}
+		known[strings.ToLower(handle)] = ids
+		if !prev.Initialized {
+			// A member that has never been initialized needs its baseline built
+			// from as many pages as the budget allows. Stopping because the OTHER
+			// members are caught up would truncate the new member's history — the
+			// single-source scan has the same rule (nothing seen ⇒ never stop
+			// early), and a batch must not weaken it.
+			pending = true
+		}
+	}
+	return func(page []nitter.Tweet) bool {
+		if pending {
+			return false
+		}
+		for _, tw := range page {
+			ids, ok := known[strings.ToLower(tw.Author.Handle)]
+			if !ok || tw.ID == "" {
+				continue
+			}
+			if !ids[tw.ID] {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// prefetchMerged fetches the cycle's eligible user sources through the merged
+// RSS endpoint and returns their tweets keyed by seen key. It returns an
+// empty map when merging is not eligible, and simply omits a batch whose
+// fetch failed — the caller's per-source fetch covers it, so a merged
+// failure never loses a source.
+//
+// Eligibility: --no-reposts (the merged feed cannot represent a repost — the
+// item is attributed to the original author) and at least two user sources.
+// The FxTwitter backend has no merged endpoint, so fetch_backend "fx" never
+// merges; "mix" does, which means those sources are served by Nitter instead
+// of the fast lane (a batch failure falls back to the per-source path, where
+// mix tries fx first again).
+func prefetchMerged(ctx context.Context, w *client.Wiring, store *seen.Store, sources []watchengine.Source, noReposts bool, maxPages int) map[string]mergedPrefetch {
+	out := make(map[string]mergedPrefetch)
+	if !noReposts || w.FetchBackend == "fx" {
+		return out
+	}
+	byHandle := make(map[string]watchengine.Source)
+	handles := make([]string, 0, len(sources))
+	for _, src := range sources {
+		if src.Kind != watchengine.KindUser {
+			continue
+		}
+		// Normalize exactly like MergedBatches does. Without this the batch
+		// carries the bare handle while byHandle keeps the raw ref, so a
+		// "user:@NASA" source would look up "@nasa" and be dropped from the
+		// prefetch (it then falls back to the per-source path, which rejects the
+		// leading "@" — a wasted merged request and a confusing report).
+		handle := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(src.Ref), "@"))
+		if handle == "" {
+			continue
+		}
+		handles = append(handles, handle)
+		byHandle[strings.ToLower(handle)] = src
+	}
+	if len(handles) < 2 {
+		return out
+	}
+	for _, batch := range client.MergedBatches(handles) {
+		if ctx.Err() != nil {
+			return out
+		}
+		buckets, instance, err := w.MergedTimeline().MergedTimeline(ctx, batch, maxPages, mergedStop(store, batch, byHandle))
+		if err != nil {
+			continue
+		}
+		for _, handle := range batch {
+			src, ok := byHandle[strings.ToLower(handle)]
+			if !ok {
+				continue
+			}
+			tweets := buckets[strings.ToLower(handle)]
+			if len(tweets) == 0 {
+				continue
+			}
+			out[src.Key()] = mergedPrefetch{tweets: tweets, instance: instance}
+		}
+	}
+	return out
 }
 
 // firstPageIDs slices the watermark supply off the fetch result: the first

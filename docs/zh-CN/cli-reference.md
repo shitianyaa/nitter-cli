@@ -503,6 +503,14 @@ nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
 URL 预转义形式（`tag:%23AI`）会在网络上被二次转义，不是合法写法。** 不带
 SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 
+**合并取数**——带 `--no-reposts` 且有两个及以上 `user:` 源时，一轮改用
+**每批一次** RSS 请求取这些源（`/{u1,u2,...}/rss`，每批路径长度控制在 250
+字符内），再按作者拆分 feed，而不是逐源抓取。合并 feed 只有 Nitter 提供，
+且无法表示转推——Nitter 会把转推条目归到原作者名下——这正是合并要求
+`--no-reposts` 的原因；`fetch_backend = "fx"` 从不合并，`"mix"` 下这些源改由
+Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源回退到各自的抓取
+路径。
+
 **flag**
 
 | flag | 默认 | 含义 |

@@ -577,6 +577,16 @@ first colon is passed through verbatim to the fetch and forms the seen key
 SOURCE arguments the config's `[[watch.sources]]` entries are used; when both
 are empty: exit 2.
 
+**Merged fetching** — with `--no-reposts` and two or more `user:` sources,
+one cycle acquires those sources with ONE RSS request per batch
+(`/{u1,u2,...}/rss`, each batch kept under 250 path characters) and splits the
+feed per author, instead of fetching every source separately. The merged feed
+is Nitter-only and cannot represent a repost — Nitter attributes a reposted
+item to the original author — which is exactly why merging requires
+`--no-reposts`; `fetch_backend = "fx"` never merges, and `"mix"` serves those
+sources from Nitter rather than the fast lane. A batch whose request fails is
+not lost: the affected sources fall back to their own fetch.
+
 **Flags**
 
 | Flag | Default | Meaning |
