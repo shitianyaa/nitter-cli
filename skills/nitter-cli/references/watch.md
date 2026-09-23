@@ -28,6 +28,9 @@ history is emitted. This is by design: the stream starts at "now".
 
 - To emit the whole first fetch once, pass `--include-existing` for that run
   (it also bypasses `--max-new` for that first fetch).
+- How deep that first fetch reaches is decided by `--max-pages`: a user
+  source's RSS scan pages along the feed's `Min-Id` cursor up to the page
+  budget, so the recorded baseline covers several feed pages, not one.
 - After the first run, each cycle emits the source's new tweets (IDs not in the
   seen list, newest first).
 

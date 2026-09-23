@@ -74,8 +74,9 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
   （默认 20）。flag 传负数是用法错误。
 - `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。在 `user` 上
   **显式传 `--max-pages 0` 表示不设上限**：HTML 回退路径会一直跟随 load-more
-  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 源天然单页，不受
-  影响。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是用法错误。
+  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 路径同样会沿
+  `Min-Id` 游标一直翻页。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是
+  用法错误。
 - 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
   （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
 
@@ -89,6 +90,10 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
 网络动作前退出 2）。默认 `fetch_backend=mix` 时优先通过 FxTwitter 极速免登通道拉取，
 遇到故障或指定 `--instance` 时平滑走 Nitter 实例。`--max-pages 0` 表示不设页数上限。
+
+Nitter RSS 源会按其 `Min-Id` 游标逐页读取，因此积压跨越多页时不会被截断在
+第一页：`--limit N` 会一直翻页到凑满 N 条或耗尽 `--max-pages` 预算为止
+（不携带 `Min-Id` 的普通 RSS 代理仍是单页）。
 
 - `--with-replies` 包含用户自身发布的回复推文。
 - `--no-reposts` 丢弃纯转推。

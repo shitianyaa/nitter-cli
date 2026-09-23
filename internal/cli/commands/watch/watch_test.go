@@ -78,6 +78,7 @@ func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
 type fakeNitter struct {
 	mu      sync.Mutex
 	answers map[string]answer
+	headers map[string]map[string]string
 	addr    string
 	srv     *httptest.Server
 }
@@ -89,7 +90,7 @@ type answer struct {
 
 func newFake(t *testing.T, answers map[string]answer) *fakeNitter {
 	t.Helper()
-	f := &fakeNitter{answers: answers}
+	f := &fakeNitter{answers: answers, headers: make(map[string]map[string]string)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		f.mu.Lock()
@@ -98,6 +99,12 @@ func newFake(t *testing.T, answers map[string]answer) *fakeNitter {
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
+		}
+		f.mu.Lock()
+		hdrs := f.headers[req.URL.RequestURI()]
+		f.mu.Unlock()
+		for name, value := range hdrs {
+			w.Header().Set(name, value)
 		}
 		w.WriteHeader(a.status)
 		_, _ = io.WriteString(w, a.body)
@@ -113,6 +120,18 @@ func (f *fakeNitter) setAnswers(answers map[string]answer) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answers = answers
+}
+
+// setHeaders makes the fake attach these response headers to one request
+// target (the RSS paging tests need Min-Id). It is additive on purpose: the
+// answer literals stay positional.
+func (f *fakeNitter) setHeaders(target string, headers map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.headers == nil {
+		f.headers = make(map[string]map[string]string)
+	}
+	f.headers[target] = headers
 }
 
 // instanceConfig returns the fast config fixture pointing at fake.
@@ -1133,5 +1152,33 @@ func TestWatchInvalidMediaTypeIsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "--media-type") {
 		t.Errorf("stderr = %q, want it to name --media-type", errOut)
+	}
+}
+
+// TestWatchRSSPagesPastTheFirstFeedPage: a source whose backlog spans more
+// than one RSS page is fully fetched, so nothing past the first page is
+// silently dropped.
+func TestWatchRSSPagesPastTheFirstFeedPage(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss":            {200, rssBody("103", "102")},
+		"/NASA/rss?cursor=102": {200, rssBody("101")},
+	})
+	fake.setHeaders("/NASA/rss", map[string]string{"Min-Id": "102"})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "--once", "--ndjson",
+		"--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	var ids []string
+	for _, env := range envs {
+		ids = append(ids, env.ID)
+	}
+	if want := []string{"103", "102", "101"}; !slices.Equal(ids, want) {
+		t.Fatalf("emitted ids = %v, want %v (the second RSS page must be fetched)", ids, want)
 	}
 }

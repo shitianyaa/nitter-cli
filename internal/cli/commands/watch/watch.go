@@ -8,10 +8,12 @@
 // never imports internal/nitter/*.
 //
 // Fetch boundary (ruling R18, plan deviation, ledgered): each cycle fetches
-// with the standard bounded acquisition (MaxPages budget, Limit 0 = all)
-// and Select dedups; the plugin-style early-stop paging at the watermark is
-// deferred post-MVP. Correctness is identical (no duplicates, no losses);
-// only the fetch volume differs within the bounded budget.
+// with the standard bounded acquisition (MaxPages budget, Limit 0 = all) and
+// Select dedups. For user sources the RSS Min-Id scan stops early once a page
+// adds nothing the source has not already seen (rssStop), so a caught-up
+// source costs one request instead of the whole page budget; tag/list sources
+// keep the plain bounded fetch. Correctness is identical (no duplicates, no
+// losses); only the fetch volume differs within the bounded budget.
 package watch
 
 import (
@@ -481,7 +483,7 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 			}
 		}
 
-		tweets, instance, err := fetchSource(ctx, w, src, opts.maxPages)
+		tweets, instance, err := fetchSource(ctx, w, src, opts.maxPages, prev)
 		if err != nil {
 			if ctx.Err() != nil {
 				// The fetch died because the caller gave up (signal during
@@ -551,10 +553,10 @@ func runCycle(ctx context.Context, s *invocation.Streams, store *seen.Store, w *
 // provenance).
 const allTweetsSentinel = math.MaxInt
 
-func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, maxPages int) ([]nitter.Tweet, string, error) {
+func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, maxPages int, prev seen.SourceState) ([]nitter.Tweet, string, error) {
 	switch src.Kind {
 	case watchengine.KindUser:
-		return w.Timeline().Timeline(ctx, src.Ref, allTweetsSentinel, maxPages)
+		return w.Timeline().Timeline(ctx, src.Ref, allTweetsSentinel, maxPages, client.WithRSSStop(rssStop(prev)))
 	case watchengine.KindTag:
 		return w.Search().Search(ctx, src.Ref, allTweetsSentinel, maxPages)
 	case watchengine.KindList:
@@ -563,6 +565,26 @@ func fetchSource(ctx context.Context, w *client.Wiring, src watchengine.Source, 
 		// Unreachable through this command (ParseSource validates the kind
 		// at the flag level); kept as the engine contract's backstop.
 		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opWatch, "unknown source kind %q", src.Kind)
+	}
+}
+
+// rssStop builds the RSS scan-stop predicate for one source: the scan ends
+// once a page adds no tweet the source has not already seen. An
+// uninitialized source has nothing seen, so its scan runs to the page budget
+// — the first run records as much history as the budget allows instead of
+// silently dropping everything past the first feed page.
+func rssStop(prev seen.SourceState) func(page []nitter.Tweet) bool {
+	known := make(map[string]bool, len(prev.SeenIDs))
+	for _, id := range prev.SeenIDs {
+		known[id] = true
+	}
+	return func(page []nitter.Tweet) bool {
+		for _, tw := range page {
+			if tw.ID != "" && !known[tw.ID] {
+				return false
+			}
+		}
+		return true
 	}
 }
 

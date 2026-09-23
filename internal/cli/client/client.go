@@ -64,6 +64,11 @@ type InstanceTester interface {
 type TimelineOptions struct {
 	WithReplies bool
 	MediaOnly   bool
+	// RSSStop ends the Nitter RSS Min-Id scan early: the command layer
+	// supplies it so a caught-up source costs one request instead of the
+	// whole page budget. The FxTwitter backend has no RSS scan and ignores
+	// it.
+	RSSStop func(page []nitter.Tweet) bool
 }
 
 // TimelineOption sets an option on TimelineOptions.
@@ -77,6 +82,11 @@ func WithReplies(v bool) TimelineOption {
 // WithMediaOnly requests fast-lane media-only retrieval when true.
 func WithMediaOnly(v bool) TimelineOption {
 	return func(o *TimelineOptions) { o.MediaOnly = v }
+}
+
+// WithRSSStop sets the RSS scan-stop predicate (see TimelineOptions.RSSStop).
+func WithRSSStop(fn func(page []nitter.Tweet) bool) TimelineOption {
+	return func(o *TimelineOptions) { o.RSSStop = fn }
 }
 
 // TimelineSource is the user-timeline acquisition capability a command
@@ -274,7 +284,7 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 
 	switch backend {
 	case "nitter":
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	case "fx":
 		return a.timelineFx(ctx, handle, limit, maxPages, opt)
 	case "mix":
@@ -285,14 +295,14 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	default:
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	}
 }
 
-func (a timelineAdapter) timelineNitter(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.w.AppAPI.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+func (a timelineAdapter) timelineNitter(ctx context.Context, handle string, limit, maxPages int, opt TimelineOptions) ([]nitter.Tweet, string, error) {
+	return a.w.AppAPI.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages, Stop: opt.RSSStop})
 }
 
 func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, maxPages int, opt TimelineOptions) ([]nitter.Tweet, string, error) {
