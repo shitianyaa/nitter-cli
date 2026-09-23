@@ -82,8 +82,13 @@ func TestInstallerReplacesBinary(t *testing.T) {
 	if err := inst.Install(context.Background(), rel); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if replacedDst != target {
-		t.Errorf("replaced dst = %q, want %q", replacedDst, target)
+	// Install resolves the executable (Abs + EvalSymlinks) before replacing it,
+	// so the destination can come back in a different but equivalent spelling —
+	// on Windows CI, t.TempDir() hands out an 8.3 short name ("RUNNER~1") while
+	// the resolved form is the long one. Compare canonically instead of by
+	// string, or the assertion fails on a correct install.
+	if !samePath(replacedDst, target) {
+		t.Errorf("replaced dst = %q, want the same directory as %q", replacedDst, target)
 	}
 	if string(stagedContent) != string(payload) {
 		t.Errorf("staged content = %q, want %q", stagedContent, payload)

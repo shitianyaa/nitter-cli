@@ -86,15 +86,32 @@ func DetectSource(executable, version string) (Source, error) {
 	return SourceArchive, nil
 }
 
-// samePath compares two directories, tolerating separators and case.
+// samePath reports whether two directories name the same location. Both sides
+// go through the same canonicalization: comparing a resolved path against a raw
+// one silently fails whenever the two spellings differ, which on Windows is the
+// normal case — an 8.3 short name (“C:\Users\RUNNER~1\...“) and its long
+// form name the same directory, and filepath.Abs/Clean keep them distinct while
+// EvalSymlinks folds them together. Misclassifying that way would let a
+// `go install` binary be replaced by self-update, so the comparison has to be
+// spelling-agnostic rather than merely case-insensitive.
 func samePath(a, b string) bool {
-	ca, err := filepath.Abs(a)
+	return strings.EqualFold(canonicalDir(a), canonicalDir(b))
+}
+
+// canonicalDir resolves a path to one spelling: absolute, cleaned, and
+// symlink/8.3-normalized where the platform supports it. A path that cannot be
+// resolved keeps its absolute+cleaned form, so a missing directory still
+// compares by name instead of failing open.
+func canonicalDir(p string) string {
+	abs, err := filepath.Abs(p)
 	if err != nil {
-		ca = a
+		abs = p
 	}
-	cb, err := filepath.Abs(b)
-	if err != nil {
-		cb = b
+	abs = filepath.Clean(abs)
+	// EvalSymlinks also normalizes Windows 8.3 short names to their long form,
+	// which is what makes the two spellings of one directory compare equal.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
 	}
-	return strings.EqualFold(filepath.Clean(ca), filepath.Clean(cb))
+	return abs
 }

@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -136,5 +137,49 @@ func TestGoBinDirs(t *testing.T) {
 	}
 	if dirs[2] != filepath.Join(filepath.Clean("/gp2"), "bin") {
 		t.Errorf("dirs[2] = %q", dirs[2])
+	}
+}
+
+// A directory reachable through two spellings must compare equal: the two
+// halves of the classification resolve paths differently (the executable gets
+// EvalSymlinks, GOBIN historically did not), and a mismatch would let a
+// `go install` binary be replaced. Windows 8.3 short names and symlinks are
+// both instances of this, so the test asserts the invariant directly rather
+// than relying on a platform-specific path form existing.
+func TestSamePathNormalizesBothSides(t *testing.T) {
+	real := t.TempDir()
+	if canonicalDir(real) != canonicalDir(real) {
+		t.Fatalf("canonicalDir is not stable for %q", real)
+	}
+	// Trailing separators and "." hops must not defeat the match.
+	for _, variant := range []string{
+		real + string(os.PathSeparator),
+		real + string(os.PathSeparator) + ".",
+		real + string(os.PathSeparator) + "sub" + string(os.PathSeparator) + "..",
+	} {
+		if !samePath(real, variant) {
+			t.Errorf("samePath(%q, %q) = false, want true", real, variant)
+		}
+	}
+	// Case-insensitivity holds on every platform (Windows paths are
+	// case-insensitive; EqualFold is a superset that never breaks a real path).
+	if !samePath(real, strings.ToUpper(real)) {
+		t.Errorf("samePath must be case-insensitive")
+	}
+	// Different directories must not match.
+	other := t.TempDir()
+	if samePath(real, other) {
+		t.Errorf("samePath(%q, %q) = true for distinct dirs", real, other)
+	}
+	// A symlinked spelling of the same directory must match its target: this is
+	// the exact discrepancy that made the CI classification wrong.
+	linkParent := t.TempDir()
+	link := filepath.Join(linkParent, "alias")
+	if err := os.Symlink(real, link); err != nil {
+		t.Logf("symlinks unavailable (%v); the symlink half is covered on CI", err)
+		return
+	}
+	if !samePath(real, link) {
+		t.Errorf("samePath(%q, %q) = false, want true: a symlinked spelling names the same dir", real, link)
 	}
 }
