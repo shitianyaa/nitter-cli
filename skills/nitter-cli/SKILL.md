@@ -71,6 +71,9 @@ safety boundaries, and semantics traps.
 8. `download` writes files to disk (the `download_path` config key, default
    `./nitter-media`, or `--output DIR`): state the target directory and the
    exact refs to the user before each invocation; consent never carries over.
+   The command prints the resolved absolute directory as
+   `note: writing to <dir>` on stderr (stdout stays clean JSON/NDJSON) — use
+   that line to confirm where files actually landed instead of assuming.
    The default `--on-exists refuse` never replaces an existing file — only
    pass `overwrite` or `skip` when the user asked for that.
 9. Never overclaim completeness. RSS yields about 20 tweets per fetch, so a
@@ -93,7 +96,7 @@ safety boundaries, and semantics traps.
 | Local write | `config set`, `config unset`, `seen clear`, `circle add` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
-| Software update | `update` (without `--check`) | Prints how to update; never self-installs — do not attempt install steps unless the user asks |
+| Software update | `update` (with `--confirm`) | **State change**: replaces the running binary. Never run without the user's explicit authorization — `--confirm` is a mechanism for their own scripts, not a grant of permission. The installer verifies the archive against the release's `checksums.txt` and the staged binary's version before replacing anything; a `go install` installation is refused with the correct `go install` line |
 
 Notes: `instances test` completes even when every probe fails (the report is
 the product — exit 0); treat the report, not the exit code, as the diagnostic.
@@ -231,6 +234,8 @@ nitter seen clear --confirm                             # clear ALL sources: con
 nitter update --check                                   # read-only release comparison
 nitter update --check --json                            # {current, latest, outdated, prerelease, release_url}
 nitter update --check --prerelease                      # admit prereleases into the "latest" pick (only with --check)
+nitter update                                           # check, then prompt "install now? [y/N]" on a TTY
+nitter update --confirm                                 # install without asking (required when stdin is not a TTY)
 ```
 
 ## Config keys
