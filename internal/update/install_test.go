@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -316,5 +317,138 @@ func TestVerifyStagedVersionAgainstRealScript(t *testing.T) {
 	}
 	if err := VerifyStagedVersion("v0.8.0")(bad); err == nil {
 		t.Error("wrong version must be rejected")
+	}
+}
+
+// The real replaceExecutable must be exercised, not only the stub: seven
+// InstallOptions sites in this file inject Replace, so without this test the
+// production swap (os.Rename on Unix, ReplaceFileW on Windows) would never run
+// in CI. A stubbed replace proves the ordering logic; only this proves the
+// platform swap actually works on a real file.
+func TestInstallerUsesRealReplaceOnDisk(t *testing.T) {
+	payload := []byte("new binary bytes for the real swap")
+	// ArchiveName picks .zip on Windows and .tar.gz elsewhere, and
+	// ExtractBinary dispatches on the same suffix, so the fixture has to
+	// follow the platform under test.
+	archiveName := ArchiveName("0.8.0", runtime.GOOS, runtime.GOARCH)
+	var archive []byte
+	if runtime.GOOS == "windows" {
+		archive = zipBytes(t, BinaryName(runtime.GOOS), payload)
+	} else {
+		archive = tarGz(t, BinaryName(runtime.GOOS), payload)
+	}
+	srv, rel := releaseServer(t, "v0.8.0", archiveName, archive, false)
+	withAssetPrefix(t, srv)
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, BinaryName(runtime.GOOS))
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	// Replace and VerifyVersion are deliberately left nil so the production
+	// implementations run. ExpectedVersion is empty, so the version probe is a
+	// no-op (the payload is not a real executable) while the swap stays real.
+	inst := NewInstaller(InstallOptions{
+		GOOS:           runtime.GOOS,
+		GOARCH:         runtime.GOARCH,
+		ExecutablePath: func() (string, error) { return target, nil },
+	})
+	t.Cleanup(func() { _ = os.Remove(target + ".old") })
+
+	if err := inst.Install(context.Background(), rel); err != nil {
+		t.Fatalf("Install with the real replace: %v", err)
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read replaced target: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Errorf("target content = %q, want %q", got, payload)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat replaced target: %v", err)
+	}
+	// Unix only: os.Rename carries the staged file's mode (stage chmods 0o755)
+	// onto the target, and a lost exec bit would stop the CLI from launching.
+	// Windows has no equivalent to assert: Go synthesises the mode from the
+	// read-only attribute, and executability comes from the .exe extension, so
+	// ReplaceFileW correctly does not carry a permission bit across.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("mode %v lost the executable bit across the replacement", info.Mode().Perm())
+	}
+	if info.Size() != int64(len(payload)) {
+		t.Errorf("replaced target is %d bytes, want %d", info.Size(), len(payload))
+	}
+	// No staging leftover may survive, on either platform.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if name == filepath.Base(target) || name == filepath.Base(target)+".old" {
+			continue // the target itself, plus Windows' deferred backup
+		}
+		t.Errorf("staging leftover %q after a successful install", name)
+	}
+}
+
+// Windows keeps the previous binary as "<target>.old" after a replace;
+// CleanupPendingUpdate is what removes it, and a second replace must refuse to
+// run while that backup exists (a silent overwrite would lose the rollback).
+func TestRealReplaceBackupLifecycle(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		// On Unix the rename releases the old inode immediately: no backup is
+		// created and CleanupPendingUpdate is a documented no-op.
+		if err := CleanupPendingUpdate(); err != nil {
+			t.Errorf("CleanupPendingUpdate on Unix must be a no-op: %v", err)
+		}
+		return
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.exe")
+	if err := os.WriteFile(target, []byte("OLD"), 0o755); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	staged := filepath.Join(dir, "staged.exe")
+	if err := os.WriteFile(staged, []byte("NEW"), 0o755); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := replaceExecutable(staged, target); err != nil {
+		t.Fatalf("replaceExecutable: %v", err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "NEW" {
+		t.Fatalf("target after replace = %q, err %v; want NEW", b, err)
+	}
+	backup := target + ".old"
+	b, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatalf("ReplaceFileW must leave a %s backup: %v", backup, err)
+	}
+	if string(b) != "OLD" {
+		t.Errorf("backup = %q, want the previous OLD contents", b)
+	}
+	// A second replace must refuse rather than overwrite the backup.
+	staged2 := filepath.Join(dir, "staged2.exe")
+	if err := os.WriteFile(staged2, []byte("NEWER"), 0o755); err != nil {
+		t.Fatalf("stage2: %v", err)
+	}
+	if err := replaceExecutable(staged2, target); err == nil {
+		t.Error("a second replace must refuse while the .old backup exists")
+	}
+	// The missing-target branch is a plain move, with no backup.
+	fresh := filepath.Join(dir, "fresh.exe")
+	staged3 := filepath.Join(dir, "staged3.exe")
+	if err := os.WriteFile(staged3, []byte("FRESH"), 0o755); err != nil {
+		t.Fatalf("stage3: %v", err)
+	}
+	if err := replaceExecutable(staged3, fresh); err != nil {
+		t.Fatalf("replaceExecutable onto a missing target: %v", err)
+	}
+	if b, err := os.ReadFile(fresh); err != nil || string(b) != "FRESH" {
+		t.Errorf("fresh target = %q, err %v; want FRESH", b, err)
 	}
 }
