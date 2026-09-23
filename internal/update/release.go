@@ -145,7 +145,13 @@ func Check(ctx context.Context, repo, current string, opts Options) (Release, er
 	}
 
 	var records []releaseRecord
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&records); err != nil {
+	// The response bound must accommodate 100 releases *with their asset
+	// arrays*: parsing assets multiplies the payload (github.com/cli/cli
+	// returns ~4.7 MB for one page), and a bound that is too tight truncates
+	// mid-JSON into a confusing "unexpected EOF". 32 MiB stays bounded — the
+	// point is to refuse an endless stream, not to cap realistic pages.
+	const maxReleasePageBytes = 32 << 20
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxReleasePageBytes)).Decode(&records); err != nil {
 		return Release{}, fmt.Errorf("update: github api: decode response: %w", err)
 	}
 
