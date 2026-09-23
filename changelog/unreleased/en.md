@@ -18,4 +18,9 @@
 
 ## Fixed
 
+- **`nitter download` reports a local disk failure as a local failure**: a failed write to the target
+  file — a full disk, most often — surfaced as `upstream_unavailable` and sent the caller looking at
+  the instance. It is now the `local_state_error` every other local filesystem failure on the same
+  path already used. Exit codes are unchanged (both are exit 1).
+
 ## Security

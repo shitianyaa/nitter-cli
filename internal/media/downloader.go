@@ -73,6 +73,45 @@ type Downloader struct {
 	HTTP *httpx.Client
 }
 
+// localWriteGuard records the first write error so a stream failure can be
+// told apart from a local sink failure — io.Copy does not distinguish the
+// two, and the transport cannot know whether the sink is local disk.
+//
+// ponytail: the sink is assumed to be local disk; a non-disk sink would need
+// this classification revisited.
+type localWriteGuard struct {
+	w   io.Writer
+	err error
+}
+
+func (g *localWriteGuard) Write(p []byte) (int, error) {
+	if g.err != nil {
+		return 0, g.err
+	}
+	n, err := g.w.Write(p)
+	if err != nil {
+		g.err = err
+	}
+	return n, err
+}
+
+// streamTo streams url's body into sink and classifies the outcome: a
+// failure of sink itself is KindLocalState (the message mirrors the sibling
+// create/sync/close temp-file errors), every other error is the transport's
+// classification verbatim. The header return is what the auto-extension path
+// needs; callers that do not need it ignore it.
+func (d *Downloader) streamTo(ctx context.Context, url string, sink io.Writer) (int64, map[string][]string, error) {
+	guard := &localWriteGuard{w: sink}
+	written, header, err := d.HTTP.DownloadMeta(ctx, url, guard, downloadHeaders(url))
+	if err != nil {
+		if werr := guard.err; werr != nil {
+			return written, nil, nitter.Errorf(nitter.KindLocalState, opMediaDownload, "write temp file: %w", werr)
+		}
+		return written, nil, err
+	}
+	return written, header, nil
+}
+
 // DownloadResult reports one completed FetchToFile or FetchToFileAuto.
 type DownloadResult struct {
 	// URL is the URL that was downloaded. The command layer's fallback
@@ -141,10 +180,11 @@ func extFromContentType(contentType string) string {
 // Errors are the transport's classified *nitter.Error verbatim (404 →
 // KindNotFound, 401/403 → KindChallenge, 429 → KindRateLimited after the
 // single Retry-After retry, 5xx/transport → KindUnavailable after retries,
-// declared-size mismatch → KindMalformed); local filesystem failures are
-// KindLocalState. Every failure removes the temp file and leaves finalPath
-// untouched. No directory is created implicitly: a missing parent fails as
-// KindLocalState, directory semantics belong to the command layer.
+// declared-size mismatch → KindMalformed) — except a failure of the target
+// file's own writes, which is KindLocalState like every other local
+// filesystem failure. Every failure removes the temp file and leaves
+// finalPath untouched. No directory is created implicitly: a missing parent
+// fails as KindLocalState, directory semantics belong to the command layer.
 func (d *Downloader) FetchToFile(ctx context.Context, url, finalPath string, force bool) (DownloadResult, error) {
 	if err := ctx.Err(); err != nil {
 		return DownloadResult{}, nitter.Errorf(nitter.KindUnavailable, opMediaDownload, "download not sent: %w", err)
@@ -176,7 +216,7 @@ func (d *Downloader) FetchToFile(ctx context.Context, url, finalPath string, for
 	}
 
 	hash := sha256.New()
-	written, err := d.HTTP.Download(ctx, url, io.MultiWriter(tmp, hash), downloadHeaders(url))
+	written, _, err := d.streamTo(ctx, url, io.MultiWriter(tmp, hash))
 	if err != nil {
 		return discard(err)
 	}
@@ -236,7 +276,7 @@ func (d *Downloader) FetchToFileAuto(ctx context.Context, url, basePath, default
 	}
 
 	hash := sha256.New()
-	written, header, err := d.HTTP.DownloadMeta(ctx, url, io.MultiWriter(tmp, hash), downloadHeaders(url))
+	written, header, err := d.streamTo(ctx, url, io.MultiWriter(tmp, hash))
 	if err != nil {
 		return discard(err)
 	}

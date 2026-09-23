@@ -585,3 +585,42 @@ func TestFetchToFileExistsErrorCarriesPath(t *testing.T) {
 		t.Errorf("requests = %d, want 0 (exists is decided before any network I/O)", n)
 	}
 }
+
+// failWriter always fails its write, standing in for a full disk.
+type failWriter struct{ err error }
+
+func (w failWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// A sink write failure must be reclassified as a local-state error and must
+// keep the sink's cause: io.Copy cannot tell a write failure from a read
+// failure, so the guard is what makes the distinction (T1-7).
+func TestStreamToClassifiesSinkWriteFailureAsLocalState(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload(4096))
+	}))
+	t.Cleanup(srv.Close)
+
+	sinkErr := errors.New("no space left on device")
+	_, _, err := newTestDownloader(t).streamTo(context.Background(), srv.URL, failWriter{err: sinkErr})
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindLocalState {
+		t.Fatalf("error = %v, want kind %q", err, nitter.KindLocalState)
+	}
+	if !errors.Is(err, sinkErr) {
+		t.Errorf("error must keep the sink cause, got %v", err)
+	}
+}
+
+// The transport's own classification must survive the guard untouched.
+func TestStreamToKeepsTransportClassification(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, err := newTestDownloader(t).streamTo(context.Background(), srv.URL, io.Discard)
+	var terr *nitter.Error
+	if !errors.As(err, &terr) || terr.Kind != nitter.KindUnavailable {
+		t.Fatalf("error = %v, want kind %q", err, nitter.KindUnavailable)
+	}
+}
