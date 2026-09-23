@@ -142,10 +142,10 @@ nitter circle run ai_researchers --limit 1            # 流式拉取私人圈子
 nitter search "#AI" --limit 20 | nitter download --output ./media
 
 # 以最低画质档下载视频
-nitter download https://x.com/NASA/status/2081668333762687236 --quality low
+nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 
 # 只取视频封面图
-nitter download https://x.com/NASA/status/2081668333762687236 --kind cover
+nitter download https://x.com/NASA/status/2102761519985332442 --kind cover
 
 # 交给调度器做去重监视：每次调用一轮，只出新推文，状态跨次运行持久保存
 */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>>/tmp/nitter-watch.err
@@ -265,7 +265,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 推文信封示例（示意；`data` 为 SDK 的 `Tweet` 模型）：
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta.instance` 记录抓取的来源：快车道应答时为 `"FxTwitter"`，否则是应答
@@ -317,6 +317,12 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 - **`seen` 跟随 `--state-dir`**：`nitter seen list/clear` 作用于默认的
   `~/.nitter-cli/state/seen.json`，或传 `--state-dir <dir>` 时作用于
   `<dir>/seen.json`——与 `watch --state-dir` 使用同一个目录。
+- **每个订阅类别一个 `--state-dir`**：同时跑多个 watch 类别（用途、节奏或推送
+  渠道不同）时，给每个类别各自的 `--state-dir ~/.nitter-cli/state/<category>`，
+  并在该类别的每一行调度命令里都传同一个 flag。状态在一个 `seen.json` 内以源键
+  为键，因此两个类别订阅同一账号时会共用 `user:HANDLE`：先跑的那一轮把推文标记
+  为已见，另一个类别就静默丢弃它（退出 0，无任何警告）。分目录也能避免并发运行
+  互相覆盖各自的标记。
 
 ## 常见问题
 

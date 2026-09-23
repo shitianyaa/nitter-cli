@@ -44,7 +44,7 @@ for its envelope stream.
 - **`--ndjson`**: one `nitter.pipeline/v1` envelope per record:
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta` carries provenance: `source` (the command input as a `kind:ref` key),
@@ -173,7 +173,8 @@ nitter profile <HANDLE> [--json|--ndjson]
 ```
 
 Fetches user profile card and metadata for `HANDLE`.
-- Renders formatted user card on TTY: handle, name, bio, follower count, following count, tweet count, media count, avatar, banner, and protected status.
+- Renders formatted user card on TTY: handle (with the name in parentheses when present), bio, follower count, following count, tweet count, media count, avatar, banner, and protected status. Followers, following and tweets are always printed; `Bio`, `Media`, `Avatar`, `Banner` and `Protected` appear only when the source carries them.
+- `tweets_count` is the source's status count (FxTwitter's `statuses` field); it is `0` when the source carries no count — never fabricated.
 - Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelope in pipe mode.
 - `--json` outputs the Profile JSON object.
 
@@ -263,7 +264,7 @@ Example (`--json` prints exactly one object for the single status; shape
 illustrative):
 
 ```json
-{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
+{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
 
 ## nitter media
@@ -316,7 +317,7 @@ overwritten. Budget one extra request per video entry.
 Human/text output is one tab-separated row per media entry:
 
 ```text
-https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
+https://x.com/NASA/status/2102761519985332442	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
 ```
 
 Columns: `ref source kind url label duration size` — ref echoes the input
@@ -328,7 +329,7 @@ prints one envelope per media entry (`kind` `media`, the download URL as
 `kind:"error"` envelope per failed ref, in ref order:
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2102761519985332442","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2102761519985332442"}}
 ```
 
 Exit codes: success 0 (probing failures do not count); a per-ref resolution
@@ -441,7 +442,7 @@ exists error while the batch continues.
 Human/text output is one tab-separated row per downloaded file:
 
 ```text
-https://x.com/NASA/status/2081668333762687236	/home/you/nitter-media/2081668333762687236-1.mp4	24000000	video	fx
+https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/2102761519985332442-1.mp4	24000000	video	fx
 ```
 
 Columns: `ref path bytes kind source` — `path` is the absolute file path
@@ -455,7 +456,7 @@ when none). `--ndjson` prints one envelope per downloaded file (`kind`
 `download`), in ref order:
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2081668333762687236-1.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","path":"/home/you/nitter-media/2081668333762687236-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2102761519985332442-1.mp4","data":{"ref":"https://x.com/NASA/status/2102761519985332442","path":"/home/you/nitter-media/2102761519985332442-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2102761519985332442"}}
 ```
 
 Exit codes: success 0 (an invocation that plans and downloads nothing prints
@@ -597,7 +598,7 @@ not lost: the affected sources fall back to their own fetch.
 | `--max-new-overflow drop\|keep` | `drop` | What happens to new tweets beyond the `--max-new` cap in one cycle. `drop` marks the excess seen immediately — never re-emitted (宁丢勿重). `keep` leaves it unseen so the next cycles re-emit it under the same cap (宁重勿丢; a burst larger than twice the cap drains over several cycles). Another value is a usage error; `--max-new 0` always rebuilds the baseline regardless. |
 | `--max-pages N` | config `max_pages` (5) | Fetch-page budget per cycle; `0` = use the default. |
 | `--include-existing` | off | Emit the whole first fetch on an uninitialized source (default: first run only records state). |
-| `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). |
+| `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). Give each subscription category its own directory — see "Multi-category subscriptions" below. |
 | `--ndjson` | off | One envelope per record: `kind` `tweet` and `kind` `error`. |
 | `--json` | — | Only with `--once`: prints ONE JSON document `{"tweets":[…bare Tweet objects…],"errors":[{"ref","code","message"}…]}` — the cycle's selected tweets and its per-source fetch failures (both arrays literal `[]` when empty; the failed-source summary still exits 1). Without `--once` it is a usage error: the resident loop is a stream of cycles, not one document. |
 | `--no-reposts` | off | Drop pure retweets **before dedup** (the retweet header only exists on the HTML parse path). |
@@ -652,6 +653,20 @@ recent numeric first-page IDs as the scan watermark. Inspect it with
 `nitter seen list --state-dir <dir>` (or, without the flag, the default
 location); `seen clear` takes the same flag.
 
+**Multi-category subscriptions — one `--state-dir` per category.** A
+subscription *category* is a group of sources that share a purpose, a cadence
+or a push channel. Give each category its own
+`--state-dir ~/.nitter-cli/state/<category>` and pass that same flag on every
+scheduler line of the category; a line that omits it falls back to the default
+`~/.nitter-cli/state`, which re-couples the categories. State is keyed by
+source key inside one `seen.json`, so two categories subscribed to the same
+account share the key `user:HANDLE`: the category whose cycle runs first marks
+the tweet seen and the other one drops it silently — no error, `--once` still
+exits 0. Separate directories also make concurrent runs independent: the store
+serializes writes only within one process, so two jobs firing against the same
+`seen.json` read-modify-write the same file and the last writer wins. Scope
+`seen list`/`seen clear` with the same flag to inspect or reset one category.
+
 Example — a scheduler entry consuming the NDJSON stream (illustrative):
 
 ```bash
@@ -665,14 +680,14 @@ nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow k
 ```
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
 `--once --json` prints the whole cycle as one document instead (illustrative):
 
 ```json
-{"tweets":[{"id":"2081668333762687236","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
+{"tweets":[{"id":"2102761519985332442","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
 ```
 
 ## nitter seen

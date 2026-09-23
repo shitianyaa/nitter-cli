@@ -131,7 +131,7 @@ type Quoted struct {
 Pinned marshaled shape (from `sdk/models_test.go`):
 
 ```json
-{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"line one\nline two","author":{"handle":"NASA","name":"NASA","avatar_url":"https://pbs.twimg.com/profile_images/x_normal.jpg"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800},{"type":"video","url":"https://video.twimg.com/vid/abc.mp4","width":0,"height":0}],"is_retweet":true,"reposted_by":"nasa","reply_to":"esa","quote":{"id":"123","url":"https://x.com/esa/status/123","text":"quoted text","author":{"handle":"esa","name":"ESA","avatar_url":""}}}
+{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"line one\nline two","author":{"handle":"NASA","name":"NASA","avatar_url":"https://pbs.twimg.com/profile_images/x_normal.jpg"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800},{"type":"video","url":"https://video.twimg.com/vid/abc.mp4","width":0,"height":0}],"is_retweet":true,"reposted_by":"nasa","reply_to":"esa","quote":{"id":"123","url":"https://x.com/esa/status/123","text":"quoted text","author":{"handle":"esa","name":"ESA","avatar_url":""}}}
 ```
 
 The zero value marshals with every key present (`"media":null`,

@@ -916,3 +916,81 @@ func TestSearchUsers(t *testing.T) {
 		t.Errorf("users[1] mismatch: %+v", users[1])
 	}
 }
+
+// TestRealFxTwitterTweetCountKeys locks the tweet-count key names actually
+// emitted by FxTwitter. Profile and author objects use "statuses" (an int) for
+// the tweet count — not "tweets_count"/"statuses_count" — so a RawAuthor
+// missing that tag silently reports tweets_count: 0 for every profile.
+func TestRealFxTwitterTweetCountKeys(t *testing.T) {
+	// Verbatim shape captured from https://api.fxtwitter.com/2/profile/NASA
+	// (field order/keys preserved; only the counts are abbreviated).
+	const profileBody = `{
+		"code": 200,
+		"message": "OK",
+		"user": {
+			"screen_name": "NASA",
+			"id": "11348282",
+			"followers": 92377960,
+			"following": 117,
+			"media_count": 28154,
+			"statuses": 74322,
+			"name": "NASA",
+			"description": "Making the seemingly impossible, possible.",
+			"protected": false
+		}
+	}`
+	const followingBody = `{
+		"code": 200,
+		"results": [
+			{
+				"screen_name": "NASAHubble",
+				"id": "14091091",
+				"followers": 8902551,
+				"following": 44,
+				"media_count": 3131,
+				"statuses": 8455,
+				"name": "Hubble",
+				"protected": false
+			}
+		]
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.EqualFold(r.URL.Path, "/2/profile/nasa"):
+			_, _ = w.Write([]byte(profileBody))
+		case strings.EqualFold(r.URL.Path, "/2/profile/nasa/following"):
+			_, _ = w.Write([]byte(followingBody))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	prof, err := client.FetchUserProfile(ctx, "NASA")
+	if err != nil {
+		t.Fatalf("FetchUserProfile failed: %v", err)
+	}
+	if prof.TweetsCount != 74322 {
+		t.Errorf("profile TweetsCount = %d, want 74322 (from the \"statuses\" key)", prof.TweetsCount)
+	}
+	if prof.FollowersCount != 92377960 || prof.FollowingCount != 117 || prof.MediaCount != 28154 {
+		t.Errorf("profile counts mismatch: followers=%d following=%d media=%d",
+			prof.FollowersCount, prof.FollowingCount, prof.MediaCount)
+	}
+
+	following, _, err := client.FetchUserFollowing(ctx, "NASA", 10, "")
+	if err != nil {
+		t.Fatalf("FetchUserFollowing failed: %v", err)
+	}
+	if len(following) != 1 {
+		t.Fatalf("following count = %d, want 1", len(following))
+	}
+	if following[0].TweetsCount != 8455 {
+		t.Errorf("following[0].TweetsCount = %d, want 8455 (from the \"statuses\" key)", following[0].TweetsCount)
+	}
+}

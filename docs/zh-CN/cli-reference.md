@@ -42,7 +42,7 @@ text 渲染；信封流请传 `--ndjson`。
 - **`--ndjson`**：每条记录一个 `nitter.pipeline/v1` 信封：
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[{"type":"image","url":"https://pbs.twimg.com/media/abc.jpg?format=jpg&name=orig","width":1200,"height":800}],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta` 携带溯源信息：`source`（命令输入，形如 `kind:ref` 的键）、`instance`
@@ -162,7 +162,8 @@ nitter profile <HANDLE> [--json|--ndjson]
 ```
 
 获取博主个人名片卡与详细元数据。
-- TTY 默认渲染排版名片卡：包含 Handle、昵称、Bio、关注数、粉丝数、发推数、媒体数、头像/背景横幅直链及受保护状态。
+- TTY 默认渲染排版名片卡：包含 Handle（有昵称时以括号附上）、Bio、关注数、粉丝数、发推数、媒体数、头像/背景横幅直链及受保护状态。关注数、粉丝数与发推数始终打印；`Bio`、`Media`、`Avatar`、`Banner`、`Protected` 仅在数据源提供时出现。
+- `tweets_count` 取数据源的状态数（FxTwitter 的 `statuses` 字段）；数据源不提供时为 `0`——绝不编造。
 - 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
 - `--json`：输出单条 Profile JSON 对象。
 
@@ -245,7 +246,7 @@ stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出�
 示例（`--json` 对单条推文只输出一个对象；形态为示意）：
 
 ```json
-{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
+{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}
 ```
 
 ## nitter media
@@ -288,7 +289,7 @@ GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitte
 人类 / text 输出为每条媒体一行制表符行：
 
 ```text
-https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
+https://x.com/NASA/status/2102761519985332442	fx	video	https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4	-	3.2	24000
 ```
 
 列为 `ref source kind url label duration size`——ref 原样回显输入引用；尾部
@@ -298,7 +299,7 @@ https://x.com/NASA/status/2081668333762687236	fx	video	https://video.twimg.com/e
 `meta.input` = 原始 ref），每个失败的 REF 一个 `kind:"error"` 信封：
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"media","id":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","data":{"ref":"https://x.com/NASA/status/2102761519985332442","source":"fx","kind":"video","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","variants":[{"url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bitrate":2176000}]},"meta":{"input":"https://x.com/NASA/status/2102761519985332442"}}
 ```
 
 退出码：成功为 0（探测失败不计）；单个 REF 解析失败会得到就地错误报告
@@ -384,7 +385,7 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 人类 / text 输出为每个下载文件一行制表符行：
 
 ```text
-https://x.com/NASA/status/2081668333762687236	/home/you/nitter-media/2081668333762687236-1.mp4	24000000	video	fx
+https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/2102761519985332442-1.mp4	24000000	video	fx
 ```
 
 列为 `ref path bytes kind source`——`path` 是绝对文件路径（也是 NDJSON 信封
@@ -397,7 +398,7 @@ https://x.com/NASA/status/2081668333762687236	/home/you/nitter-media/20816683337
 `download`）：
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2081668333762687236-1.mp4","data":{"ref":"https://x.com/NASA/status/2081668333762687236","path":"/home/you/nitter-media/2081668333762687236-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2081668333762687236"}}
+{"schema":"nitter.pipeline/v1","kind":"download","id":"/home/you/nitter-media/2102761519985332442-1.mp4","data":{"ref":"https://x.com/NASA/status/2102761519985332442","path":"/home/you/nitter-media/2102761519985332442-1.mp4","kind":"video","source":"fx","url":"https://video.twimg.com/ext_tw_video/100/pu/vid/pl.mp4","bytes":24000000,"sha256":"…"},"meta":{"input":"https://x.com/NASA/status/2102761519985332442"}}
 ```
 
 退出码：成功为 0（没有计划、没有下载时在 stderr 打印 `(empty)`；消费端提前
@@ -521,7 +522,7 @@ Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源�
 | `--max-new-overflow drop\|keep` | `drop` | 单轮突发超出 `--max-new` 上限的部分如何处理。`drop` 立即将超出部分标记为已见——之后绝不补推（宁丢勿重）。`keep` 不将其标记为已见，后续各轮会在同一上限下重新推送（宁重勿丢；突发量超过两倍上限时需多轮才能排空）。其他值是用法错误；`--max-new 0` 始终按规则重建基准，不受本项影响。 |
 | `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；`0` = 用默认值。 |
 | `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
-| `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。 |
+| `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。每个订阅类别使用各自的目录——见下文「多类别订阅」。 |
 | `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |
 | `--json` | — | 仅可与 `--once` 同用：打印**一个** JSON 文档 `{"tweets":[…裸 Tweet 对象…],"errors":[{"ref","code","message"}…]}`——本轮选出的推文与逐源抓取失败（两个数组为空时是字面量 `[]`；有源失败仍退出 1）。不带 `--once` 时是用法错误：常驻循环是逐轮的流，不是单个文档。 |
 | `--no-reposts` | 关 | 在**去重之前**丢弃纯转推（转推标记只存在于 HTML 解析路径）。 |
@@ -564,6 +565,16 @@ Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源�
 作为扫描水位。用 `nitter seen list --state-dir <dir>` 检视（不带 flag 则查看
 默认位置）；`seen clear` 接受同一个 flag。
 
+**多类别订阅——每个类别一个 `--state-dir`。** 订阅*类别*指用途、节奏或推送渠道
+相同的一组源。给每个类别各自的 `--state-dir ~/.nitter-cli/state/<category>`，
+并在该类别的每一行调度命令里都传同一个 flag；漏传该 flag 的行会回落到默认的
+`~/.nitter-cli/state`，从而把两个类别重新耦合在一起。状态在一个 `seen.json` 内
+以源键为键，因此两个类别订阅同一账号时会共用 `user:HANDLE`：先跑的那一轮把推文
+标记为已见，另一个类别就静默丢弃它——不报错，`--once` 仍退出 0。分目录也能让
+并发运行彼此独立：状态存储只在单个进程内串行化写入，因此两个任务同时对同一个
+`seen.json` 读-改-写时，后写者会覆盖先写者的标记。用同一个 flag 限定
+`seen list`/`seen clear`，即可只检视或重置某一个类别。
+
 示例——调度器消费 NDJSON 流（示意）：
 
 ```bash
@@ -577,14 +588,14 @@ nitter watch user:NASA tag:#AI --once --ndjson --max-new 50 --max-new-overflow k
 ```
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{…},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 {"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"…"},"meta":{"input":"tag:#AI"}}
 ```
 
 `--once --json` 则把整轮输出为一个文档（示意）：
 
 ```json
-{"tweets":[{"id":"2081668333762687236","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
+{"tweets":[{"id":"2102761519985332442","url":"…","text":"…","author":{…},"published_at":"2026-09-12T08:00:00Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null}],"errors":[{"ref":"tag:#AI","code":"upstream_unavailable","message":"…"}]}
 ```
 
 ## nitter seen

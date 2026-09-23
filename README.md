@@ -163,10 +163,10 @@ nitter circle run ai_researchers --limit 1            # stream a curated creator
 nitter search "#AI" --limit 20 | nitter download --output ./media
 
 # Download a video at the lowest quality tier
-nitter download https://x.com/NASA/status/2081668333762687236 --quality low
+nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 
 # Fetch only the video's cover image
-nitter download https://x.com/NASA/status/2081668333762687236 --kind cover
+nitter download https://x.com/NASA/status/2102761519985332442 --kind cover
 
 # Set up a deduplicated watch from your scheduler: one cycle per run,
 # new tweets only, state persists between runs
@@ -296,7 +296,7 @@ for its envelope stream); `config`, `seen` and `update` are unchanged.
 Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2081668333762687236","data":{"id":"2081668333762687236","url":"https://x.com/NASA/status/2081668333762687236","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
+{"schema":"nitter.pipeline/v1","kind":"tweet","id":"2102761519985332442","data":{"id":"2102761519985332442","url":"https://x.com/NASA/status/2102761519985332442","text":"…","author":{"handle":"NASA","name":"NASA","avatar_url":"…"},"published_at":"2026-07-27T09:09:40Z","media":[],"is_retweet":false,"reposted_by":"","reply_to":"","quote":null},"meta":{"source":"user:NASA","instance":"http://nitter.internal:8080","fetched_at":"2026-09-12T08:00:00Z"}}
 ```
 
 `meta.instance` records the provenance of the fetch: `"FxTwitter"` when the
@@ -358,6 +358,14 @@ only describe successful output; **stderr is never JSON**.
 - **`seen` follows `--state-dir`**: `nitter seen list/clear` operate on the
   default `~/.nitter-cli/state/seen.json`, or on `<dir>/seen.json` when given
   `--state-dir <dir>` — the same directory `watch --state-dir` uses.
+- **One `--state-dir` per subscription category**: when you run several watch
+  categories (a different purpose, cadence, or push channel each), give every
+  category its own `--state-dir ~/.nitter-cli/state/<category>` and pass that
+  same flag on every scheduler line of the category. State is keyed by source
+  key inside one `seen.json`, so two categories watching the same account share
+  the key `user:HANDLE`: the category whose cycle runs first marks the tweet
+  seen and the other one drops it silently (exit 0, no warning). Separate
+  directories also stop concurrent runs from overwriting each other's marks.
 
 ## FAQ
 

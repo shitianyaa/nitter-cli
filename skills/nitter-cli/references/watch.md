@@ -106,6 +106,67 @@ valid anywhere (watch sources, `[[watch.sources]]`, `seen --source`).
   graceful exit 0; if the pipe breaks mid-state-write, the next round re-pushes.
 - A corrupt state file is a hard error (exit 1) — never a silent reset.
 
+## Multi-category subscriptions: one `--state-dir` per category
+
+A subscription *category* is a group of sources that share a purpose, a cadence,
+or a push channel — for example `ai-artists` polled every 10 minutes into
+Telegram, and `news` posted hourly into a digest channel. Give every category
+its OWN state directory:
+
+```bash
+# crontab
+*/10 * * * * nitter watch user:A user:B --once --state-dir ~/.nitter-cli/state/ai-artists --ndjson >> /var/log/nitter-ai.ndjson
+0 * * * *    nitter watch tag:#AI --once --state-dir ~/.nitter-cli/state/news --ndjson >> /var/log/nitter-news.ndjson
+```
+
+- One directory per category, under a common root
+  (`~/.nitter-cli/state/<category>`); the directory is created on demand.
+- Every scheduler line of a category must pass the SAME `--state-dir`. A line
+  that omits the flag silently falls back to the default
+  `~/.nitter-cli/state` — that is how one missing flag re-couples two
+  categories.
+- A brand-new (empty) directory makes the category's next cycle a first run:
+  record-only (只记不推), nothing is emitted until the cycle after that, unless
+  that run passes `--include-existing`.
+
+**Why a shared `seen.json` silently loses tweets (静默漏推).** Dedup state is
+keyed by source key (`user:NASA`, `tag:#AI`) inside one `seen.json` per
+directory. Two categories that subscribe to the same account use the SAME key
+`user:NASA`:
+
+- The category whose cycle runs FIRST emits the new tweet and marks its ID
+  seen. The other category's cycle then finds the ID already seen and emits
+  nothing — that channel never receives the tweet. There is no error and no
+  warning: the second run exits 0 with an empty stream, indistinguishable from
+  a quiet source.
+- The collision is per source key, so it hits exactly the accounts that belong
+  to more than one category. Different `--max-new` values or cadences do not
+  help; only separate state directories do.
+- `seen clear --source <key>` and `seen list` operate on one directory too: with
+  a shared directory, resetting a category's backlog also rewrites every other
+  category's view of that account, and a diagnosis mixes categories together.
+  Keep the reset scoped by passing the category's `--state-dir` (consent still
+  required for `clear`).
+
+**Why separate directories also protect concurrent runs.** The store
+serializes writes only WITHIN one process (a package mutex) and persists
+through a temp-file + rename; there is no cross-process file lock. Two
+scheduler entries that fire in the same second against the same `seen.json`
+read-modify-write the same file and the last writer wins, discarding the other
+run's seen marks (re-pushing already delivered tweets) or its baseline.
+Distinct directories make concurrent categories independent writers, so no
+ordering assumption between jobs is needed.
+
+Operations per category:
+
+```bash
+nitter seen list  --state-dir ~/.nitter-cli/state/ai-artists
+nitter seen clear --source user:NASA --state-dir ~/.nitter-cli/state/ai-artists --confirm
+```
+
+With `--state-dir`, the default location is ignored entirely (reads create
+nothing); without it, both commands operate on `~/.nitter-cli/state/seen.json`.
+
 ## `--once --json`: one document per cycle
 
 With `--once` (and only then), `--json` replaces the text rows with ONE JSON
@@ -141,8 +202,10 @@ non-EPIPE write failure); SIGINT/SIGTERM exit 0.
 
 ## Agent etiquette
 
-- Watch setup is stateful configuration: agree on sources, cadence, and
-  `--max-new` with the user before writing a scheduler entry.
+- Watch setup is stateful configuration: agree on sources, cadence,
+  `--max-new` and the category's `--state-dir` with the user before writing a
+  scheduler entry (see "Multi-category subscriptions" above when the user runs
+  more than one category).
 - Diagnose a suspicious watch run in this order: exit code → stderr lines /
   error envelopes → `nitter seen list --state-dir <dir>` (or the default
   location without the flag) → `nitter instances test` for instance health.

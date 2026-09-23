@@ -64,9 +64,13 @@ type RawAuthor struct {
 	Tweets               int         `json:"tweets"`
 	TweetsCount          int         `json:"tweets_count"`
 	StatusesCount        int         `json:"statuses_count"`
-	MediaCount           int         `json:"media_count"`
-	Protected            bool        `json:"protected"`
-	IsProtected          bool        `json:"is_protected"`
+	// Statuses is the tweet-count key actually emitted by FxTwitter's
+	// profile/author objects (e.g. {"statuses":74322}); the other three
+	// keys are legacy/Twitter-API spellings kept as fallbacks.
+	Statuses    int  `json:"statuses"`
+	MediaCount  int  `json:"media_count"`
+	Protected   bool `json:"protected"`
+	IsProtected bool `json:"is_protected"`
 }
 
 // ToSDKProfile converts RawAuthor to sdk.Profile.
@@ -97,7 +101,10 @@ func (u *RawAuthor) ToSDKProfile() *sdk.Profile {
 	if following == 0 {
 		following = u.Following
 	}
-	tweets := u.TweetsCount
+	tweets := u.Statuses
+	if tweets == 0 {
+		tweets = u.TweetsCount
+	}
 	if tweets == 0 {
 		tweets = u.StatusesCount
 	}
