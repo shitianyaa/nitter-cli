@@ -40,6 +40,15 @@ const (
 	SchemaVersion = 1
 )
 
+// opLoad and opSave are the Op values stamped on seen-store errors. The
+// package-qualified form matches every other classified error in this repo
+// (media.FetchToFile, appapi.Search); an earlier prose form ("load seen
+// state") was the only op that did not.
+const (
+	opLoad = "seen.Load"
+	opSave = "seen.Save"
+)
+
 // SourceState is one subscribed source's dedup state. SeenIDs is ordered
 // newest-first; WatermarkIDs holds the page-1 scan anchors, newest-first.
 type SourceState struct {
@@ -87,16 +96,16 @@ func loadFile(path string) (File, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return File{Version: SchemaVersion, Sources: map[string]SourceState{}}, nil
 		}
-		return File{}, nitter.Errorf(nitter.KindLocalState, "load seen state",
+		return File{}, nitter.Errorf(nitter.KindLocalState, opLoad,
 			"read %s: %w", path, err)
 	}
 	file, err := decodeStrict(data)
 	if err != nil {
-		return File{}, nitter.Errorf(nitter.KindLocalState, "load seen state",
+		return File{}, nitter.Errorf(nitter.KindLocalState, opLoad,
 			"parse %s: %w", path, err)
 	}
 	if file.Version != SchemaVersion {
-		return File{}, nitter.Errorf(nitter.KindLocalState, "load seen state",
+		return File{}, nitter.Errorf(nitter.KindLocalState, opLoad,
 			"unsupported %s schema version %d (want %d); refusing to reset state",
 			path, file.Version, SchemaVersion)
 	}
@@ -145,7 +154,7 @@ func (s *Store) Get(source string) (SourceState, bool) {
 // so later caller mutations cannot leak into the file.
 func (s *Store) Put(source string, state SourceState) error {
 	if source == "" {
-		return nitter.Errorf(nitter.KindLocalState, "save seen state", "empty source key")
+		return nitter.Errorf(nitter.KindLocalState, opSave, "empty source key")
 	}
 	state.UpdatedAt = s.now().UTC()
 	state.SeenIDs = slices.Clone(state.SeenIDs)
@@ -225,10 +234,10 @@ func (s *Store) Clear() error {
 func (s *Store) persistLocked(sources map[string]SourceState) error {
 	data, err := jsonx.MarshalLine(File{Version: SchemaVersion, Sources: sources})
 	if err != nil {
-		return nitter.Errorf(nitter.KindLocalState, "save seen state", "encode: %w", err)
+		return nitter.Errorf(nitter.KindLocalState, opSave, "encode: %w", err)
 	}
 	if err := writeFileAtomic(s.path, data); err != nil {
-		return nitter.Errorf(nitter.KindLocalState, "save seen state", "%w", err)
+		return nitter.Errorf(nitter.KindLocalState, opSave, "%w", err)
 	}
 	s.file.Sources = sources
 	return nil
