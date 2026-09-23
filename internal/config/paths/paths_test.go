@@ -20,11 +20,12 @@ func TestNewUnderTempHome(t *testing.T) {
 	}
 	dir := filepath.Join(home, paths.AppDirName)
 	want := paths.Paths{
-		Dir:         dir,
-		ConfigFile:  filepath.Join(dir, "config.toml"),
-		CirclesFile: filepath.Join(dir, "circles.toml"),
-		StateDir:    filepath.Join(dir, "state"),
-		SeenFile:    filepath.Join(dir, "state", "seen.json"),
+		Dir:          dir,
+		ConfigFile:   filepath.Join(dir, "config.toml"),
+		CirclesFile:  filepath.Join(dir, "circles.toml"),
+		ProfilesFile: filepath.Join(dir, "profiles.toml"),
+		StateDir:     filepath.Join(dir, "state"),
+		SeenFile:     filepath.Join(dir, "state", "seen.json"),
 	}
 	if p != want {
 		t.Fatalf("New() = %+v, want %+v", p, want)
