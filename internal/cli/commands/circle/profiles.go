@@ -3,12 +3,15 @@ package circle
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli/client"
 	"github.com/shitianyaa/nitter-cli/internal/cli/invocation"
+	"github.com/shitianyaa/nitter-cli/internal/common/jsonx"
 	"github.com/shitianyaa/nitter-cli/internal/config/paths"
 	"github.com/shitianyaa/nitter-cli/internal/config/settings"
 )
@@ -99,4 +102,53 @@ func runRefresh(cmd *cobra.Command, s *invocation.Streams, name string) error {
 	}
 	fmt.Fprintf(s.Out, "refreshed %d/%d members in circle %s\n", refreshed, len(circle.Users), circle.Key)
 	return nil
+}
+
+// sidecarRow is the JSON projection of one roster member joined with its
+// sidecar record. An absent record yields empty facts (fetched_at == "").
+type sidecarRow struct {
+	Handle         string `json:"handle"`
+	Name           string `json:"name"`
+	Bio            string `json:"bio"`
+	FollowersCount int    `json:"followers_count"`
+	FetchedAt      string `json:"fetched_at"`
+	Role           string `json:"role"`
+	Note           string `json:"note"`
+}
+
+// writeSidecarJSON writes the joined rows as a JSON array in roster order.
+func writeSidecarJSON(s *invocation.Streams, rows []sidecarRow) error {
+	if rows == nil {
+		rows = []sidecarRow{}
+	}
+	b, err := jsonx.MarshalLine(rows)
+	if err != nil {
+		return err
+	}
+	_, err = s.Out.Write(b)
+	return err
+}
+
+// renderSidecarLine renders one human row:
+//
+//	@<handle>\t<followers>\t<role>\t<name>\t<bio>\t<age>
+//
+// Columns with no data render as "-" so a member is never silently dropped.
+func renderSidecarLine(handle string, prof settings.Profile, hasCache bool, now time.Time) string {
+	if !hasCache {
+		return "@" + handle + "\t-\t-\t-\t-\t-"
+	}
+	followers := strconv.Itoa(prof.FollowersCount)
+	role := dashIfEmpty(prof.Role)
+	name := dashIfEmpty(shortBio(prof.Name))
+	bio := dashIfEmpty(shortBio(prof.Bio))
+	age := settings.ProfileAge(prof.FetchedAt, now)
+	return strings.Join([]string{"@" + handle, followers, role, name, bio, age}, "\t")
+}
+
+func dashIfEmpty(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "-"
+	}
+	return v
 }

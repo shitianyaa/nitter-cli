@@ -149,6 +149,9 @@ func TestCircle_AddListShow(t *testing.T) {
 
 	// 4. Show circle
 	t.Run("show circle text", func(t *testing.T) {
+		cleanup := client.SetFxBaseURLForTesting("http://127.0.0.1:1")
+		defer cleanup()
+
 		code, out, _ := runCLI(t, "circle", "show", "dev")
 		if code != 0 {
 			t.Fatalf("code = %d, want 0", code)
@@ -157,8 +160,17 @@ func TestCircle_AddListShow(t *testing.T) {
 		if len(lines) != 2 {
 			t.Fatalf("lines count = %d, want 2; out=%q", len(lines), out)
 		}
-		if lines[0] != "@golang" || lines[1] != "@github" {
-			t.Errorf("unexpected lines: %v", lines)
+		for i, handle := range []string{"@golang", "@github"} {
+			cells := strings.Split(lines[i], "\t")
+			if len(cells) != 6 || cells[0] != handle {
+				t.Errorf("row %d = %v, want 6 columns starting with %s", i, cells, handle)
+				continue
+			}
+			for j := 1; j < 6; j++ {
+				if cells[j] != "-" {
+					t.Errorf("row %d column %d = %q, want - (no cache)", i, j, cells[j])
+				}
+			}
 		}
 	})
 
@@ -167,12 +179,17 @@ func TestCircle_AddListShow(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("code = %d, want 0", code)
 		}
-		var users []string
-		if err := json.Unmarshal([]byte(out), &users); err != nil {
+		var rows []map[string]any
+		if err := json.Unmarshal([]byte(out), &rows); err != nil {
 			t.Fatalf("unmarshal show json: %v", err)
 		}
-		if len(users) != 2 || users[0] != "golang" || users[1] != "github" {
-			t.Errorf("unexpected users: %v", users)
+		if len(rows) != 2 || rows[0]["handle"] != "golang" || rows[1]["handle"] != "github" {
+			t.Errorf("unexpected rows: %+v", rows)
+		}
+		for _, row := range rows {
+			if row["fetched_at"] != "" {
+				t.Errorf("uncached row must have empty fetched_at: %+v", row)
+			}
 		}
 	})
 
@@ -474,166 +491,6 @@ func TestCircle_RunMetaFilter(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestCircle_ShowMinFollowers: `circle show --min-followers N` filters the
-// circle's members by follower count via per-member profile fetches. Each
-// surviving row is `@<handle>\t<followers_count>` (or a JSON array of
-// {handle, followers_count} objects with --json); a member whose profile
-// fetch fails is skipped with a stderr warning while others continue; all
-// failing is a runtime failure (exit 1); a negative --min-followers is a
-// usage error (exit 2) before any network; without the flag the command
-// performs zero network requests.
-func TestCircle_ShowMinFollowers(t *testing.T) {
-	newHome := func(t *testing.T) {
-		t.Helper()
-		home := tempHome(t)
-		writeConfig(t, home)
-		runCLI(t, "circle", "add", "dev", "big")
-		runCLI(t, "circle", "add", "dev", "small")
-		runCLI(t, "circle", "add", "dev", "gone")
-	}
-
-	newServer := func(t *testing.T) (*httptest.Server, *int) {
-		t.Helper()
-		requests := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requests++
-			w.Header().Set("Content-Type", "application/json")
-			path := strings.ToLower(r.URL.Path)
-			switch {
-			case strings.HasSuffix(path, "/profile/big"):
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"code": 200,
-					"user": map[string]any{"screen_name": "big", "followers": 12000},
-				})
-			case strings.HasSuffix(path, "/profile/small"):
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"code": 200,
-					"user": map[string]any{"screen_name": "small", "followers": 300},
-				})
-			case strings.HasSuffix(path, "/profile/gone"):
-				http.Error(w, `{"code": 404, "message": "User not found"}`, http.StatusNotFound)
-			default:
-				http.NotFound(w, r)
-			}
-		}))
-		return srv, &requests
-	}
-
-	t.Run("filters by follower count", func(t *testing.T) {
-		newHome(t)
-		srv, _ := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		code, out, errOut := runCLI(t, "circle", "show", "dev", "--min-followers", "5000")
-		if code != 0 {
-			t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
-		}
-		lines := strings.Split(strings.TrimSpace(out), "\n")
-		if len(lines) != 1 || lines[0] != "@big\t12000" {
-			t.Errorf("lines = %v, want [@big\\t12000]", lines)
-		}
-	})
-
-	t.Run("json combined output", func(t *testing.T) {
-		newHome(t)
-		srv, _ := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		code, out, errOut := runCLI(t, "circle", "show", "dev", "--min-followers", "5000", "--json")
-		if code != 0 {
-			t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
-		}
-		var rows []map[string]any
-		if err := json.Unmarshal([]byte(out), &rows); err != nil {
-			t.Fatalf("unmarshal: %v\n%s", err, out)
-		}
-		if len(rows) != 1 || rows[0]["handle"] != "big" || rows[0]["followers_count"].(float64) != 12000 {
-			t.Errorf("rows = %+v, want [{handle: big, followers_count: 12000}]", rows)
-		}
-	})
-
-	t.Run("profile failure skips member with warning", func(t *testing.T) {
-		newHome(t)
-		srv, _ := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		// min 0 keeps every member whose profile resolves; `gone` fails and
-		// is skipped with a warning, the others continue.
-		code, out, errOut := runCLI(t, "circle", "show", "dev", "--min-followers", "0")
-		if code != 0 {
-			t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
-		}
-		if !strings.Contains(errOut, "warning: circle show: @gone") {
-			t.Errorf("errOut = %q, want a warning naming @gone", errOut)
-		}
-		lines := strings.Split(strings.TrimSpace(out), "\n")
-		if len(lines) != 2 || lines[0] != "@big\t12000" || lines[1] != "@small\t300" {
-			t.Errorf("lines = %v, want big and small rows", lines)
-		}
-	})
-
-	t.Run("all profiles fail exits 1", func(t *testing.T) {
-		home := tempHome(t)
-		writeConfig(t, home)
-		runCLI(t, "circle", "add", "solo", "gone")
-
-		srv, _ := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		code, _, errOut := runCLI(t, "circle", "show", "solo", "--min-followers", "0")
-		if code != 1 {
-			t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
-		}
-	})
-
-	t.Run("negative min-followers exits 2 before network", func(t *testing.T) {
-		newHome(t)
-		srv, requests := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		code, _, errOut := runCLI(t, "circle", "show", "dev", "--min-followers", "-1")
-		if code != 2 {
-			t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
-		}
-		if !strings.Contains(errOut, "--min-followers") {
-			t.Errorf("errOut = %q, want it to name --min-followers", errOut)
-		}
-		if *requests != 0 {
-			t.Errorf("requests = %d, want 0 (validation must precede network)", *requests)
-		}
-	})
-
-	t.Run("without flag zero network requests", func(t *testing.T) {
-		newHome(t)
-		srv, requests := newServer(t)
-		defer srv.Close()
-		cleanup := client.SetFxBaseURLForTesting(srv.URL)
-		defer cleanup()
-
-		code, out, _ := runCLI(t, "circle", "show", "dev")
-		if code != 0 {
-			t.Fatalf("exit = %d, want 0", code)
-		}
-		if *requests != 0 {
-			t.Errorf("requests = %d, want 0", *requests)
-		}
-		lines := strings.Split(strings.TrimSpace(out), "\n")
-		if len(lines) != 3 || lines[0] != "@big" || lines[1] != "@small" || lines[2] != "@gone" {
-			t.Errorf("lines = %v, want plain handle list", lines)
-		}
-	})
 }
 
 // fxMediaTweet builds one fx media-endpoint result entry with a photo.
