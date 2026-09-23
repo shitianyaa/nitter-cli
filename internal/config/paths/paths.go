@@ -14,11 +14,12 @@ const AppDirName = ".nitter-cli"
 
 // Paths bundles the locations derived from the user home directory.
 type Paths struct {
-	Dir         string
-	ConfigFile  string
-	CirclesFile string
-	StateDir    string
-	SeenFile    string
+	Dir          string
+	ConfigFile   string
+	CirclesFile  string
+	ProfilesFile string
+	StateDir     string
+	SeenFile     string
 }
 
 // New assembles the paths under the user home directory; it creates nothing.
@@ -29,11 +30,12 @@ func New() (Paths, error) {
 	}
 	dir := filepath.Join(home, AppDirName)
 	return Paths{
-		Dir:         dir,
-		ConfigFile:  filepath.Join(dir, "config.toml"),
-		CirclesFile: filepath.Join(dir, "circles.toml"),
-		StateDir:    filepath.Join(dir, "state"),
-		SeenFile:    filepath.Join(dir, "state", "seen.json"),
+		Dir:          dir,
+		ConfigFile:   filepath.Join(dir, "config.toml"),
+		CirclesFile:  filepath.Join(dir, "circles.toml"),
+		ProfilesFile: filepath.Join(dir, "profiles.toml"),
+		StateDir:     filepath.Join(dir, "state"),
+		SeenFile:     filepath.Join(dir, "state", "seen.json"),
 	}, nil
 }
 

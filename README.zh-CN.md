@@ -16,11 +16,11 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
 
 ## 为什么选择 nitter-cli？
 
-- **FxTwitter 快车道 + Nitter 深度**——`fetch_backend` 决定路由：`mix`
-  （默认）优先尝试 FxTwitter 公共 API（无需账号、无需凭证），失败时回退到你
-  自建的实例；`nitter` 让所有抓取都留在你自控的实例上；`fx` 固定快车道。
-  List 始终需要 Nitter。`mix`/`fx` 模式下 handle 与查询词会发送至
-  `api.fxtwitter.com`——需要纯自托管请选 `nitter`。
+- **FxTwitter 快车道 + Nitter 深度**——`fetch_backend` 决定时间线与状态取数的
+  路由：`mix`（默认）优先尝试 FxTwitter 公共 API（无需账号、无需凭证），失败时
+  回退到你自建的实例；`nitter` 让这两类抓取留在你自控的实例上；`fx` 固定快车道。
+  `list` 始终需要 Nitter；`comments`/`profile`/`following`/`quotes`/`trends` 与
+  `circle refresh` 则始终走 `api.fxtwitter.com`（无 Nitter 对应端点）。
 - **灵活的实例策略**——指向任何一个你自主控制的 Nitter 实例：配置轮换集
   （`[[instances]]`，严格按配置顺序轮换，失败实例进入冷却），单次用
   `--instance` 覆盖，并可用主机级 basic auth 认证（`username` **和**
@@ -36,7 +36,7 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
 - **对话与回复树**——`comments` 拉取某条推文的对话链与评论区（可按高赞或
   最新排序），是找到博主自评隐藏链接、追更连环长推的最快路径。
 - **创作者圈子**——`nitter circle` 在 `~/.nitter-cli/circles.toml` 维护主题
-  花名册（`list` / `show` / `suggest` / `add` / `run`）：`suggest` 从某博主的
+  花名册（`list` / `show` / `refresh` / `suggest` / `add` / `run`）：`suggest` 从某博主的
   关注列表与转推原作者中挖出新候选成员，再按需发现与管道流式拉取，与调度
   型的 `watch` 订阅各司其职。
 - **可组合的管道**——stdout 是管道时，数据命令自动输出 `nitter.pipeline/v1`
@@ -280,7 +280,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 - `0` — 成功（含空结果；消费端关闭 stdout 管道、`watch` 收到 SIGINT/SIGTERM
   优雅关闭，同样退出 0）；
 - `1` — 运行时失败（所有实例都失败；`watch --once` 有至少一个源失败；
-  `seen.json` 损坏；配置文件读取/解析失败）；
+  `seen.json` 或 `profiles.toml` 损坏；配置文件读取/解析失败）；
 - `2` — 用法错误（flag 或参数不合法、输入契约违规、`--json --ndjson` 同时给出、
   不带 `--once` 的 `watch --json`、配置值不合法；未知**子命令**名退出 1）。
 
@@ -336,17 +336,28 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 **数据都存在哪里？**
 `~/.nitter-cli/config.toml`（配置）、`~/.nitter-cli/circles.toml`（创作者圈子
-花名册）和 `~/.nitter-cli/state/seen.json`（watch 去重状态）。Windows 上都在
+花名册）、`~/.nitter-cli/profiles.toml`（圈子成员侧写缓存，以 handle 小写为键）
+和 `~/.nitter-cli/state/seen.json`（watch 去重状态）。Windows 上都在
 用户主目录下（`nitter config path` 打印确切位置）。写入全部原子化；状态文件
 损坏是硬错误（退出 1），绝不静默重置。
+
+侧写文件由 `nitter circle refresh <NAME>` 填充、由 `nitter circle show` 读取。
+它存机器刷新的事实（`name`、`bio`、`followers_count`、`fetched_at`）加上你自己
+记录的判断（`role`、`note`、`noted_at`）——刷新只覆盖事实，绝不触碰判断。
+该文件由机器管理，重写会丢弃注释；手改请只动 `role`/`note`。
 
 **默认的 `mix` 模式会把什么发到哪里？**
 `user`、`search`、`get`、`comments`、`following`、`profile`、`quotes`、
 `trends` 与 `search --type user` 会优先尝试 FxTwitter 的公共端点
 （`api.fxtwitter.com`）——handle 或查询词会发送给这个第三方服务，不会附带你
 的任何凭证；失败时回退到你自己配置的实例。`list` 始终走你的实例（FxTwitter
-没有 List 端点），单次 `--instance URL` 会强制该命令走 Nitter 路径，而
-`fetch_backend = "nitter"` 则让所有抓取都留在你自控的基础设施上。
+没有 List 端点），单次 `--instance URL` 会强制该命令走 Nitter 路径。
+
+`fetch_backend` 只管时间线与状态这两类取数——`user`、`search`、`get`。`list`
+始终走你的实例（FxTwitter 没有 List 端点）。其余命令仅走 FxTwitter，无论
+`fetch_backend` 怎么设都会访问 `api.fxtwitter.com`，因为它们没有 Nitter 对应端点：
+`comments`、`profile`、`following`、`quotes`、`trends`，以及 `circle refresh`
+（它为每个圈子成员发一次 profile 请求）。
 
 **只想对一条命令换实例怎么办？**
 `nitter --instance http://nitter.internal:8080 user NASA` 只在本次调用中替换

@@ -131,6 +131,7 @@ Fetches the root tweet, context thread chain, and user replies for a status.
 ```bash
 nitter circle list [--json]
 nitter circle show <NAME> [--json] [--min-followers N]
+nitter circle refresh <NAME>
 nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
@@ -138,8 +139,15 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 
 Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `list`: lists configured circles with user counts.
-- `show`: lists handles in a circle.
-  - **`--min-followers N`**: keeps only members with at least N followers, printing `@<handle>\t<followers>` per row (TSV for piping); `--json` outputs a JSON array of `{handle, followers_count}` objects instead. Each member's profile is fetched (one request per member); a failed profile is skipped with a one-line stderr warning while the others continue, and when every member fails the command exits 1. A negative N is a usage error (exit 2) before any network. Without the flag the command performs zero network requests and lists plain handles as before.
+- `show`: lists members joined with their cached profiles in `~/.nitter-cli/profiles.toml`. **Local only — zero network requests.** Each member renders as `@<handle>\t<followers>\t<role>\t<name>\t<bio>\t<age>` (the bio is flattened to one line and truncated at 120 bytes); absent data renders as `-` rather than dropping the row.
+  - **`--min-followers N`**: keeps only members whose **cached** follower count is at least N. A member with no cache has no verified count and is excluded by the filter, but is still counted in the stderr note. `N < 0` is a usage error (exit 2).
+  - Members without a cache keep their row with `-` placeholders, and a `note: <N> member(s) have no cached profile; run 'nitter circle refresh <NAME>'` line goes to stderr (whether or not `--min-followers` filtered them out). Run `refresh` once to populate the cache.
+  - `--json` emits an array of `{handle, name, bio, followers_count, fetched_at, role, note}` in roster order; as in the human rows, `bio` is flattened to one line and truncated to 120 bytes. An empty `fetched_at` means never fetched; consumers derive freshness from it (`noted_at` and a derived age are deliberately not projected).
+- `refresh`: fetches each member's profile and merges the results into the sidecar `~/.nitter-cli/profiles.toml`. It is the **only** networked writer of that file and the only command that fetches profiles for a circle.
+  - It writes only the fact fields (`name`, `bio`, `followers_count`, `fetched_at`) and **never** touches `role`, `note` or `noted_at` — judgement recorded there survives every refresh.
+  - A member whose fetch fails is skipped with a `warning:` on stderr while the rest continue, and its existing entry keeps its previous facts (no empty overwrite, and no entry is created for it). All members failing exits 1; an unknown circle exits 1; an empty circle prints `(empty)`, exits 0 and creates no file.
+  - Prints `refreshed N/M members in circle <key>`. It never prunes: sidecar entries for handles no longer in the circle are left alone.
+  - The sidecar is keyed by lowercase handle and is machine-managed — a rewrite drops comments and unlisted fields, so only edit `role`/`note` by hand.
 - `suggest`: read-only candidate discovery for building a new circle, merging two existing data lanes — `HANDLE`'s **following list** (static relation) and the **authors of the retweets** in its timeline (behavioral relation). Output is ranked by co-occurrence count (a handle appearing in both lanes ranks first), then by follower count descending, then handle ascending (deterministic).
   - `--limit N` (default 20, **must be >= 1**): per-lane fetch cap. `--limit 0` is a usage error (exit 2) on purpose — the two lanes give `0` opposite, useless meanings (timeline: empty; following: one server-side page). The following lane ignores `limit`/`count` upstream and returns one page of ~50–67 accounts regardless, so the client truncates; the actual count may therefore be below `N`.
   - `--min-followers N` (default 0): filters only the trailing `top matches` summary section, never the main table or `--json` output.
