@@ -439,11 +439,19 @@ writes them to disk, and `nitter media` resolves links without downloading.
 
 ## Credits
 
-The project layout follows [javdb-cli](https://github.com/FlanChanXwO/javdb-cli)
-and [pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli): the layered bilingual
-docs, the repo-local process skills, the contribution guide and PR template, the
-versioned changelog, and the tag-triggered multi-platform release matrix.
+- **[Nitter](https://github.com/zedeus/nitter)** — the instance software this
+  client speaks to. Upstream was archived in September 2026, so this project
+  targets instances you run yourself.
+- **[FxTwitter](https://github.com/FxEmbed/FxEmbed)** (now maintained as
+  FxEmbed) — the public API behind the default `mix` / `fx` fast lanes.
+- **[javdb-cli](https://github.com/FlanChanXwO/javdb-cli)** and
+  **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)**, both by
+  [FlanChanXwO](https://github.com/FlanChanXwO) — this project borrows its shape
+  from them: the bilingual docs, the repo-local process skills, the versioned
+  changelog and the release matrix are all their conventions.
+
+Created and maintained by [shitianyaa](https://github.com/shitianyaa).
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE) © shitianyaa

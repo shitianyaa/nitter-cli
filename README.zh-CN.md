@@ -386,10 +386,17 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 
 ## 致谢
 
-项目结构沿用 [javdb-cli](https://github.com/FlanChanXwO/javdb-cli) 与
-[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli) 的做法：分层双语文档、
-仓库内流程 skill、贡献指南与 PR 模板、版本化 changelog，以及 tag 触发的多平台发布矩阵。
+- **[Nitter](https://github.com/zedeus/nitter)**——本客户端对接的实例软件；上游已于
+  2026 年 9 月归档，因此本项目面向你自行运行的实例。
+- **[FxTwitter](https://github.com/FxEmbed/FxEmbed)**（现以 FxEmbed 维护）——默认
+  `mix` / `fx` 快车道背后的公开 API。
+- **[javdb-cli](https://github.com/FlanChanXwO/javdb-cli)** 与
+  **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)**（作者
+  [FlanChanXwO](https://github.com/FlanChanXwO)）——本项目整体形态借鉴自这两个项目，
+  从双语文档、仓库内流程 skill 到版本化 changelog 与发布矩阵，都沿用其约定。
+
+由 [shitianyaa](https://github.com/shitianyaa) 创建与维护。
 
 ## 许可证
 
-[MIT](LICENSE)。
+[MIT](LICENSE) © shitianyaa
