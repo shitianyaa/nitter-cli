@@ -98,7 +98,7 @@ Requires Go 1.27+:
 
 ```bash
 sh scripts/build.sh          # produces ./nitter
-./nitter --version           # nitter version 0.7.1 (or a dev line)
+./nitter --version           # nitter version <version> (or a dev line)
 ```
 
 ### Install with an AI agent
@@ -230,7 +230,7 @@ subcommands.
 | `retry_delay` | duration | `1s` | — | Linear backoff base: attempt n waits `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
 | `fetch_backend` | enum | `mix` | `NITTER_FETCH_BACKEND` | Fetch backend strategy: `mix` (default, FxTwitter fast-lane with Nitter fallback), `nitter` (pure Nitter), `fx` (pure FxTwitter) |
-| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = fall back to environment (`HTTPS_PROXY`/`ALL_PROXY`) |
+| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = no configured proxy — `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and `update` only, **not** to the nitter transport |
 | `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr only, stdout stays pure data |
 | `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or single-line `json` |
 | `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media files (cwd-relative; created on demand; overridden per call by `download --output DIR`) |

@@ -85,7 +85,7 @@ sha256sum -c checksums.txt --ignore-missing   # 或等价工具
 
 ```bash
 sh scripts/build.sh          # 生成 ./nitter
-./nitter --version           # nitter version 0.7.1（或 dev 版本行）
+./nitter --version           # nitter version <version>（或 dev 版本行）
 ```
 
 ### 让 AI Agent 安装
@@ -208,7 +208,7 @@ client, err := nitter.New(
 | `retry_delay` | duration | `1s` | — | 线性退避基数：第 n 次重试等待 `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | 实例失败（429 / 网络错误）后的冷却时长 |
 | `fetch_backend` | 枚举 | `mix` | `NITTER_FETCH_BACKEND` | 抓取后端策略：`mix`（默认优先 FxTwitter，故障回退自建 Nitter）、`nitter`（纯 Nitter 实例）、`fx`（纯 FxTwitter） |
-| `proxy` | string | `""` | — | 代理 URL（`http(s)`、`socks5(h)`）；空 = 走环境代理（`HTTPS_PROXY`/`ALL_PROXY`） |
+| `proxy` | string | `""` | — | 代理 URL（`http(s)`、`socks5(h)`）；空 = 未配置代理——`HTTPS_PROXY`/`ALL_PROXY` 只对 FxTwitter 快车道与 `update` 生效，**不**作用于 nitter 传输 |
 | `log_level` | 枚举 | `info` | `NITTER_LOG_LEVEL` | `debug` 或 `info`；诊断只进 stderr，不污染 stdout |
 | `log_format` | 枚举 | `text` | `NITTER_LOG_FORMAT` | `text` 或 `json`（单行） |
 | `download_path` | string | `./nitter-media` | — | `nitter download` 写入媒体的位置（相对当前工作目录；按需创建；`download --output DIR` 单次覆盖） |
