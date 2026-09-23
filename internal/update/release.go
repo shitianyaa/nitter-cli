@@ -59,6 +59,17 @@ type Release struct {
 	// PublishedAt is the release publish timestamp (zero when the API
 	// carries none).
 	PublishedAt time.Time
+	// Assets are the release's downloadable files. The installer fetches only
+	// the one matching the current platform; the rest are ignored.
+	Assets []Asset
+}
+
+// Asset is one downloadable file attached to a release.
+type Asset struct {
+	// Name is the asset's file name as published (e.g. "checksums.txt").
+	Name string
+	// URL is the browser_download_url — the official GitHub download path.
+	URL string
 }
 
 // Options tweaks Check. The zero value checks the real GitHub API for
@@ -75,12 +86,19 @@ type Options struct {
 // releaseRecord is the subset of the GitHub release object this package
 // consumes.
 type releaseRecord struct {
-	TagName     string    `json:"tag_name"`
-	Name        string    `json:"name"`
-	HTMLURL     string    `json:"html_url"`
-	Draft       bool      `json:"draft"`
-	Prerelease  bool      `json:"prerelease"`
-	PublishedAt time.Time `json:"published_at"`
+	TagName     string        `json:"tag_name"`
+	Name        string        `json:"name"`
+	HTMLURL     string        `json:"html_url"`
+	Draft       bool          `json:"draft"`
+	Prerelease  bool          `json:"prerelease"`
+	PublishedAt time.Time     `json:"published_at"`
+	Assets      []assetRecord `json:"assets"`
+}
+
+// assetRecord is the subset of the GitHub asset object this package uses.
+type assetRecord struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 // Check queries the GitHub Releases API for repo and returns the highest
@@ -142,6 +160,10 @@ func Check(ctx context.Context, repo, current string, opts Options) (Release, er
 		if !IsValid(r.TagName) {
 			continue
 		}
+		assets := make([]Asset, 0, len(r.Assets))
+		for _, a := range r.Assets {
+			assets = append(assets, Asset{Name: a.Name, URL: a.BrowserDownloadURL})
+		}
 		candidates = append(candidates, Release{
 			Tag:         r.TagName,
 			Version:     strings.TrimPrefix(r.TagName, "v"),
@@ -149,6 +171,7 @@ func Check(ctx context.Context, repo, current string, opts Options) (Release, er
 			URL:         r.HTMLURL,
 			Prerelease:  r.Prerelease,
 			PublishedAt: r.PublishedAt,
+			Assets:      assets,
 		})
 	}
 	if len(candidates) == 0 {
