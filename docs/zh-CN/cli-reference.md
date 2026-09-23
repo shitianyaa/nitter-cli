@@ -74,8 +74,9 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
   （默认 20）。flag 传负数是用法错误。
 - `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。在 `user` 上
   **显式传 `--max-pages 0` 表示不设上限**：HTML 回退路径会一直跟随 load-more
-  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 源天然单页，不受
-  影响。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是用法错误。
+  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 路径同样会沿
+  `Min-Id` 游标一直翻页。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是
+  用法错误。
 - 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
   （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
 
@@ -89,6 +90,10 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
 网络动作前退出 2）。默认 `fetch_backend=mix` 时优先通过 FxTwitter 极速免登通道拉取，
 遇到故障或指定 `--instance` 时平滑走 Nitter 实例。`--max-pages 0` 表示不设页数上限。
+
+Nitter RSS 源会按其 `Min-Id` 游标逐页读取，因此积压跨越多页时不会被截断在
+第一页：`--limit N` 会一直翻页到凑满 N 条或耗尽 `--max-pages` 预算为止
+（不携带 `Min-Id` 的普通 RSS 代理仍是单页）。
 
 - `--with-replies` 包含用户自身发布的回复推文。
 - `--no-reposts` 丢弃纯转推。
@@ -498,6 +503,14 @@ nitter watch [SOURCE...] [--once] [--interval D] [--max-new N] \
 URL 预转义形式（`tag:%23AI`）会在网络上被二次转义，不是合法写法。** 不带
 SOURCE 参数时使用配置 `[[watch.sources]]`；两者都为空：退出 2。
 
+**合并取数**——带 `--no-reposts` 且有两个及以上 `user:` 源时，一轮改用
+**每批一次** RSS 请求取这些源（`/{u1,u2,...}/rss`，每批路径长度控制在 250
+字符内），再按作者拆分 feed，而不是逐源抓取。合并 feed 只有 Nitter 提供，
+且无法表示转推——Nitter 会把转推条目归到原作者名下——这正是合并要求
+`--no-reposts` 的原因；`fetch_backend = "fx"` 从不合并，`"mix"` 下这些源改由
+Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源回退到各自的抓取
+路径。
+
 **flag**
 
 | flag | 默认 | 含义 |
@@ -607,18 +620,13 @@ nitter seen clear [--source SOURCE] [--state-dir DIR] --confirm
 ## nitter update
 
 ```bash
-nitter update
-nitter update --check [--prerelease] [--json]
+nitter update [--confirm] [--proxy URL]
+nitter update --check [--prerelease] [--json] [--proxy URL]
 ```
 
 报告二进制的更新方式。当存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
 `checksums.txt` 校验其 SHA-256，检查暂存二进制报告的版本，全部通过后才替换可执行文件。
 **任何失败都不会改动现有安装**——所有校验通过前不会碰目标文件。
-
-```bash
-nitter update [--confirm] [--proxy URL]
-nitter update --check [--prerelease] [--json] [--proxy URL]
-```
 
 - 不带 flag 的 `nitter update` 先比对版本，然后在终端询问
   `install now? [y/N]`（默认 No）。无 `--confirm` 且无终端时，它打印比对结果加

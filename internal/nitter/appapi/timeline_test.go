@@ -54,9 +54,10 @@ func htmlPage(ids []string, cursor string) string {
 // timelineRoute is one canned answer keyed by the exact request URI
 // (path?query) the fake receives.
 type timelineRoute struct {
-	target string
-	status int
-	body   string
+	target  string
+	status  int
+	body    string
+	headers map[string]string
 }
 
 // newTimelineFake serves the canned routes; unknown targets answer 404.
@@ -74,6 +75,9 @@ func newTimelineFake(t *testing.T, routes ...timelineRoute) (*httptest.Server, *
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
+		}
+		for name, value := range r.headers {
+			w.Header().Set(name, value)
 		}
 		w.WriteHeader(r.status)
 		_, _ = io.WriteString(w, r.body)
@@ -102,8 +106,8 @@ func newTimelineClient(t *testing.T, baseURLs ...string) *appapi.Client {
 
 func TestTimelineRSSPathReturnsTweets(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 200, rssBody("101", "102")},
-		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "")},
+		timelineRoute{"/NASA/rss", 200, rssBody("101", "102"), nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, ""), nil},
 	)
 	tweets, instance, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
@@ -169,7 +173,7 @@ func TestTimelineRSSFlagsRepostsByAuthorMismatch(t *testing.T) {
 		rssMixedItem("NASAhistory", "NASAhistory", "103"), // retweeted: original author
 		rssMixedItem("NASA", "", "104"),                   // creator-less: flag untouched
 	)
-	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, feed})
+	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, feed, nil})
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
@@ -198,7 +202,7 @@ func TestTimelineRSSFlagsRepostsByAuthorMismatch(t *testing.T) {
 }
 
 func TestTimelineLimitTruncatesRSS(t *testing.T) {
-	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, rssBody("101", "102", "103")})
+	srv, _ := newTimelineFake(t, timelineRoute{"/NASA/rss", 200, rssBody("101", "102", "103"), nil})
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{Limit: 2})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
@@ -212,7 +216,7 @@ func TestTimelineValidHandles(t *testing.T) {
 	handles := []string{"a", "NASA", "nasa_1", strings.Repeat("x", 15)}
 	var routes []timelineRoute
 	for _, h := range handles {
-		routes = append(routes, timelineRoute{"/" + h + "/rss", 200, rssBody("101")})
+		routes = append(routes, timelineRoute{"/" + h + "/rss", 200, rssBody("101"), nil})
 	}
 	srv, _ := newTimelineFake(t, routes...)
 	for _, handle := range handles {
@@ -244,8 +248,8 @@ func TestTimelineInvalidHandleIsInvalidArgBeforeNetwork(t *testing.T) {
 
 func TestTimelineRSSFailureFallsBackToHTML(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "")},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, ""), nil},
 	)
 	tweets, instance, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
@@ -263,8 +267,8 @@ func TestTimelineEmptyRSSTriggersHTMLFallback(t *testing.T) {
 	// R15: an RSS feed that succeeds but yields nothing ALSO triggers the
 	// HTML user-page fallback.
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 200, rssBody()},
-		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "")},
+		timelineRoute{"/NASA/rss", 200, rssBody(), nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
@@ -280,8 +284,8 @@ func TestTimelineEmptyRSSTriggersHTMLFallback(t *testing.T) {
 
 func TestTimelineBothEmptyYieldsEmptySliceWithoutError(t *testing.T) {
 	srv, _ := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 200, rssBody()},
-		timelineRoute{"/NASA", 200, htmlPage(nil, "")},
+		timelineRoute{"/NASA/rss", 200, rssBody(), nil},
+		timelineRoute{"/NASA", 200, htmlPage(nil, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err != nil {
@@ -294,8 +298,8 @@ func TestTimelineBothEmptyYieldsEmptySliceWithoutError(t *testing.T) {
 
 func TestTimelineBothStagesFailReturnsClassifiedError(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 503, "down"},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 503, "down", nil},
 	)
 	tweets, instance, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err == nil {
@@ -314,8 +318,8 @@ func TestTimelineBothStagesFailReturnsClassifiedError(t *testing.T) {
 func TestTimelineChallengePropagates(t *testing.T) {
 	login := `<form action="/login"><input name="username"/></form>`
 	srv, _ := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 200, login},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 200, login, nil},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	var terr *nitter.Error
@@ -326,11 +330,11 @@ func TestTimelineChallengePropagates(t *testing.T) {
 
 func TestTimelinePaginationBoundByMaxPages(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "c1")},
-		timelineRoute{"/NASA?cursor=c1", 200, htmlPage([]string{"202"}, "c2")},
-		timelineRoute{"/NASA?cursor=c2", 200, htmlPage([]string{"203"}, "c3")},
-		timelineRoute{"/NASA?cursor=c3", 200, htmlPage([]string{"204"}, "")},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "c1"), nil},
+		timelineRoute{"/NASA?cursor=c1", 200, htmlPage([]string{"202"}, "c2"), nil},
+		timelineRoute{"/NASA?cursor=c2", 200, htmlPage([]string{"203"}, "c3"), nil},
+		timelineRoute{"/NASA?cursor=c3", 200, htmlPage([]string{"204"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{MaxPages: 2})
 	if err != nil {
@@ -352,10 +356,10 @@ func TestTimelinePaginationBoundByMaxPages(t *testing.T) {
 
 func TestTimelineLimitStopsPaginationEarly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "c1")},
-		timelineRoute{"/NASA?cursor=c1", 200, htmlPage([]string{"202"}, "c2")},
-		timelineRoute{"/NASA?cursor=c2", 200, htmlPage([]string{"203"}, "")},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "c1"), nil},
+		timelineRoute{"/NASA?cursor=c1", 200, htmlPage([]string{"202"}, "c2"), nil},
+		timelineRoute{"/NASA?cursor=c2", 200, htmlPage([]string{"203"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{Limit: 2})
 	if err != nil {
@@ -386,12 +390,12 @@ func TestTimelineNoInstancesConfigured(t *testing.T) {
 
 func TestTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
 	srv1, rec1 := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 503, "down"},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 503, "down", nil},
 	)
 	srv2, rec2 := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 404, "gone"},
-		timelineRoute{"/NASA", 404, "gone"},
+		timelineRoute{"/NASA/rss", 404, "gone", nil},
+		timelineRoute{"/NASA", 404, "gone", nil},
 	)
 	_, _, err := newTimelineClient(t, srv1.URL, srv2.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
 	if err == nil {
@@ -448,8 +452,8 @@ func TestTimelineOversizeRSSBodyFallsBackToHTML(t *testing.T) {
 
 func TestTimelineRespectsContextCancellation(t *testing.T) {
 	srv, _ := newTimelineFake(t,
-		timelineRoute{"/NASA/rss", 500, "boom"},
-		timelineRoute{"/NASA", 503, "down"},
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 503, "down", nil},
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the fetch must notice before the second instance attempt
@@ -459,5 +463,122 @@ func TestTimelineRespectsContextCancellation(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want it to wrap context.Canceled", err)
+	}
+}
+
+// The RSS scan follows the Min-Id header cursor and returns items from every
+// page, newest page first.
+func TestTimelineRSSFollowsMinIDCursor(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("103", "102"),
+			headers: map[string]string{"Min-Id": "102"}},
+		timelineRoute{target: "/NASA/rss?cursor=102", status: 200, body: rssBody("101")},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	var ids []string
+	for _, tw := range tweets {
+		ids = append(ids, tw.ID)
+	}
+	if want := []string{"103", "102", "101"}; !slices.Equal(ids, want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+	if got := rec.requests(); !slices.Contains(got, "/NASA/rss?cursor=102") {
+		t.Fatalf("requests = %v, want the cursor page to have been fetched", got)
+	}
+}
+
+// A feed that does not advertise Min-Id stays a single page: the historical
+// behaviour, and the contract for plain RSS proxies.
+func TestTimelineRSSWithoutMinIDIsSinglePage(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("101")},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if len(tweets) != 1 {
+		t.Fatalf("tweets = %d, want 1", len(tweets))
+	}
+	if got := len(rec.requests()); got != 1 {
+		t.Fatalf("requests = %d, want exactly 1", got)
+	}
+}
+
+// A repeated cursor ends the scan instead of spinning forever.
+func TestTimelineRSSCursorLoopIsBounded(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("101"),
+			headers: map[string]string{"Min-Id": "same"}},
+		timelineRoute{target: "/NASA/rss?cursor=same", status: 200, body: rssBody("102"),
+			headers: map[string]string{"Min-Id": "same"}},
+	)
+	if _, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{}); err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if got := len(rec.requests()); got != 2 {
+		t.Fatalf("requests = %d, want exactly 2 (loop guard must stop the second cursor)", got)
+	}
+}
+
+// MaxPages bounds the scan.
+func TestTimelineRSSMaxPagesBoundsTheScan(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("101"),
+			headers: map[string]string{"Min-Id": "c1"}},
+		timelineRoute{target: "/NASA/rss?cursor=c1", status: 200, body: rssBody("102"),
+			headers: map[string]string{"Min-Id": "c2"}},
+		timelineRoute{target: "/NASA/rss?cursor=c2", status: 200, body: rssBody("103"),
+			headers: map[string]string{"Min-Id": "c3"}},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{MaxPages: 2})
+	if err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("tweets = %d, want 2 (MaxPages=2)", len(tweets))
+	}
+	if got := len(rec.requests()); got != 2 {
+		t.Fatalf("requests = %d, want exactly 2", got)
+	}
+}
+
+// A bounded limit stops the scan without spending the page budget: a
+// `user --limit 5` fetch must not follow the cursor at all.
+func TestTimelineRSSLimitStopsTheScan(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("105", "104", "103", "102", "101"),
+			headers: map[string]string{"Min-Id": "101"}},
+		timelineRoute{target: "/NASA/rss?cursor=101", status: 200, body: rssBody("100")},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{Limit: 3})
+	if err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if len(tweets) != 3 {
+		t.Fatalf("tweets = %d, want 3 (the limit)", len(tweets))
+	}
+	if got := len(rec.requests()); got != 1 {
+		t.Fatalf("requests = %d, want exactly 1 (a bounded limit must not page)", got)
+	}
+}
+
+// Stop ends the scan once the caller says the page holds nothing new.
+func TestTimelineRSSStopEndsTheScan(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("101"),
+			headers: map[string]string{"Min-Id": "c1"}},
+		timelineRoute{target: "/NASA/rss?cursor=c1", status: 200, body: rssBody("102"),
+			headers: map[string]string{"Min-Id": "c2"}},
+	)
+	stop := func(page []nitter.Tweet) bool { return true }
+	if _, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{Stop: stop}); err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if got := len(rec.requests()); got != 1 {
+		t.Fatalf("requests = %d, want exactly 1 (stop after the first page)", got)
 	}
 }

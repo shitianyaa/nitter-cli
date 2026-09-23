@@ -87,12 +87,14 @@ safety boundaries, and semantics traps.
    that line to confirm where files actually landed instead of assuming.
    The default `--on-exists refuse` never replaces an existing file — only
    pass `overwrite` or `skip` when the user asked for that.
-10. Never overclaim completeness. RSS yields about 20 tweets per fetch, so a
-   user-timeline result is one page, never "the timeline": when fewer tweets
-   came back than the user may have expected, say exactly what was fetched
-   (e.g. "the most recent 8 tweets available via RSS") and never tell the user
-   "the latest 20 tweets are complete". `--limit N` is a cap on output, not
-   proof that N exist or that nothing older remains (see also trap 2).
+10. Never overclaim completeness. RSS serves about 20 tweets per page and the
+   scan follows the feed's `Min-Id` cursor, so a user-timeline result is a few
+   pages at most (bounded by `--limit` and `--max-pages`) — never "the
+   timeline": when fewer tweets came back than the user may have expected, say
+   exactly what was fetched (e.g. "the most recent 8 tweets available via
+   RSS") and never tell the user "the latest 20 tweets are complete".
+   `--limit N` is a cap on output, not proof that N exist or that nothing older
+   remains (see also trap 2).
 11. No ritual probes. Do not run `instances test` before every command — it
     costs the instance real requests. Probe only when an instance-health
     decision actually needs it (setup, diagnosing failures, comparing
@@ -182,7 +184,7 @@ nitter user NASA --limit 20 --json                      # array of tweet objects
 nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
 nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
 nitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
-nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounded HTML pagination, until upstream exhaustion
+nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounded pagination, until upstream exhaustion
 nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
@@ -280,10 +282,14 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    configured Nitter instance pool (RSS first, then HTML user page). `list`
    timeline is strictly isolated and ALWAYS fetches from Nitter instances
    (Fx has no List endpoint).
-2. **RSS is single-page.** A user timeline returns at most ~20 tweets per
-   fetch even with a larger `--limit`; `--limit 40` legitimately stops at the
-   RSS page. Deeper scans: use `watch` cycles, or rely on the HTML fallback —
-   which only triggers when RSS fails or is empty.
+2. **RSS pages along the `Min-Id` cursor.** Nitter's RSS feed serves about 20
+   tweets per page and advertises the next page's cursor in a `Min-Id` response
+   header; the client follows that chain, so `--limit 40` returns up to 40
+   tweets instead of stopping at the first page. The scan is bounded by
+   `--limit` and by the `--max-pages` budget (default 5 pages), and a feed that
+   advertises no `Min-Id` — a plain RSS proxy — stays a single page. Deeper
+   scans still want `watch` cycles, whose first run records as deep as the page
+   budget allows.
 3. **Instance cooldown**: an instance failing with 429 or a network error cools
    down (default 60s, config `instance_cooldown`) and is skipped while cooling;
    success resets immediately. Rotation is strictly in config order — no
@@ -320,7 +326,7 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
 9. **Empty JSON fields are contract, not bugs**: `published_at` is always UTC
    RFC3339; a tweet without media marshals `"media": null` (not `[]`);
    `--max-pages 0` on `user` means UNBOUNDED (the HTML fallback paginates until
-   upstream exhaustion; the RSS feed is single-page ~20 anyway) — on
+   upstream exhaustion, and the RSS `Min-Id` scan follows the same rule) — on
    `search`/`list` it still means the built-in default (5).
 10. **New lists may look empty**: a freshly created list can be empty until the
     Nitter instance ingests it — indistinguishable from a truly empty list;

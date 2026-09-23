@@ -64,6 +64,11 @@ type InstanceTester interface {
 type TimelineOptions struct {
 	WithReplies bool
 	MediaOnly   bool
+	// RSSStop ends the Nitter RSS Min-Id scan early: the command layer
+	// supplies it so a caught-up source costs one request instead of the
+	// whole page budget. The FxTwitter backend has no RSS scan and ignores
+	// it.
+	RSSStop func(page []nitter.Tweet) bool
 }
 
 // TimelineOption sets an option on TimelineOptions.
@@ -79,6 +84,11 @@ func WithMediaOnly(v bool) TimelineOption {
 	return func(o *TimelineOptions) { o.MediaOnly = v }
 }
 
+// WithRSSStop sets the RSS scan-stop predicate (see TimelineOptions.RSSStop).
+func WithRSSStop(fn func(page []nitter.Tweet) bool) TimelineOption {
+	return func(o *TimelineOptions) { o.RSSStop = fn }
+}
+
 // TimelineSource is the user-timeline acquisition capability a command
 // consumes. Parameters are primitives — no appapi type reaches a command
 // package (R11). Backed by Wiring through timelineAdapter.
@@ -88,6 +98,14 @@ func WithMediaOnly(v bool) TimelineOption {
 // NDJSON meta.instance needs the provenance.
 type TimelineSource interface {
 	Timeline(ctx context.Context, handle string, limit, maxPages int, opts ...TimelineOption) ([]nitter.Tweet, string, error)
+}
+
+// MergedTimelineSource is the merged-RSS acquisition capability: one request
+// per batch of handles, bucketed per author. It is Nitter-only — the
+// FxTwitter fast lane has no merged endpoint — so callers consult
+// FetchBackend before using it.
+type MergedTimelineSource interface {
+	MergedTimeline(ctx context.Context, handles []string, maxPages int, stop func(page []nitter.Tweet) bool) (map[string][]nitter.Tweet, string, error)
 }
 
 // SearchSource is the search acquisition capability a command consumes
@@ -166,6 +184,14 @@ type MediaResolver interface {
 // (R11 boundary; same re-export precedent as TestOptions).
 func ParseStatusRef(s string) (id, user string, err error) {
 	return appapi.ParseStatusRef(s)
+}
+
+// MergedBatches re-exports the appapi merged-RSS batching rule so commands can
+// split handles into request-sized batches without importing
+// internal/nitter/appapi (R11 boundary; same re-export precedent as
+// TestOptions and ParseStatusRef).
+func MergedBatches(handles []string) [][]string {
+	return appapi.MergedBatches(handles)
 }
 
 // PlannedFile re-exports media.PlannedFile — one file a download plan will
@@ -274,7 +300,7 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 
 	switch backend {
 	case "nitter":
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	case "fx":
 		return a.timelineFx(ctx, handle, limit, maxPages, opt)
 	case "mix":
@@ -285,14 +311,14 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	default:
-		return a.timelineNitter(ctx, handle, limit, maxPages)
+		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	}
 }
 
-func (a timelineAdapter) timelineNitter(ctx context.Context, handle string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.w.AppAPI.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+func (a timelineAdapter) timelineNitter(ctx context.Context, handle string, limit, maxPages int, opt TimelineOptions) ([]nitter.Tweet, string, error) {
+	return a.w.AppAPI.Timeline(ctx, handle, appapi.PageOptions{Limit: limit, MaxPages: maxPages, Stop: opt.RSSStop})
 }
 
 func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, maxPages int, opt TimelineOptions) ([]nitter.Tweet, string, error) {
@@ -354,6 +380,18 @@ func tweetIDNum(id string) uint64 {
 // Timeline returns the user-timeline acquisition capability as the narrow
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) Timeline() TimelineSource { return timelineAdapter{w: w} }
+
+// mergedTimelineAdapter bridges MergedTimelineSource to the appapi merged
+// endpoint. It is backend-blind on purpose: whether merging is eligible at
+// all is the command layer's call (see MergedTimelineSource).
+type mergedTimelineAdapter struct{ w *Wiring }
+
+func (a mergedTimelineAdapter) MergedTimeline(ctx context.Context, handles []string, maxPages int, stop func(page []nitter.Tweet) bool) (map[string][]nitter.Tweet, string, error) {
+	return a.w.AppAPI.MergedTimeline(ctx, handles, appapi.PageOptions{MaxPages: maxPages, Stop: stop})
+}
+
+// MergedTimeline exposes the merged RSS acquisition path (Nitter only).
+func (w *Wiring) MergedTimeline() MergedTimelineSource { return mergedTimelineAdapter{w: w} }
 
 // searchAdapter bridges SearchSource to the hybrid dispatcher.
 type searchAdapter struct{ w *Wiring }

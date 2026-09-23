@@ -19,7 +19,7 @@ import (
 
 func TestListTimelineReturnsTweets(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401", "402"}, "")},
+		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401", "402"}, ""), nil},
 	)
 	tweets, instance, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
 	if err != nil {
@@ -41,10 +41,10 @@ func TestListTimelineReturnsTweets(t *testing.T) {
 
 func TestListTimelinePaginationBoundedByMaxPages(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "c1")},
-		timelineRoute{"/i/lists/12345?cursor=c1", 200, htmlPage([]string{"402"}, "c2")},
-		timelineRoute{"/i/lists/12345?cursor=c2", 200, htmlPage([]string{"403"}, "c3")},
-		timelineRoute{"/i/lists/12345?cursor=c3", 200, htmlPage([]string{"404"}, "")},
+		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "c1"), nil},
+		timelineRoute{"/i/lists/12345?cursor=c1", 200, htmlPage([]string{"402"}, "c2"), nil},
+		timelineRoute{"/i/lists/12345?cursor=c2", 200, htmlPage([]string{"403"}, "c3"), nil},
+		timelineRoute{"/i/lists/12345?cursor=c3", 200, htmlPage([]string{"404"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{MaxPages: 2})
 	if err != nil {
@@ -66,9 +66,9 @@ func TestListTimelinePaginationBoundedByMaxPages(t *testing.T) {
 
 func TestListTimelineLimitStopsPaginationEarly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "c1")},
-		timelineRoute{"/i/lists/12345?cursor=c1", 200, htmlPage([]string{"402", "403", "404"}, "c2")},
-		timelineRoute{"/i/lists/12345?cursor=c2", 200, htmlPage([]string{"405"}, "")},
+		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "c1"), nil},
+		timelineRoute{"/i/lists/12345?cursor=c1", 200, htmlPage([]string{"402", "403", "404"}, "c2"), nil},
+		timelineRoute{"/i/lists/12345?cursor=c2", 200, htmlPage([]string{"405"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{Limit: 3})
 	if err != nil {
@@ -88,7 +88,7 @@ func TestListTimelineLimitStopsPaginationEarly(t *testing.T) {
 // become an error.
 func TestListTimelineEmptyPageYieldsEmptySliceWithoutError(t *testing.T) {
 	srv, _ := newTimelineFake(t,
-		timelineRoute{"/i/lists/12345", 200, htmlPage(nil, "")},
+		timelineRoute{"/i/lists/12345", 200, htmlPage(nil, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
 	if err != nil {
@@ -127,7 +127,7 @@ func TestListTimelineValidNonNumericRefsPassThrough(t *testing.T) {
 	// Nitter accepts numeric IDs and some refs — non-numeric path-safe ids
 	// are passed through unchanged.
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/i/lists/custom-ref_1", 200, htmlPage([]string{"401"}, "")},
+		timelineRoute{"/i/lists/custom-ref_1", 200, htmlPage([]string{"401"}, ""), nil},
 	)
 	if _, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "custom-ref_1", appapi.PageOptions{}); err != nil {
 		t.Fatalf("ListTimeline: %v", err)
@@ -140,7 +140,7 @@ func TestListTimelineValidNonNumericRefsPassThrough(t *testing.T) {
 func TestListTimelineChallengePropagates(t *testing.T) {
 	login := `<form action="/login"><input name="username"/></form>`
 	srv, _ := newTimelineFake(t,
-		timelineRoute{"/i/lists/12345", 200, login},
+		timelineRoute{"/i/lists/12345", 200, login, nil},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
 	var terr *nitter.Error
@@ -150,8 +150,8 @@ func TestListTimelineChallengePropagates(t *testing.T) {
 }
 
 func TestListTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
-	srv1, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 503, "down"})
-	srv2, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 404, "gone"})
+	srv1, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 503, "down", nil})
+	srv2, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 404, "gone", nil})
 	_, _, err := newTimelineClient(t, srv1.URL, srv2.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
 	if err == nil {
 		t.Fatal("ListTimeline = nil error, want the last instance failure")
@@ -163,7 +163,7 @@ func TestListTimelineAllInstancesExhaustedReportsLastError(t *testing.T) {
 }
 
 func TestListTimelineRespectsContextCancellation(t *testing.T) {
-	srv, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 503, "down"})
+	srv, _ := newTimelineFake(t, timelineRoute{"/i/lists/12345", 503, "down", nil})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the fetch must notice before the second instance attempt
 	_, _, err := newTimelineClient(t, srv.URL, srv.URL).ListTimeline(ctx, "12345", appapi.PageOptions{})

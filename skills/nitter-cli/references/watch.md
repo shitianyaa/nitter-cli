@@ -28,6 +28,9 @@ history is emitted. This is by design: the stream starts at "now".
 
 - To emit the whole first fetch once, pass `--include-existing` for that run
   (it also bypasses `--max-new` for that first fetch).
+- How deep that first fetch reaches is decided by `--max-pages`: a user
+  source's RSS scan pages along the feed's `Min-Id` cursor up to the page
+  budget, so the recorded baseline covers several feed pages, not one.
 - After the first run, each cycle emits the source's new tweets (IDs not in the
   seen list, newest first).
 
@@ -55,6 +58,30 @@ history is emitted. This is by design: the stream starts at "now".
   `--max-new-overflow keep` when a silent loss is unacceptable.
 - An initialized source whose fetch succeeds but comes back empty keeps its
   previous state wholesale — nothing is sealed by a transient empty response.
+
+## Merged fetching (multi-source + `--no-reposts`)
+
+With `--no-reposts` and two or more `user:` sources, a cycle fetches those
+sources with ONE RSS request per batch instead of one request per source:
+`/{u1,u2,...}/rss`, batched so each request path stays under 250 characters.
+The merged feed is split per author, so the per-source dedup state is
+unaffected.
+
+- **Eligibility**: `--no-reposts` plus at least two `user:` sources. `tag:` and
+  `list:` sources are never merged.
+- **Repost trade-off**: the merged feed cannot represent a repost — Nitter
+  attributes a reposted item to the ORIGINAL author — so merging with reposts
+  kept would misattribute them. That is why merging is tied to `--no-reposts`;
+  items authored by an account outside the batch (the shape a repost of an
+  outsider takes) are dropped.
+- **Backend**: `fetch_backend = "fx"` never merges (the fast lane has no merged
+  endpoint). `"mix"` does, which means those sources are served by Nitter
+  instead of the fast lane for that cycle.
+- **Failure**: a batch whose request fails is not lost — the affected sources
+  fall back to their own fetch.
+- A batch holding a source whose dedup state is not initialized yet keeps
+  scanning the full `--max-pages` budget: merging must not cut a new source's
+  baseline short because the other batch members are already caught up.
 
 ## Tag sources: raw query form
 

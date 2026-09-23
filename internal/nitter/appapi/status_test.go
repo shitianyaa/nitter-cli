@@ -85,7 +85,7 @@ func TestParseStatusRefInvalid(t *testing.T) {
 // user, so the /i/status/<id> route is used directly — exactly one request.
 func TestStatusBareIDFetchesUserlessRouteDirectly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010"), nil},
 	)
 	tw, instance, err := newTimelineClient(t, srv.URL).Status(context.Background(), "2070000000000000010")
 	if err != nil {
@@ -104,7 +104,7 @@ func TestStatusBareIDFetchesUserlessRouteDirectly(t *testing.T) {
 
 func TestStatusUserRouteServesDirectly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/nasa/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/nasa/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010"), nil},
 	)
 	tw, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err != nil {
@@ -120,8 +120,8 @@ func TestStatusUserRouteServesDirectly(t *testing.T) {
 
 func TestStatusUserRoute404FallsBackToUserless(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/nasa/status/2070000000000000010", 404, "gone"},
-		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/nasa/status/2070000000000000010", 404, "gone", nil},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010"), nil},
 	)
 	tw, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err != nil {
@@ -140,8 +140,8 @@ func TestStatusUserRoute404FallsBackToUserless(t *testing.T) {
 // user-less route.
 func TestStatusUserRouteEmptyPageFallsBackToUserless(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/nasa/status/2070000000000000010", 200, `<div class="timeline"></div>`},
-		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010")},
+		timelineRoute{"/nasa/status/2070000000000000010", 200, `<div class="timeline"></div>`, nil},
+		timelineRoute{"/i/status/2070000000000000010", 200, statusPage("nasa", "2070000000000000010"), nil},
 	)
 	tw, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err != nil {
@@ -160,7 +160,7 @@ func TestStatusUserRouteEmptyPageFallsBackToUserless(t *testing.T) {
 // rotates instances) — only 404 and unidentifiable content fall through.
 func TestStatusUserRouteOtherErrorsDoNotFallback(t *testing.T) {
 	srv, rec := newTimelineFake(t,
-		timelineRoute{"/nasa/status/2070000000000000010", 503, "down"},
+		timelineRoute{"/nasa/status/2070000000000000010", 503, "down", nil},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err == nil {
@@ -176,8 +176,8 @@ func TestStatusUserRouteOtherErrorsDoNotFallback(t *testing.T) {
 }
 
 func TestStatusAllInstancesExhaustedReportsLastError(t *testing.T) {
-	srv1, _ := newTimelineFake(t, timelineRoute{"/nasa/status/2070000000000000010", 503, "down"})
-	srv2, _ := newTimelineFake(t, timelineRoute{"/nasa/status/2070000000000000010", 404, "gone"})
+	srv1, _ := newTimelineFake(t, timelineRoute{"/nasa/status/2070000000000000010", 503, "down", nil})
+	srv2, _ := newTimelineFake(t, timelineRoute{"/nasa/status/2070000000000000010", 404, "gone", nil})
 	_, _, err := newTimelineClient(t, srv1.URL, srv2.URL).Status(context.Background(), "https://x.com/nasa/status/2070000000000000010")
 	if err == nil {
 		t.Fatal("Status = nil error, want the last instance failure")
@@ -221,7 +221,7 @@ func TestStatusNoInstancesConfigured(t *testing.T) {
 }
 
 func TestStatusRespectsContextCancellation(t *testing.T) {
-	srv, _ := newTimelineFake(t, timelineRoute{"/nasa/status/123", 503, "down"})
+	srv, _ := newTimelineFake(t, timelineRoute{"/nasa/status/123", 503, "down", nil})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, _, err := newTimelineClient(t, srv.URL, srv.URL).Status(ctx, "123")

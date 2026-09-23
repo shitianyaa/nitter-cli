@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/shitianyaa/nitter-cli/internal/nitter/html"
-	"github.com/shitianyaa/nitter-cli/internal/nitter/rss"
 	"github.com/shitianyaa/nitter-cli/sdk"
 )
 
@@ -43,8 +42,9 @@ const defaultMaxPages = 5
 // PageOptions bounds one Timeline fetch.
 type PageOptions struct {
 	// Limit is the maximum number of tweets to return; 0 (or negative) means
-	// all — still bounded by MaxPages pages of HTML output. The RSS feed is
-	// single-page: its items are collected up to the limit.
+	// all — still bounded by MaxPages. The RSS feed is scanned through the
+	// Min-Id cursor chain: its items are collected up to the limit, and the
+	// scan stops before requesting a page the limit would discard.
 	Limit int
 	// MaxPages caps how many HTML timeline pages are fetched on the HTML
 	// path (the first page counts). 0 → defaultMaxPages; negative →
@@ -53,6 +53,11 @@ type PageOptions struct {
 	// --max-pages 0` maps to this. Search/List keep the historical
 	// "0 = default" semantics at their own entry points.
 	MaxPages int
+	// Stop is consulted after each RSS page of the Min-Id cursor scan;
+	// returning true ends the scan. The watch command uses it to stop once a
+	// page adds nothing the source has not already seen. nil never stops
+	// early. The HTML path paginates with its own cursor and ignores it.
+	Stop func(page []nitter.Tweet) bool
 }
 
 // handleRe is the X handle contract, enforced before any network: 1-15
@@ -81,45 +86,64 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) 
 		maxPages = defaultMaxPages
 	}
 
+	var tweets []nitter.Tweet
+	base, err := c.withInstance(ctx, opTimeline, func(ctx context.Context, base string) error {
+		got, err := c.timelineFromInstance(ctx, base, handle, opts.Limit, maxPages, opts.Stop)
+		if err != nil {
+			return err
+		}
+		tweets = got
+		return nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return tweets, base, nil
+}
+
+// withInstance runs fn against each configured instance in rotation order,
+// marking success or failure on the chooser, and returns the base URL of the
+// instance that succeeded. It is the shared rotation contract of Timeline and
+// MergedTimeline: context cancellation aborts instead of rotating on, every
+// configured instance is attempted at most once, and the last attempt's error
+// is the one reported.
+func (c *Client) withInstance(ctx context.Context, op string, fn func(ctx context.Context, base string) error) (string, error) {
 	tried := make(map[string]bool)
 	var lastErr error
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, "", err
+			return "", err
 		}
 		base, markSuccess, markFailure, err := c.Chooser.Pick()
 		if err != nil {
 			// Nothing configured, or every instance is cooling down. If we
-			// already attempted someone, their failure is the better report;
-			// otherwise pass the chooser's answer through.
+			// already attempted someone, their failure is the better report.
 			if lastErr != nil {
-				return nil, "", lastErr
+				return "", lastErr
 			}
-			return nil, "", err
+			return "", err
 		}
 		if tried[base] {
 			// Every configured instance has been attempted (a disabled
 			// cooldown makes Pick repeat). A previous attempt must have
-			// failed for us to still be looping; the guard keeps the
-			// contract exact even if that invariant ever breaks.
+			// failed for us to still be looping.
 			if lastErr != nil {
-				return nil, "", lastErr
+				return "", lastErr
 			}
-			return nil, "", nitter.Errorf(nitter.KindUnavailable, opTimeline, "all instances failed")
+			return "", nitter.Errorf(nitter.KindUnavailable, op, "all instances failed")
 		}
 		tried[base] = true
-		tweets, err := c.timelineFromInstance(ctx, base, handle, opts.Limit, maxPages)
-		if err != nil {
+		if err := fn(ctx, base); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				// The caller gave up: abort instead of rotating on.
-				return nil, "", err
+				return "", err
 			}
 			markFailure()
 			lastErr = err
 			continue
 		}
 		markSuccess()
-		return tweets, base, nil
+		return base, nil
 	}
 }
 
@@ -129,35 +153,28 @@ func (c *Client) Timeline(ctx context.Context, handle string, opts PageOptions) 
 // when it too fails, is the attempt's error — the last stage is the most
 // informative. An empty RSS feed followed by an empty HTML page is a success
 // with zero tweets, never an error.
-func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, limit, maxPages int) ([]nitter.Tweet, error) {
-	tweets, err := c.timelineRSS(ctx, base, handle, limit)
+func (c *Client) timelineFromInstance(ctx context.Context, base, handle string, limit, maxPages int, stop func(page []nitter.Tweet) bool) ([]nitter.Tweet, error) {
+	tweets, err := c.timelineRSS(ctx, base, handle, limit, maxPages, stop)
 	if err == nil && len(tweets) > 0 {
 		return tweets, nil
 	}
 	return c.timelineHTML(ctx, base, handle, limit, maxPages)
 }
 
-// timelineRSS fetches and projects <base>/<handle>/rss. The feed is
-// single-page: items are collected up to the limit. Items that fail
+// timelineRSS fetches and projects <base>/<handle>/rss. The feed is scanned
+// through the Min-Id cursor chain (scanRSS) so a backlog spanning several
+// pages is not silently truncated at the first one. Items that fail
 // projection (no <account>/status/<id> URL in guid or link) are skipped,
 // mirroring the HTML path's rule that an unidentifiable entry never becomes
 // a Tweet. An item authored by a handle other than the requested one (case-
 // insensitive) is flagged IsRetweet — see the loop below.
-func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit int) ([]nitter.Tweet, error) {
-	body, _, err := c.HTTP.Get(ctx, base+"/"+handle+"/rss", nil)
-	if err != nil {
-		return nil, err
-	}
-	items, err := rss.Parse(body)
+func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit, maxPages int, stop func(page []nitter.Tweet) bool) ([]nitter.Tweet, error) {
+	raw, err := c.scanRSS(ctx, base, handle, limit, maxPages, stop)
 	if err != nil {
 		return nil, err
 	}
 	var tweets []nitter.Tweet
-	for _, item := range items {
-		tw, err := rss.ItemToTweet(item)
-		if err != nil {
-			continue
-		}
+	for _, tw := range raw {
 		// Nitter user RSS carries no repost marker, but a retweeted item's
 		// guid/link and dc:creator point at the ORIGINAL author (verified
 		// live against a real instance: requesting NASA yields NASAhistory

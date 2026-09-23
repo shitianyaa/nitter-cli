@@ -37,7 +37,7 @@ func TestSearchReturnsTweetsWithEscapedQuery(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, rec := newTimelineFake(t,
-				timelineRoute{"/search?f=tweets&q=" + tc.wireQuery, 200, htmlPage([]string{"301", "302"}, "")},
+				timelineRoute{"/search?f=tweets&q=" + tc.wireQuery, 200, htmlPage([]string{"301", "302"}, ""), nil},
 			)
 			tweets, instance, err := newTimelineClient(t, srv.URL).Search(context.Background(), tc.query, appapi.PageOptions{})
 			if err != nil {
@@ -63,10 +63,10 @@ func TestSearchReturnsTweetsWithEscapedQuery(t *testing.T) {
 func TestSearchPaginationBoundedByMaxPages(t *testing.T) {
 	q := searchRouteTarget("#artemis")
 	srv, rec := newTimelineFake(t,
-		timelineRoute{q, 200, htmlPage([]string{"301"}, "c1")},
-		timelineRoute{q + "&cursor=c1", 200, htmlPage([]string{"302"}, "c2")},
-		timelineRoute{q + "&cursor=c2", 200, htmlPage([]string{"303"}, "c3")},
-		timelineRoute{q + "&cursor=c3", 200, htmlPage([]string{"304"}, "")},
+		timelineRoute{q, 200, htmlPage([]string{"301"}, "c1"), nil},
+		timelineRoute{q + "&cursor=c1", 200, htmlPage([]string{"302"}, "c2"), nil},
+		timelineRoute{q + "&cursor=c2", 200, htmlPage([]string{"303"}, "c3"), nil},
+		timelineRoute{q + "&cursor=c3", 200, htmlPage([]string{"304"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "#artemis", appapi.PageOptions{MaxPages: 2})
 	if err != nil {
@@ -89,9 +89,9 @@ func TestSearchPaginationBoundedByMaxPages(t *testing.T) {
 func TestSearchLimitStopsPaginationEarly(t *testing.T) {
 	q := searchRouteTarget("moon")
 	srv, rec := newTimelineFake(t,
-		timelineRoute{q, 200, htmlPage([]string{"301"}, "c1")},
-		timelineRoute{q + "&cursor=c1", 200, htmlPage([]string{"302", "303", "304"}, "c2")},
-		timelineRoute{q + "&cursor=c2", 200, htmlPage([]string{"305"}, "")},
+		timelineRoute{q, 200, htmlPage([]string{"301"}, "c1"), nil},
+		timelineRoute{q + "&cursor=c1", 200, htmlPage([]string{"302", "303", "304"}, "c2"), nil},
+		timelineRoute{q + "&cursor=c2", 200, htmlPage([]string{"305"}, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "moon", appapi.PageOptions{Limit: 3})
 	if err != nil {
@@ -107,7 +107,7 @@ func TestSearchLimitStopsPaginationEarly(t *testing.T) {
 
 func TestSearchEmptyPageYieldsEmptySliceWithoutError(t *testing.T) {
 	srv, _ := newTimelineFake(t,
-		timelineRoute{searchRouteTarget("ghost"), 200, htmlPage(nil, "")},
+		timelineRoute{searchRouteTarget("ghost"), 200, htmlPage(nil, ""), nil},
 	)
 	tweets, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "ghost", appapi.PageOptions{})
 	if err != nil {
@@ -141,7 +141,7 @@ func TestSearchEmptyQueryIsInvalidArgBeforeNetwork(t *testing.T) {
 func TestSearchChallengePropagates(t *testing.T) {
 	login := `<form action="/login"><input name="username"/></form>`
 	srv, _ := newTimelineFake(t,
-		timelineRoute{searchRouteTarget("x"), 200, login},
+		timelineRoute{searchRouteTarget("x"), 200, login, nil},
 	)
 	_, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "x", appapi.PageOptions{})
 	var terr *nitter.Error
@@ -152,8 +152,8 @@ func TestSearchChallengePropagates(t *testing.T) {
 
 func TestSearchAllInstancesExhaustedReportsLastError(t *testing.T) {
 	q := searchRouteTarget("x")
-	srv1, _ := newTimelineFake(t, timelineRoute{q, 503, "down"})
-	srv2, _ := newTimelineFake(t, timelineRoute{q, 404, "gone"})
+	srv1, _ := newTimelineFake(t, timelineRoute{q, 503, "down", nil})
+	srv2, _ := newTimelineFake(t, timelineRoute{q, 404, "gone", nil})
 	_, _, err := newTimelineClient(t, srv1.URL, srv2.URL).Search(context.Background(), "x", appapi.PageOptions{})
 	if err == nil {
 		t.Fatal("Search = nil error, want the last instance failure")
@@ -170,7 +170,7 @@ func TestSearchAllInstancesExhaustedReportsLastError(t *testing.T) {
 }
 
 func TestSearchRespectsContextCancellation(t *testing.T) {
-	srv, _ := newTimelineFake(t, timelineRoute{searchRouteTarget("x"), 503, "down"})
+	srv, _ := newTimelineFake(t, timelineRoute{searchRouteTarget("x"), 503, "down", nil})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the fetch must notice before the second instance attempt
 	_, _, err := newTimelineClient(t, srv.URL, srv.URL).Search(ctx, "x", appapi.PageOptions{})

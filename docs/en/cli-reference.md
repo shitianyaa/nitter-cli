@@ -80,9 +80,9 @@ successful output; stderr is never JSON.
 - `--max-pages` caps pagination; when omitted the config `max_pages` (default 5)
   applies. On `user` an **explicit `--max-pages 0` removes the cap**: the HTML
   fallback follows the load-more cursor chain until upstream exhaustion (the
-  context bounds a runaway run); the RSS feed is single-page and unaffected. On
-  `search`/`list` `0` keeps meaning "use the default". A negative value is a
-  usage error.
+  context bounds a runaway run), and the RSS path follows the feed's `Min-Id`
+  cursor chain the same way. On `search`/`list` `0` keeps meaning "use the
+  default". A negative value is a usage error.
 - Retries: `retry_attempts` (default 2) extra attempts with linear backoff
   `retry_delay` (default 1s); a 429 with a valid `Retry-After` waits once and
   retries once.
@@ -99,6 +99,12 @@ the `@` (bad shape exits 2 before any network). When `fetch_backend=mix` (defaul
 FxTwitter fast-lane is tried first without credentials, falling back smoothly to
 configured Nitter instances on failure or when `--instance` is specified.
 `--max-pages 0` removes the pagination cap.
+
+The Nitter RSS feed is read page by page along its `Min-Id` cursor, so a
+backlog spanning several feed pages is fetched instead of being cut off at the
+first one: `--limit N` keeps paging until N tweets or the `--max-pages` budget
+is reached (a feed that advertises no `Min-Id` — a plain RSS proxy — stays a
+single page).
 
 - `--with-replies` includes the user's reply tweets.
 - `--no-reposts` drops pure retweets.
@@ -570,6 +576,16 @@ first colon is passed through verbatim to the fetch and forms the seen key
 (`tag:%23AI`) would be double-escaped on the wire and is not valid.** With no
 SOURCE arguments the config's `[[watch.sources]]` entries are used; when both
 are empty: exit 2.
+
+**Merged fetching** — with `--no-reposts` and two or more `user:` sources,
+one cycle acquires those sources with ONE RSS request per batch
+(`/{u1,u2,...}/rss`, each batch kept under 250 path characters) and splits the
+feed per author, instead of fetching every source separately. The merged feed
+is Nitter-only and cannot represent a repost — Nitter attributes a reposted
+item to the original author — which is exactly why merging requires
+`--no-reposts`; `fetch_backend = "fx"` never merges, and `"mix"` serves those
+sources from Nitter rather than the fast lane. A batch whose request fails is
+not lost: the affected sources fall back to their own fetch.
 
 **Flags**
 

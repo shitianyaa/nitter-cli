@@ -181,6 +181,9 @@ func TestOpenCorruptFileErrorsAndKeepsBytes(t *testing.T) {
 			if sdkErr.Kind != nitter.KindLocalState {
 				t.Fatalf("Open() error kind = %q, want %q", sdkErr.Kind, nitter.KindLocalState)
 			}
+			if sdkErr.Op != "seen.Load" {
+				t.Fatalf("Open() error op = %q, want %q", sdkErr.Op, "seen.Load")
+			}
 
 			after, err := os.ReadFile(path)
 			if err != nil {
@@ -603,5 +606,19 @@ func TestAllReturnsCopyOfEverySource(t *testing.T) {
 	fresh, _ := store.Get("user:NASA")
 	if !equalStrings(fresh.SeenIDs, sampleState().SeenIDs) {
 		t.Fatalf("mutating All()'s copy leaked into the store: %+v", fresh.SeenIDs)
+	}
+}
+
+// The save path stamps the same package-qualified op. An empty source key is
+// rejected before any I/O, so this needs no writable directory.
+func TestPutEmptySourceKeyIsLocalState(t *testing.T) {
+	store, err := seen.Open(testPath(t), fixedNow)
+	if err != nil {
+		t.Fatalf("Open() on a missing file must succeed: %v", err)
+	}
+	err = store.Put("", seen.SourceState{})
+	var sdkErr *nitter.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != nitter.KindLocalState || sdkErr.Op != "seen.Save" {
+		t.Fatalf("Put(\"\") error = %v, want KindLocalState with op %q", err, "seen.Save")
 	}
 }

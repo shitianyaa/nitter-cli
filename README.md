@@ -4,34 +4,41 @@
 
 <p><a href="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/shitianyaa/nitter-cli/actions/workflows/ci.yml/badge.svg"></a> <a href="https://github.com/shitianyaa/nitter-cli/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/shitianyaa/nitter-cli?style=flat-square"></a> <a href="go.mod"><img alt="Go" src="https://img.shields.io/github/go-mod/go-version/shitianyaa/nitter-cli?style=flat-square"></a> <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/shitianyaa/nitter-cli?style=flat-square"></a></p>
 
+[Install](#install) · [Quick start](#60-second-quick-start) ·
+[Configuration](#configuration) · [Output modes](#output-modes) ·
+[Watch](#watch-semantics-read-before-automating) · [FAQ](#faq)
+
 `nitter` is an unofficial command-line client for **public tweets**. Data comes
 from **FxTwitter's public API** (the default fast lane — no account, no
 credentials) with **Nitter instances you run yourself** as the private
-fallback, the List path, and the fully self-hosted mode. It fetches user
-timelines, search results, list timelines, single statuses, conversations,
-following lists, profiles, quote tweets and trends, watches sources with
-persistent dedup state, and downloads media — a flexible CLI built for agents
-and schedulers (cron, systemd timers, Hermes), consumed as NDJSON.
+fallback, the List path, and the self-hosted timeline/status backend. It
+fetches user timelines, search results, list timelines, single statuses,
+conversations, following lists, profiles, quote tweets and trends, watches
+sources with persistent dedup state, and downloads media — a flexible CLI
+built for agents and schedulers (cron, systemd timers, Hermes), consumed as
+NDJSON.
 
 It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 `nitter`) with a stable, additive-only data model.
 
 ## Why nitter-cli?
 
-- **FxTwitter fast lane, Nitter depth** — `fetch_backend` chooses the routing:
-  `mix` (default) tries FxTwitter's public API first — no account, no
-  credentials — and falls back to your own instances on failure; `nitter`
-  keeps every fetch on instances you control; `fx` pins the fast lane. List
-  always needs Nitter. Handles and queries go to `api.fxtwitter.com` in
-  mix/fx modes — pick `nitter` for a fully self-hosted setup.
+- **FxTwitter fast lane, Nitter depth** — `fetch_backend` chooses the routing
+  for the timeline and status surfaces: `mix` (default) tries FxTwitter's
+  public API first — no account, no credentials — and falls back to your own
+  instances on failure; `nitter` keeps those fetches on instances you control;
+  `fx` pins the fast lane. `list` always needs Nitter, while `comments` /
+  `profile` / `following` / `quotes` / `trends` and `circle refresh` always
+  reach `api.fxtwitter.com` instead (they have no Nitter equivalent).
 - **Flexible instance policy** — point it at any Nitter instance you control:
   configure a rotation set (`[[instances]]`, tried strictly in config order,
   failed entries cool down), override per command with `--instance`, and
   optionally authenticate with host-scoped basic auth (`username` **and**
   `password` set). Credentials can only ever ride requests addressed to their
   own instance — third-party endpoints never see them.
-- **Public-tweet retrieval** — `user` (RSS first, HTML user page as fallback),
-  `search`, `list`, and single statuses via `get`. `list` is strictly isolated:
+- **Public-tweet retrieval** — `user` (RSS first, falling back to the HTML user
+  page when the feed fails or is empty), `search`, `list`, and single statuses
+  via `get`. `list` is strictly isolated:
   every list fetch always runs on your own instances (FxTwitter has no List
   endpoint). No bundled instances, no login, no bypassing of access controls.
 - **Social graph & discovery** — `following` lists who an account follows,
@@ -58,8 +65,9 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   status to every image, `--kind cover` to just the cover; `filename_template`
   / `directory_template` config keys (plus `--filename-template`) name and
   place files via `{id}` `{seq}` `{user}` `{kind}` `{ext}` placeholders.
-- **Observable instances** — `instances test` probes RSS / user timeline /
-  search / list capabilities with one report line each; the report is the
+- **Observable instances** — `instances test` probes each instance's RSS and
+  user-timeline capabilities by default (`--full` adds the search probe,
+  `--list-id ID` the list probe), one report line each; the report is the
   product.
 - **Manageable state** — `config path/get/set/unset` for the thirteen scalar
   keys, `seen list/clear [--state-dir]` for the watch dedup state; atomic
@@ -98,7 +106,7 @@ Requires Go 1.27+:
 
 ```bash
 sh scripts/build.sh          # produces ./nitter
-./nitter --version           # nitter version 0.7.1 (or a dev line)
+./nitter --version           # nitter version <version> (or a dev line)
 ```
 
 ### Install with an AI agent
@@ -119,8 +127,8 @@ nitter-cli ships without instances, and the default `mix` mode already works:
 and `search --type user` run through FxTwitter's public endpoint out of the
 box. `circle refresh` also always uses FxTwitter, whatever `fetch_backend` says
 (it sends every member's handle). Configure a Nitter instance you control for
-`list`, for the fully self-hosted `nitter` mode, and as the fallback when Fx is
-unavailable. Don't have one? Deploy your own with Docker — see the
+`list`, for the `nitter` mode (timeline and status only), and as the fallback
+when Fx is unavailable. Don't have one? Deploy your own with Docker — see the
 [upstream wiki](https://github.com/zedeus/nitter/wiki) or the community
 [self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
 an AI agent can follow the skill's [deploy reference](skills/nitter-cli/references/deploy.md).
@@ -230,7 +238,7 @@ subcommands.
 | `retry_delay` | duration | `1s` | — | Linear backoff base: attempt n waits `retry_delay × n` |
 | `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
 | `fetch_backend` | enum | `mix` | `NITTER_FETCH_BACKEND` | Fetch backend strategy: `mix` (default, FxTwitter fast-lane with Nitter fallback), `nitter` (pure Nitter), `fx` (pure FxTwitter) |
-| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = fall back to environment (`HTTPS_PROXY`/`ALL_PROXY`) |
+| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = no configured proxy — `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and `update` only, **not** to the nitter transport |
 | `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr only, stdout stays pure data |
 | `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or single-line `json` |
 | `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media files (cwd-relative; created on demand; overridden per call by `download --output DIR`) |
@@ -390,20 +398,15 @@ judgement. It is machine-managed, so a rewrite drops comments; hand-edit only
 `role`/`note`.
 
 **What does the default `mix` mode send where?**
-`user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
-and `search --type user` try FxTwitter's public endpoint
-(`api.fxtwitter.com`) first — the handle or query goes to that third-party
-service, with no credentials of yours attached. On failure the request falls
-back to your own instances. `list` always runs on your instances (FxTwitter
-has no List endpoint), and `--instance URL` forces the Nitter path for a
-command.
-
-`fetch_backend` only governs the timeline and status surfaces — `user`, `search`
-and `get`. `list` always runs on your instances (FxTwitter has no List endpoint).
-The remaining commands are FxTwitter-only and always reach `api.fxtwitter.com`
-regardless of `fetch_backend`, because they have no Nitter equivalent:
-`comments`, `profile`, `following`, `quotes`, `trends`, and `circle refresh`
-(which sends one profile request per circle member).
+`user`, `search` and `get` try FxTwitter's public endpoint (`api.fxtwitter.com`)
+first — the handle or query goes to that third-party service, with no
+credentials of yours attached — and fall back to your own instances on failure.
+`fetch_backend` governs exactly these three surfaces, and `--instance URL`
+overrides the instance set for them. `list` always runs on your instances
+(FxTwitter has no List endpoint). `comments`, `profile`, `following`, `quotes`,
+`trends` and `search --type user` have no Nitter equivalent, so they always
+reach `api.fxtwitter.com` regardless of `fetch_backend` — `circle refresh` too,
+which sends one profile request per circle member.
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured
@@ -435,11 +438,19 @@ writes them to disk, and `nitter media` resolves links without downloading.
 
 ## Credits
 
-The project layout follows [javdb-cli](https://github.com/FlanChanXwO/javdb-cli)
-and [pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli): the layered bilingual
-docs, the repo-local process skills, the contribution guide and PR template, the
-versioned changelog, and the tag-triggered multi-platform release matrix.
+- **[Nitter](https://github.com/zedeus/nitter)** — the instance software this
+  client speaks to. Upstream was archived in September 2026, so this project
+  targets instances you run yourself.
+- **[FxTwitter](https://github.com/FxEmbed/FxEmbed)** (now maintained as
+  FxEmbed) — the public API behind the default `mix` / `fx` fast lanes.
+- **[javdb-cli](https://github.com/FlanChanXwO/javdb-cli)** and
+  **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)**, both by
+  [FlanChanXwO](https://github.com/FlanChanXwO) — this project borrows its shape
+  from them: the bilingual docs, the repo-local process skills, the versioned
+  changelog and the release matrix are all their conventions.
+
+Created and maintained by [shitianyaa](https://github.com/shitianyaa).
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE) © shitianyaa

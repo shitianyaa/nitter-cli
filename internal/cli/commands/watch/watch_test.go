@@ -78,6 +78,7 @@ func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
 type fakeNitter struct {
 	mu      sync.Mutex
 	answers map[string]answer
+	headers map[string]map[string]string
 	addr    string
 	srv     *httptest.Server
 }
@@ -89,7 +90,7 @@ type answer struct {
 
 func newFake(t *testing.T, answers map[string]answer) *fakeNitter {
 	t.Helper()
-	f := &fakeNitter{answers: answers}
+	f := &fakeNitter{answers: answers, headers: make(map[string]map[string]string)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		f.mu.Lock()
@@ -98,6 +99,12 @@ func newFake(t *testing.T, answers map[string]answer) *fakeNitter {
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
+		}
+		f.mu.Lock()
+		hdrs := f.headers[req.URL.RequestURI()]
+		f.mu.Unlock()
+		for name, value := range hdrs {
+			w.Header().Set(name, value)
 		}
 		w.WriteHeader(a.status)
 		_, _ = io.WriteString(w, a.body)
@@ -113,6 +120,18 @@ func (f *fakeNitter) setAnswers(answers map[string]answer) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.answers = answers
+}
+
+// setHeaders makes the fake attach these response headers to one request
+// target (the RSS paging tests need Min-Id). It is additive on purpose: the
+// answer literals stay positional.
+func (f *fakeNitter) setHeaders(target string, headers map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.headers == nil {
+		f.headers = make(map[string]map[string]string)
+	}
+	f.headers[target] = headers
 }
 
 // instanceConfig returns the fast config fixture pointing at fake.
@@ -1133,5 +1152,159 @@ func TestWatchInvalidMediaTypeIsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "--media-type") {
 		t.Errorf("stderr = %q, want it to name --media-type", errOut)
+	}
+}
+
+// TestWatchRSSPagesPastTheFirstFeedPage: a source whose backlog spans more
+// than one RSS page is fully fetched, so nothing past the first page is
+// silently dropped.
+func TestWatchRSSPagesPastTheFirstFeedPage(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss":            {200, rssBody("103", "102")},
+		"/NASA/rss?cursor=102": {200, rssBody("101")},
+	})
+	fake.setHeaders("/NASA/rss", map[string]string{"Min-Id": "102"})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "--once", "--ndjson",
+		"--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	var ids []string
+	for _, env := range envs {
+		ids = append(ids, env.ID)
+	}
+	if want := []string{"103", "102", "101"}; !slices.Equal(ids, want) {
+		t.Fatalf("emitted ids = %v, want %v (the second RSS page must be fetched)", ids, want)
+	}
+}
+
+// rssItemFor renders one Nitter-shaped RSS item for one handle.
+func rssItemFor(handle, id string) string {
+	return `<item>` +
+		`<guid>https://nitter.example/` + handle + `/status/` + id + `#m</guid>` +
+		`<link>https://nitter.example/` + handle + `/status/` + id + `</link>` +
+		`<dc:creator>@` + handle + `</dc:creator>` +
+		`<title>rss ` + id + `</title>` +
+		`<description><![CDATA[<div class="tweet-content">rss body ` + id + `</div>]]></description>` +
+		`<pubDate>Sun, 05 Jul 2026 09:09:40 +0000</pubDate></item>`
+}
+
+// rssFeedOf wraps explicit items into one feed.
+func rssFeedOf(items ...string) string {
+	return `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>` +
+		strings.Join(items, "") + `</channel></rss>`
+}
+
+// TestWatchMergesUserSourcesWithNoReposts: with --no-reposts and two user
+// sources the cycle issues ONE merged request instead of two.
+func TestWatchMergesUserSourcesWithNoReposts(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA,ESA/rss": {200, rssFeedOf(rssItemFor("NASA", "101"), rssItemFor("ESA", "201"))},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "user:ESA", "--once", "--ndjson",
+		"--no-reposts", "--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	if len(envs) != 2 {
+		t.Fatalf("envelopes = %d, want 2 (one per author): %s", len(envs), out)
+	}
+	file := readSeenFile(t, filepath.Join(stateDir, "seen.json"))
+	for _, key := range []string{"user:NASA", "user:ESA"} {
+		if _, ok := file.Sources[key]; !ok {
+			t.Errorf("seen.json missing %q: %+v", key, file.Sources)
+		}
+	}
+}
+
+// TestWatchDoesNotMergeWithoutNoReposts: the default (reposts kept) stays on
+// the per-source path, because the merged feed cannot represent a repost.
+func TestWatchDoesNotMergeWithoutNoReposts(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+		"/ESA/rss":  {200, rssBody("201")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "user:ESA", "--once", "--ndjson",
+		"--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if envs := decodeEnvelopes(t, out); len(envs) != 2 {
+		t.Fatalf("envelopes = %d, want 2 from the per-source path", len(envs))
+	}
+}
+
+// TestWatchMergedBatchFailureFallsBackPerSource: a failed merged request must
+// not lose the sources — the per-source path covers them.
+//
+// ESA's fallback answer is author-correct (rssBody hardcodes NASA in guid and
+// dc:creator, which the RSS repost heuristic would flag — and --no-reposts
+// would then drop — under the ESA source).
+func TestWatchMergedBatchFailureFallsBackPerSource(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA,ESA/rss": {404, ""},
+		"/NASA/rss":     {200, rssBody("101")},
+		"/ESA/rss":      {200, rssFeedOf(rssItemFor("ESA", "201"))},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "user:ESA", "--once", "--ndjson",
+		"--no-reposts", "--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if envs := decodeEnvelopes(t, out); len(envs) != 2 {
+		t.Fatalf("envelopes = %d, want 2 (fallback must cover both sources)", len(envs))
+	}
+}
+
+// TestWatchMergedDoesNotEarlyStopForAnUninitializedMember: page 1 holding only
+// an initialized member's already-seen tweets must not cut off a new member's
+// baseline — the scan has to reach the page that carries it.
+func TestWatchMergedDoesNotEarlyStopForAnUninitializedMember(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/NASA/rss": {200, rssBody("101")},
+	})
+	writeConfig(t, home, instanceConfig(fake))
+	stateDir := t.TempDir()
+
+	// Run 1 initializes NASA only.
+	if code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", "--state-dir", stateDir); code != 0 {
+		t.Fatalf("seed run exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+
+	// Run 2 adds ESA. Page 1 is entirely NASA's already-seen tweet; ESA's only
+	// tweet sits on page 2.
+	fake.setAnswers(map[string]answer{
+		"/NASA,ESA/rss":           {200, rssFeedOf(rssItemFor("NASA", "101"))},
+		"/NASA,ESA/rss?cursor=c1": {200, rssFeedOf(rssItemFor("ESA", "201"))},
+	})
+	fake.setHeaders("/NASA,ESA/rss", map[string]string{"Min-Id": "c1"})
+
+	code, out, errOut := runCLI(t, "watch", "user:NASA", "user:ESA", "--once", "--ndjson",
+		"--no-reposts", "--include-existing", "--state-dir", stateDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	envs := decodeEnvelopes(t, out)
+	if len(envs) != 1 || envs[0].ID != "201" {
+		t.Fatalf("envelopes = %+v, want exactly ESA's 201 (an early stop would have truncated it)", envs)
 	}
 }

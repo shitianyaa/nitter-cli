@@ -287,7 +287,7 @@ const (
     KindUnavailable Kind = "upstream_unavailable"       // unreachable/5xx, no instances, all cooling
     KindMalformed   Kind = "malformed_upstream_response"
     KindInvalidArg  Kind = "invalid_argument"
-    KindLocalState  Kind = "local_state_error"          // corrupt state file, missing transport
+    KindLocalState  Kind = "local_state_error"          // corrupt state file, missing transport, failed local write
 )
 
 type Error struct {
