@@ -607,18 +607,13 @@ nitter seen clear [--source SOURCE] [--state-dir DIR] --confirm
 ## nitter update
 
 ```bash
-nitter update
-nitter update --check [--prerelease] [--json]
+nitter update [--confirm] [--proxy URL]
+nitter update --check [--prerelease] [--json] [--proxy URL]
 ```
 
 报告二进制的更新方式。当存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
 `checksums.txt` 校验其 SHA-256，检查暂存二进制报告的版本，全部通过后才替换可执行文件。
 **任何失败都不会改动现有安装**——所有校验通过前不会碰目标文件。
-
-```bash
-nitter update [--confirm] [--proxy URL]
-nitter update --check [--prerelease] [--json] [--proxy URL]
-```
 
 - 不带 flag 的 `nitter update` 先比对版本，然后在终端询问
   `install now? [y/N]`（默认 No）。无 `--confirm` 且无终端时，它打印比对结果加
