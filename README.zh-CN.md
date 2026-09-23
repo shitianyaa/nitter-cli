@@ -132,7 +132,7 @@ nitter following NASA --limit 10                  # 某账号关注了谁
 nitter profile NASA                               # 博主名片卡
 nitter comments 2100031016471818431 --limit 10    # 回复树（博主自评的隐藏链接就在这）
 nitter quotes <STATUS_ID> --media-only | nitter download   # 引用推文衍生素材批量下载
-nitter circle run coser_acgn --limit 1            # 流式拉取私人圈子花名册
+nitter circle run ai_researchers --limit 1            # 流式拉取私人圈子花名册
 
 # 管道输出无需 flag——数据命令自动输出 NDJSON，流可直接喂给下载命令
 nitter search "#AI" --limit 20 | nitter download --output ./media

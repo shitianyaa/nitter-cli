@@ -184,12 +184,12 @@ nitter quotes 2100031016471818431 --media-only --json   # quote tweets with medi
 nitter trends --limit 10                                # fetch real-time Twitter/X trends (#, topic, context, tweet count)
 nitter trends --json                                    # array of trend objects
 nitter circle list                                      # list configured creator circles
-nitter circle show shaoluo                              # show handles in circle
-nitter circle show shaoluo --min-followers 5000          # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
+nitter circle show ai_researchers                       # show handles in circle
+nitter circle show ai_researchers --min-followers 5000  # only members with ≥5k followers (@handle\tfollowers per row; --json for objects)
 nitter circle suggest NewCreator --limit 20             # read-only: candidates from following + retweet authors (add via circle add)
-nitter circle run shaoluo --limit 2                     # stream latest tweets for all creators in circle
-nitter circle run shaoluo --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
-nitter circle add shaoluo NewCreator                    # add handle to circle
+nitter circle run ai_researchers --limit 2                     # stream latest tweets for all creators in circle
+nitter circle run ai_researchers --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
+nitter circle add ai_researchers NewCreator             # add handle to circle
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
@@ -421,6 +421,26 @@ references/download.md).
 - Deliver downloaded files through the host attachment API; if the host
   cannot attach files, share the resolved URL only and never claim the
   media itself was sent.
+- **Check the size against the host platform's upload cap before downloading** —
+  the failure modes differ, and a video that overflows costs the whole
+  download for nothing. Pass `--probe` to `nitter media` to get `size_bytes`
+  per video/gif entry (ranged GET, best-effort; absent without `--probe` and
+  omitted when a probe returns nothing) and pick a `--quality` that fits
+  instead of downloading `high` and discarding it. Without a usable size,
+  prefer `--quality medium` for platform-bound delivery.
+
+| Platform | Images | Video | Files | Over the cap |
+| --- | --- | --- | --- | --- |
+| Telegram (Bot API) | — | **50 MB** | **50 MB** | hard reject |
+| Telegram (local Bot API server) | — | **2000 MB** | **2000 MB** | hard reject |
+| QQ bot (official v2) | 20 MB soft / 200 MB hard | 30 MB soft / 200 MB hard | 200 MB | soft → downgraded to a file card; hard → error |
+
+  Telegram's 50 MB is for uploads through the public Bot API; a self-hosted
+  `telegram-bot-api --local` raises it to 2000 MB. QQ's soft limit does not
+  fail — the media silently becomes a document/file message, so if the user
+  asked for an inline video and it exceeds 30 MB, say so rather than letting
+  it degrade. Other platforms: ask the user, or download to disk and let them
+  attach it.
 
 ## Routing
 

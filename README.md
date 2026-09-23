@@ -147,7 +147,7 @@ nitter following NASA --limit 10                  # who an account follows
 nitter profile NASA                               # account card
 nitter comments 2100031016471818431 --limit 10    # reply tree (author self-replies live here)
 nitter quotes <STATUS_ID> --media-only | nitter download   # derivative media from quote tweets
-nitter circle run coser_acgn --limit 1            # stream a curated creator roster
+nitter circle run ai_researchers --limit 1            # stream a curated creator roster
 
 # Piped output needs no flags — data commands emit NDJSON on their own,
 # so the stream feeds the downloader directly
