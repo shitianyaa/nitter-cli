@@ -310,6 +310,10 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output directory %s: %w", outDir, err)
 	}
+	// Tell the user where files will land. Purely informational: the path is
+	// already resolved and the directory now exists, so this is not a gate.
+	// stderr keeps stdout a clean machine contract (rows / JSON / NDJSON).
+	fmt.Fprintf(s.Err, "note: writing to %s\n", outDir)
 
 	// --filename-template overrides the filename_template config per
 	// invocation (flag > config); an empty value at either level IS the
