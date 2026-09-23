@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -194,5 +196,159 @@ func TestUpdateCheckNoReleaseExits1(t *testing.T) {
 
 	if code, _, _ := runUpdate(t, "--check"); code != 1 {
 		t.Fatalf("exit = %d, want 1", code)
+	}
+}
+
+// runUpdateWith drives the command with caller-supplied streams, so the
+// confirm prompt can be exercised (InIsTTY + a stdin reader) without a real
+// terminal.
+func runUpdateWith(t *testing.T, s *invocation.Streams, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errOut strings.Builder
+	s.Out = &out
+	s.Err = &errOut
+	if s.CTX == nil {
+		s.CTX = context.Background()
+	}
+	if s.RootOptions == nil {
+		s.RootOptions = &invocation.RootOptions{CTX: s.CTX}
+	}
+	cmd := New(s)
+	cmd.SetArgs(args)
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	err := cmd.Execute()
+	code := 0
+	if err != nil {
+		code = invocation.ExitCode(err)
+		if code == 1 {
+			errOut.WriteString("error: " + err.Error())
+		}
+	}
+	return code, out.String(), errOut.String()
+}
+
+// panicReader fails the test if anything reads stdin — proving the non-TTY
+// path never blocks on a pipe.
+type panicReader struct{ t *testing.T }
+
+func (p panicReader) Read([]byte) (int, error) {
+	p.t.Error("stdin must not be read when it is not a terminal")
+	return 0, nil
+}
+
+// Declining the prompt (an empty line, i.e. accepting the [y/N] default)
+// exits 0 and reports that nothing was installed.
+func TestUpdateConfirmDeclinedExitsZeroWithoutInstalling(t *testing.T) {
+	setVersion(t, "0.1.0")
+	fakeAPI(t, "["+release("v0.2.0", false)+"]", http.StatusOK)
+	s := &invocation.Streams{In: strings.NewReader("\n"), InIsTTY: true}
+
+	code, out, errOut := runUpdateWith(t, s)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "not installed") {
+		t.Errorf("out = %q, want a 'not installed' line", out)
+	}
+	if strings.Contains(out, "downloading") {
+		t.Errorf("a declined prompt must not download: %q", out)
+	}
+}
+
+func TestUpdateConfirmRejectsNonYesAnswers(t *testing.T) {
+	for _, answer := range []string{"n\n", "no\n", "\n", "maybe\n"} {
+		setVersion(t, "0.1.0")
+		fakeAPI(t, "["+release("v0.2.0", false)+"]", http.StatusOK)
+		s := &invocation.Streams{In: strings.NewReader(answer), InIsTTY: true}
+		code, out, _ := runUpdateWith(t, s)
+		if code != 0 {
+			t.Errorf("answer %q: exit = %d, want 0", answer, code)
+		}
+		if !strings.Contains(out, "not installed") {
+			t.Errorf("answer %q: out = %q, want 'not installed'", answer, out)
+		}
+	}
+}
+
+// A non-TTY without --confirm reports and exits 0 without ever reading stdin.
+func TestUpdateNonTTYWithoutConfirmDoesNotReadStdin(t *testing.T) {
+	setVersion(t, "0.1.0")
+	fakeAPI(t, "["+release("v0.2.0", false)+"]", http.StatusOK)
+	s := &invocation.Streams{In: panicReader{t: t}, InIsTTY: false}
+
+	code, out, errOut := runUpdateWith(t, s)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "--confirm") {
+		t.Errorf("out = %q, want a pointer to --confirm", out)
+	}
+	if !strings.Contains(out, "not installed") {
+		t.Errorf("out = %q, want an explicit 'not installed'", out)
+	}
+}
+
+// Up to date in install mode never prompts and never downloads.
+func TestUpdateInstallUpToDateDoesNotPrompt(t *testing.T) {
+	setVersion(t, "0.2.0")
+	fakeAPI(t, "["+release("v0.2.0", false)+"]", http.StatusOK)
+	s := &invocation.Streams{In: panicReader{t: t}, InIsTTY: true}
+
+	code, out, errOut := runUpdateWith(t, s)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "up to date") {
+		t.Errorf("out = %q, want 'up to date'", out)
+	}
+}
+
+// A go install installation is refused with the matching install line: an
+// update would be silently undone by the next `go install`.
+func TestUpdateInstallRefusesGoInstallSource(t *testing.T) {
+	setVersion(t, "0.1.0")
+	fakeAPI(t, "["+release("v0.2.0", false)+"]", http.StatusOK)
+
+	// Put the "running binary" inside a fake GOBIN so DetectSource sees it.
+	gobin := t.TempDir()
+	exe := filepath.Join(gobin, "nitter")
+	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("GOBIN", gobin)
+	oldExe := osExecutable
+	osExecutable = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { osExecutable = oldExe })
+
+	s := &invocation.Streams{In: strings.NewReader("y\n"), InIsTTY: true}
+	code, _, errOut := runUpdateWith(t, s)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "go install") {
+		t.Errorf("stderr = %q, want the go install guidance", errOut)
+	}
+}
+
+// --confirm with --check is a flag combination with no meaning: usage error.
+func TestUpdateConfirmWithCheckIsUsageError(t *testing.T) {
+	setVersion(t, "0.1.0")
+	code, _, _ := runUpdate(t, "--check", "--confirm")
+	if code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+}
+
+// An invalid --proxy scheme is a usage error before any network call.
+func TestUpdateInvalidProxyIsUsageError(t *testing.T) {
+	setVersion(t, "0.1.0")
+	s := &invocation.Streams{
+		In:          strings.NewReader(""),
+		RootOptions: &invocation.RootOptions{Proxy: "ftp://nope"},
+	}
+	code, _, _ := runUpdateWith(t, s, "--check")
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 for an invalid proxy scheme", code)
 	}
 }

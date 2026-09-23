@@ -28,18 +28,18 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-// TestUpdateWithoutCheckPrintsGuidance: bare `nitter update` performs no
-// network call and prints the package-manager/manual-download guidance
-// (MVP does not self-install), exit 0.
-func TestUpdateWithoutCheckPrintsGuidance(t *testing.T) {
+// TestUpdateWithoutCheckOnDevBuildReportsNoSelfUpdate: a development build
+// cannot self-update. Bare `nitter update` reports that (no network) and
+// exits 0 — the install path intentionally short-circuits before any lookup.
+func TestUpdateWithoutCheckOnDevBuildReportsNoSelfUpdate(t *testing.T) {
 	tempHome(t)
 	code, out, errOut := runCLI(t, "update")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	for _, want := range []string{"package manager", "releases", "update --check"} {
+	for _, want := range []string{"development build", "self-update is unavailable", "release build"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("guidance output %q missing %q", out, want)
+			t.Errorf("output %q missing %q", out, want)
 		}
 	}
 }

@@ -25,6 +25,10 @@ var assetURLPrefix = "https://github.com/" + RepoSlug + "/releases/download/"
 // implicit default here would be a silent timeout.
 const downloadTimeout = 5 * time.Minute
 
+// DownloadTimeout exposes the asset-download timeout so the command layer
+// builds the same client the installer defaults to.
+func DownloadTimeout() time.Duration { return downloadTimeout }
+
 // verifyTimeout bounds the staged binary's --version probe.
 const verifyTimeout = 30 * time.Second
 
