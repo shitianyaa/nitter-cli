@@ -381,6 +381,12 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
    错误，不做绕行。请遵守 X 的服务条款与实例承载能力；本项目与 X Corp. 及
    Nitter 项目均无关联。
 
+## 致谢
+
+项目结构沿用 [javdb-cli](https://github.com/FlanChanXwO/javdb-cli) 与
+[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli) 的做法：分层双语文档、
+仓库内流程 skill、贡献指南与 PR 模板、版本化 changelog，以及 tag 触发的多平台发布矩阵。
+
 ## 许可证
 
 [MIT](LICENSE)。

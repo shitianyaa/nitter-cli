@@ -433,6 +433,13 @@ writes them to disk, and `nitter media` resolves links without downloading.
    working around it. Respect X's terms and your instances' capacity; this project
    is not affiliated with X Corp. or the Nitter project.
 
+## Credits
+
+The project layout follows [javdb-cli](https://github.com/FlanChanXwO/javdb-cli)
+and [pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli): the layered bilingual
+docs, the repo-local process skills, the contribution guide and PR template, the
+versioned changelog, and the tag-triggered multi-platform release matrix.
+
 ## License
 
 [MIT](LICENSE).
