@@ -98,7 +98,7 @@ Requires Go 1.27+:
 
 ```bash
 sh scripts/build.sh          # produces ./nitter
-./nitter --version           # nitter version 0.7.0 (or a dev line)
+./nitter --version           # nitter version 0.7.1 (or a dev line)
 ```
 
 ### Install with an AI agent

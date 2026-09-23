@@ -85,7 +85,7 @@ sha256sum -c checksums.txt --ignore-missing   # 或等价工具
 
 ```bash
 sh scripts/build.sh          # 生成 ./nitter
-./nitter --version           # nitter version 0.7.0（或 dev 版本行）
+./nitter --version           # nitter version 0.7.1（或 dev 版本行）
 ```
 
 ### 让 AI Agent 安装
