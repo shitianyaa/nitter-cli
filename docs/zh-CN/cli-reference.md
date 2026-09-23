@@ -132,7 +132,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 - `show`：查看指定圈子的成员，并与 `~/.nitter-cli/profiles.toml` 中缓存的侧写合并展示。**纯本地，零网络请求。** 每个成员输出 `@<handle>\t<粉丝数>\t<role>\t<昵称>\t<bio>\t<数据年龄>`（bio 展平为单行并截断到 120 字节）；无数据的列输出 `-`，不会丢行。
   - **`--min-followers N`**：只保留**缓存**粉丝数 ≥ N 的成员。无缓存的成员没有已验证数字，会被该过滤排除，但仍计入 stderr 提示。`N < 0` 是 usage error（退出 2）。
   - 无缓存的成员保留行内 `-` 占位，同时在 stderr 输出 `note: <N> member(s) have no cached profile; run 'nitter circle refresh <NAME>'`（无论是否被 `--min-followers` 过滤掉）。先跑一次 `refresh` 填充缓存。
-  - `--json` 按名单顺序输出 `{handle, name, bio, followers_count, fetched_at, role, note}` 对象数组。`fetched_at` 为空串表示从未拉取；数据新鲜度由消费方自行派生（`noted_at` 与派生的 age 刻意不投影）。
+  - `--json` 按名单顺序输出 `{handle, name, bio, followers_count, fetched_at, role, note}` 对象数组；与 human 行一致，`bio` 会展平为单行并截断到 120 字节。`fetched_at` 为空串表示从未拉取；数据新鲜度由消费方自行派生（`noted_at` 与派生的 age 刻意不投影）。
 - `refresh`：拉取每个成员的 profile 并把结果合并进侧写文件 `~/.nitter-cli/profiles.toml`。它是该文件**唯一**的联网写入路径，也是唯一为圈子拉取 profile 的命令。
   - 只写事实字段（`name`、`bio`、`followers_count`、`fetched_at`），**绝不触碰** `role`、`note`、`noted_at`——记在这些字段里的判断在每次刷新中都会存活。
   - 单个成员拉取失败时 stderr 一行 `warning:` 并继续，其已有条目保留原事实（不以空值覆盖，也不会为它新建条目）。全部成员失败退出 1；圈子不存在退出 1；空圈子输出 `(empty)`、退出 0 且不创建文件。

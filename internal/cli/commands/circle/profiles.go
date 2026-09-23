@@ -133,13 +133,16 @@ func writeSidecarJSON(s *invocation.Streams, rows []sidecarRow) error {
 //
 //	@<handle>\t<followers>\t<role>\t<name>\t<bio>\t<age>
 //
-// Columns with no data render as "-" so a member is never silently dropped.
+// Fact columns with no data render as "-" so a member is never silently
+// dropped. `role` is hand-recorded judgement rather than a fetched fact, so it
+// is shown even for a member with no cached facts yet — a recorded call must
+// never look lost merely because `circle refresh` has not run.
 func renderSidecarLine(handle string, prof settings.Profile, hasCache bool, now time.Time) string {
+	role := dashIfEmpty(prof.Role)
 	if !hasCache {
-		return "@" + handle + "\t-\t-\t-\t-\t-"
+		return strings.Join([]string{"@" + handle, "-", role, "-", "-", "-"}, "\t")
 	}
 	followers := strconv.Itoa(prof.FollowersCount)
-	role := dashIfEmpty(prof.Role)
 	name := dashIfEmpty(shortBio(prof.Name))
 	bio := dashIfEmpty(shortBio(prof.Bio))
 	age := settings.ProfileAge(prof.FetchedAt, now)

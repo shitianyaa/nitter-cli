@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +49,26 @@ func LoadProfiles(path string) (map[string]Profile, error) {
 	if cfg.Profiles == nil {
 		return make(map[string]Profile), nil
 	}
-	return cfg.Profiles, nil
+	// Normalize keys to the lookup key (lowercase) and backfill Handle from
+	// the key. Without this a hand-authored `[profiles.Doubao23333]` block is
+	// never found by FindProfile and a later refresh would add a second,
+	// lowercase entry — stranding the hand-recorded judgement on a key nobody
+	// reads. Keys are walked in sorted order so a (nonsensical) input with two
+	// keys that collide case-insensitively resolves deterministically.
+	keys := make([]string, 0, len(cfg.Profiles))
+	for k := range cfg.Profiles {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make(map[string]Profile, len(cfg.Profiles))
+	for _, k := range keys {
+		v := cfg.Profiles[k]
+		if v.Handle == "" {
+			v.Handle = strings.TrimSpace(k)
+		}
+		out[strings.ToLower(strings.TrimSpace(k))] = v
+	}
+	return out, nil
 }
 
 // SaveProfiles atomically writes the sidecar using the [profiles.<key>] layout.

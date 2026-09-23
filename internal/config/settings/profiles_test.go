@@ -1,6 +1,7 @@
 package settings_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -61,6 +62,66 @@ func TestFindProfileCaseInsensitive(t *testing.T) {
 	}
 	if _, ok := settings.FindProfile(profiles, "absent"); ok {
 		t.Errorf("FindProfile(absent) found, want miss")
+	}
+}
+
+// A hand-authored block may use the account's canonical casing as its key.
+// LoadProfiles must normalize it, otherwise FindProfile never sees the entry
+// and a later refresh adds a second lowercase key, stranding the recorded
+// judgement on a key nobody reads.
+func TestLoadProfilesNormalizesMixedCaseKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.toml")
+	data := "[profiles.Doubao23333]\nhandle = 'Doubao23333'\nrole = 'creator'\nnote = 'hand recorded'\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	profiles, err := settings.LoadProfiles(path)
+	if err != nil {
+		t.Fatalf("LoadProfiles: %v", err)
+	}
+	got, ok := settings.FindProfile(profiles, "Doubao23333")
+	if !ok {
+		t.Fatalf("mixed-case key not found; loaded=%+v", profiles)
+	}
+	if got.Role != "creator" || got.Note != "hand recorded" {
+		t.Errorf("judgement lost: %+v", got)
+	}
+	if got.Handle != "Doubao23333" {
+		t.Errorf("Handle = %q, want canonical casing preserved", got.Handle)
+	}
+	if _, exists := profiles["Doubao23333"]; exists {
+		t.Errorf("mixed-case key must be normalized away: %+v", profiles)
+	}
+
+	// Merging facts onto the normalized entry must not create a second key.
+	merged := settings.MergeProfileFacts(profiles, "Doubao23333", settings.Profile{
+		Handle: "Doubao23333", FollowersCount: 12000,
+	}, time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+	if len(merged) != 1 {
+		t.Fatalf("merged has %d entries, want 1: %+v", len(merged), merged)
+	}
+	final, _ := settings.FindProfile(merged, "doubao23333")
+	if final.Role != "creator" || final.FollowersCount != 12000 {
+		t.Errorf("merge lost judgement or facts: %+v", final)
+	}
+}
+
+// A block with no explicit handle backfills it from the key.
+func TestLoadProfilesBackfillsHandleFromKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.toml")
+	if err := os.WriteFile(path, []byte("[profiles.abc]\nrole = 'creator'\n"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	profiles, err := settings.LoadProfiles(path)
+	if err != nil {
+		t.Fatalf("LoadProfiles: %v", err)
+	}
+	got, ok := settings.FindProfile(profiles, "abc")
+	if !ok {
+		t.Fatalf("entry missing")
+	}
+	if got.Handle != "abc" {
+		t.Errorf("Handle = %q, want backfilled from key", got.Handle)
 	}
 }
 

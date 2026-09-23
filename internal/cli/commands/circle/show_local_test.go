@@ -173,6 +173,104 @@ func TestCircleShowMinFollowersFiltersCache(t *testing.T) {
 	}
 }
 
+// A recorded judgement is not fetched data: it must be visible even before
+// `circle refresh` has populated any facts, otherwise a hand-recorded call
+// looks lost in the default human output (only --json would reveal it).
+func TestCircleShowShowsRecordedRoleWithoutCache(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home)
+	runCLI(t, "circle", "add", "dev", "judged")
+
+	dir := filepath.Join(home, ".nitter-cli")
+	seed := "[profiles.judged]\nhandle = 'judged'\nrole = 'fanwork'\nnote = 'hand recorded'\n"
+	if err := os.WriteFile(filepath.Join(dir, "profiles.toml"), []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed sidecar: %v", err)
+	}
+	srv, requests := countingFxServer(t)
+	defer srv.Close()
+	cleanup := client.SetFxBaseURLForTesting(srv.URL)
+	defer cleanup()
+
+	code, out, errOut := runCLI(t, "circle", "show", "dev")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if *requests != 0 {
+		t.Errorf("requests = %d, want 0", *requests)
+	}
+	cells := strings.Split(strings.TrimSpace(out), "\t")
+	if len(cells) != 6 {
+		t.Fatalf("cells = %v, want 6 columns", cells)
+	}
+	if cells[0] != "@judged" || cells[2] != "fanwork" {
+		t.Errorf("role must show despite having no cache: %v", cells)
+	}
+	// The fact columns stay dashes: there is genuinely no cached data.
+	for _, i := range []int{1, 3, 4, 5} {
+		if cells[i] != "-" {
+			t.Errorf("fact column %d = %q, want -", i, cells[i])
+		}
+	}
+	// It is still reported as uncached, so the user knows to refresh.
+	if !strings.Contains(errOut, "1 member(s) have no cached profile") {
+		t.Errorf("stderr = %q, want the missing-cache note", errOut)
+	}
+}
+
+func TestCircleShowCorruptSidecarExits1(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home)
+	runCLI(t, "circle", "add", "dev", "cached")
+
+	dir := filepath.Join(home, ".nitter-cli")
+	if err := os.WriteFile(filepath.Join(dir, "profiles.toml"), []byte("this is not = valid toml [[["), 0o600); err != nil {
+		t.Fatalf("seed corrupt sidecar: %v", err)
+	}
+
+	// Both READMEs advertise a corrupt profiles.toml as exit 1, never a
+	// silent empty cache.
+	code, _, errOut := runCLI(t, "circle", "show", "dev")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "profiles") {
+		t.Errorf("stderr = %q, want it to name the sidecar", errOut)
+	}
+}
+
+// A member with a real follower count of 0 and a populated fetched_at IS
+// cached: the cache decision must use fetched_at, because followers_count
+// carries omitempty and can legitimately be zero.
+func TestCircleShowZeroFollowersCountsAsCached(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home)
+	runCLI(t, "circle", "add", "dev", "zero")
+
+	dir := filepath.Join(home, ".nitter-cli")
+	seed := "[profiles.zero]\nhandle = 'zero'\nrole = 'creator'\nfetched_at = '2026-09-20T12:00:00Z'\n"
+	if err := os.WriteFile(filepath.Join(dir, "profiles.toml"), []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed sidecar: %v", err)
+	}
+
+	code, out, errOut := runCLI(t, "circle", "show", "dev")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if strings.Contains(errOut, "no cached profile") {
+		t.Errorf("a fetched_at with 0 followers must count as cached; stderr = %q", errOut)
+	}
+	cells := strings.Split(strings.TrimSpace(out), "\t")
+	if len(cells) != 6 {
+		t.Fatalf("cells = %v, want 6 columns", cells)
+	}
+	if cells[1] != "0" {
+		t.Errorf("followers column = %q, want a literal 0 (not a dash)", cells[1])
+	}
+	if cells[5] == "-" {
+		t.Errorf("age column = %q, want a rendered age", cells[5])
+	}
+}
+
 func TestCircleShowEmptyAndUnknown(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)

@@ -42,7 +42,7 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   replies (sorted by likes or recency), the fast way to reach an author's
   self-replies with hidden links or to read a serialized thread.
 - **Creator circles** — `nitter circle` curates themed rosters in
-  `~/.nitter-cli/circles.toml` (`list` / `show` / `suggest` / `add` / `run`):
+  `~/.nitter-cli/circles.toml` (`list` / `show` / `refresh` / `suggest` / `add` / `run`):
   `suggest` mines a handle's following list and retweet authors for new
   candidate members, then on-demand discovery and pipeline streaming,
   distinct from scheduled `watch` subscriptions.
@@ -111,9 +111,10 @@ Also install the `nitter-cli` Skill that matches the same stable release tag (ne
 nitter-cli ships without instances, and the default `mix` mode already works:
 `user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
 and `search --type user` run through FxTwitter's public endpoint out of the
-box. Configure a Nitter instance you control for `list`, for the fully
-self-hosted `nitter` mode, and as the fallback when Fx is unavailable. Don't
-have one? Deploy your own with Docker — see the
+box. `circle refresh` also always uses FxTwitter, whatever `fetch_backend` says
+(it sends every member's handle). Configure a Nitter instance you control for
+`list`, for the fully self-hosted `nitter` mode, and as the fallback when Fx is
+unavailable. Don't have one? Deploy your own with Docker — see the
 [upstream wiki](https://github.com/zedeus/nitter/wiki) or the community
 [self-hosting guide](https://github.com/sekai-soft/guide-nitter-self-hosting);
 an AI agent can follow the skill's [deploy reference](skills/nitter-cli/references/deploy.md).
@@ -388,9 +389,14 @@ and `search --type user` try FxTwitter's public endpoint
 (`api.fxtwitter.com`) first — the handle or query goes to that third-party
 service, with no credentials of yours attached. On failure the request falls
 back to your own instances. `list` always runs on your instances (FxTwitter
-has no List endpoint), `--instance URL` forces the Nitter path for a command,
-and `fetch_backend = "nitter"` keeps every fetch on infrastructure you
-control.
+has no List endpoint), and `--instance URL` forces the Nitter path for a
+command.
+
+`fetch_backend` only governs the timeline and status surfaces — `user`,
+`search`, `list` and `get`. The FxTwitter-only commands (`comments`, `profile`,
+`following`, `quotes`, `trends`, and `circle refresh`, which sends one profile
+request per circle member) always reach `api.fxtwitter.com` regardless of
+`fetch_backend`, because they have no Nitter equivalent.
 
 **How do I use a different instance for one command?**
 `nitter --instance http://nitter.internal:8080 user NASA` replaces the configured

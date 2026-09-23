@@ -115,7 +115,7 @@ func TestCircleRefreshPreservesJudgement(t *testing.T) {
 	if !ok {
 		t.Fatalf("big missing after refresh")
 	}
-	if big["role"] != "creator" || big["note"] != "alt @big2" {
+	if big["role"] != "creator" || big["note"] != "alt @big2" || big["noted_at"] != "2026-01-01T00:00:00Z" {
 		t.Errorf("judgement lost: %+v", big)
 	}
 	if big["followers_count"] != int64(12000) {
