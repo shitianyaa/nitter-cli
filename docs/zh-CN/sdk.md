@@ -268,7 +268,7 @@ const (
     KindUnavailable Kind = "upstream_unavailable"       // 不可达/5xx、无实例、全部冷却中
     KindMalformed   Kind = "malformed_upstream_response"
     KindInvalidArg  Kind = "invalid_argument"
-    KindLocalState  Kind = "local_state_error"          // 状态文件损坏、缺少传输层
+    KindLocalState  Kind = "local_state_error"          // 状态文件损坏、缺少传输层、本地写入失败
 )
 
 type Error struct {
