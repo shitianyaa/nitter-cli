@@ -14,3 +14,6 @@ docs/superpowers/
 
 # Local dump for messy media-test artifacts
 /Testignore/
+
+# Machine- and person-specific agent notes (AGENTS.md keeps only general rules)
+/AGENTS.local.md

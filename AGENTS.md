@@ -2,6 +2,23 @@
 
 默认离线验证：`go test ./...` + `sh scripts/build.sh`。
 
+> **本机与个人配置、踩坑记录**在 `AGENTS.local.md`（仅本地，见 `.gitignore`；
+> 因绑定本机路径、代理与私有实例而**不入库**）。下文提到它的地方即其入口；
+> 该文件不存在时按本文件的通用规则行事，并向用户确认环境细节。
+
+## 通用协作规则
+
+- **代理**：访问外网前先探测连通性，不通就问用户。不自填公共代理、不换未授权中继；
+  代理需逐工具显式传（git / curl / gh 互不相通）。本机代理地址与传法见 `AGENTS.local.md`。
+- **计划与草稿不入库**：计划、设计规范、调研草稿与事故记录一律不提交；引用时用
+  相对路径，不复制进受跟踪文件。本地目录：`Progress/`、`docs/superpowers/`、
+  `Testignore/`、`.superpowers/`、`AGENTS.local.md`。
+- **子代理**：只用于审核计划与执行计划；代码审查、实现、设计、调研在当前会话完成。
+  子代理不得再派子代理或自 spawn reviewer；派发参数与简要约束见 `AGENTS.local.md`。
+  不可逆操作、安全敏感操作、工作区之外的副作用（merge / push 共享分支 / 发布）
+  一律停下问用户。
+- **Git**：不用 `git add -A`；`git add --renormalize .` 是批量操作，不能当定向 add 用。
+
 ## 架构边界（不可违反）
 
 - `cmd/nitter` 只委托；`internal/cli/root.go` 拥有命令树、流与组装；子命令包不导入 `internal/cli`。
@@ -32,6 +49,7 @@
 | 面向使用者的产品 skill | [`skills/nitter-cli/SKILL.md`](skills/nitter-cli/SKILL.md) |
 | 贡献入口 | [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md) |
 | 发布说明 | [`changelog/README.md`](changelog/README.md) |
+| 本机环境、代理、踩坑记录（仅本地） | `AGENTS.local.md`（不入库，无超链接） |
 
 ## Repo-local skills
 
@@ -52,5 +70,5 @@
 ## 红线
 
 - 不提交实例 basic-auth 凭据、代理凭据、`~/.nitter-cli/` 本地状态、构建产物或测试产物。
-- `Progress/`、`docs/superpowers/`、`Testignore/` 都是本地目录，永不提交。
 - 状态变更类命令（`config set`、`seen clear`、`circle add`）需用户显式授权，授权不跨命令沿用。
+- 不把代理凭据、私有实例 URL 或下载内容写进 commit、PR、issue、日志或最终报告。
