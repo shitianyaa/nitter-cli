@@ -31,7 +31,7 @@ history is emitted. This is by design: the stream starts at "now".
 - After the first run, each cycle emits the source's new tweets (IDs not in the
   seen list, newest first).
 
-## `--max-new` semantics (rule 4) and the overflow policy
+## `--max-new` semantics and the overflow policy
 
 - Default 10: at most 10 new tweets per source per cycle are emitted, newest
   first.
