@@ -1009,8 +1009,70 @@ func TestDownloadInvalidConfigTemplateWarnsAndFallsBack(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, id100+"-1.mp4")); err != nil {
 		t.Errorf("default-named file missing: %v", err)
 	}
-	warnings := strings.Split(strings.TrimRight(errOut, "\n"), "\n")
+	// Count only the warning lines: stderr also carries the informational
+	// "note: writing to <dir>" line, which is not a warning.
+	warnings := make([]string, 0, 2)
+	for _, line := range strings.Split(strings.TrimRight(errOut, "\n"), "\n") {
+		if strings.HasPrefix(line, "warning:") {
+			warnings = append(warnings, line)
+		}
+	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "filename_template") {
 		t.Errorf("stderr = %q, want exactly one filename_template warning", errOut)
+	}
+}
+
+// The resolved output directory is reported on stderr before anything is
+// written: the path is already absolute and the directory already exists by
+// then, so this is informational, never a gate. stdout stays a clean machine
+// contract.
+func TestDownloadNotesResolvedOutputDirectory(t *testing.T) {
+	home := tempHome(t)
+	answers := map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterImagesPage(id100, "AAA1")},
+	}
+	answers["/pic/orig/AAA1.jpg"] = answer{status: 200, body: "one"}
+	fake := newFakeBackend(t, answers)
+	writeConfig(t, home, instanceConfig(fake.addr))
+	outDir := t.TempDir()
+
+	code, out, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", outDir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "note: writing to "+outDir) {
+		t.Errorf("stderr = %q, want a note naming the resolved directory %q", errOut, outDir)
+	}
+	if strings.Contains(out, "writing to") {
+		t.Errorf("stdout must not carry the note: %q", out)
+	}
+	if n := strings.Count(errOut, "note: writing to"); n != 1 {
+		t.Errorf("note appeared %d times, want exactly 1", n)
+	}
+}
+
+// A relative --output is resolved against the cwd and reported absolutely.
+func TestDownloadNotesAbsolutePathForRelativeOutput(t *testing.T) {
+	home := tempHome(t)
+	answers := map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterImagesPage(id100, "AAA1")},
+	}
+	answers["/pic/orig/AAA1.jpg"] = answer{status: 200, body: "one"}
+	fake := newFakeBackend(t, answers)
+	writeConfig(t, home, instanceConfig(fake.addr))
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	rel := filepath.ToSlash(filepath.Join("testdata-notes", "out"))
+	code, _, errOut := runCLI(t, "download", ref100, "--strategy", "nitter", "--output", rel)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	want := filepath.Join(cwd, "testdata-notes", "out")
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(cwd, "testdata-notes")) })
+	if !strings.Contains(errOut, want) {
+		t.Errorf("stderr = %q, want the absolute path %q", errOut, want)
 	}
 }

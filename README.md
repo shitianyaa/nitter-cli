@@ -64,9 +64,15 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
 - **Manageable state** — `config path/get/set/unset` for the thirteen scalar
   keys, `seen list/clear [--state-dir]` for the watch dedup state; atomic
   writes, a corrupt state file is a hard error (never a silent reset).
-- **Honest update checks** — `update --check [--prerelease] [--json]` compares
-  against the latest GitHub release by strict semver and performs no
-  self-install.
+- **Honest, verified updates** — `update --check [--prerelease] [--json]`
+  compares against the latest GitHub release by strict semver and writes
+  nothing; `update` additionally offers to install after confirmation, and
+  `--confirm` skips the prompt for scripts. The installer verifies the archive
+  against the release's `checksums.txt` and the staged binary's version before
+  replacing the executable, so a failed verification leaves the current
+  installation untouched. `go install` installations are refused with the
+  matching `go install` line, and agents must not run `update` without the
+  user's authorization.
 - **Public Go SDK** — typed models (`Tweet`, `Profile`, `Conversation`, `Trend`,
   …) whose JSON keys never disappear, a narrow `Transport` boundary, and
   redacted errors; the CLI's commands consume the same surface.

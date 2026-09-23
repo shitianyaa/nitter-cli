@@ -140,3 +140,42 @@ func TestCheckTransportError(t *testing.T) {
 		t.Fatalf("Check(closed server) = nil error, want transport failure")
 	}
 }
+
+// A realistic release page with asset arrays can exceed a small response
+// bound; truncating mid-JSON must not be how that shows up. This test serves
+// a payload well past the old 1 MiB cap and requires it to parse.
+func TestCheckHandlesLargeReleasePages(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("[")
+	for i := 0; i < 120; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		// ~40 KB of asset entries per release, 40 releases: ~1.6 MB.
+		assets := make([]string, 0, 40)
+		for j := 0; j < 80; j++ {
+			assets = append(assets, fmt.Sprintf(
+				`{"name":"filler-%d-%d.tar.gz","browser_download_url":"https://github.com/owner/repo/releases/download/v0.1.%d/filler-%d-%d.tar.gz"}`,
+				i, j, i, i, j))
+		}
+		b.WriteString(fmt.Sprintf(
+			`{"tag_name":"v0.1.%d","name":"r%d","html_url":"https://example.com/v0.1.%d","draft":false,"prerelease":false,"published_at":"2026-09-01T00:00:00Z","assets":[%s]}`,
+			i, i, i, strings.Join(assets, ",")))
+	}
+	b.WriteString("]")
+	if b.Len() < 1<<20 {
+		t.Fatalf("fixture is only %d bytes; it must exceed the old 1 MiB bound", b.Len())
+	}
+
+	srv, _ := fakeAPI(t, b.String(), http.StatusOK)
+	got, err := Check(context.Background(), "owner/repo", "0.1.0", Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("Check on a %d-byte page: %v", b.Len(), err)
+	}
+	if got.Tag != "v0.1.119" {
+		t.Errorf("Tag = %q, want v0.1.119", got.Tag)
+	}
+	if len(got.Assets) != 80 {
+		t.Errorf("Assets = %d, want 80", len(got.Assets))
+	}
+}

@@ -358,6 +358,9 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 
 输出目录为 `--output DIR`，否则为 `download_path` 配置键（默认
 `./nitter-media`；相对路径按工作目录解析）；目录按需创建（`mkdir -p`）。
+解析后的**绝对路径**会在写入任何文件之前于 stderr 报告一行
+（`note: writing to <dir>`）——仅供参考、从不作为门禁，且绝不会出现在 stdout
+（stdout 对 `--json` / `--ndjson` 保持纯净的机器契约）。
 
 **`--on-exists`**（默认 `refuse`）决定目标文件已存在于磁盘时的行为：
 `refuse` 把该条目报告为错误，批次继续；`skip` 保留已有文件，行内以文件实际
@@ -600,11 +603,24 @@ nitter update
 nitter update --check [--prerelease] [--json]
 ```
 
-报告二进制的更新方式。**`update` 不做自替换安装**——不带 `--check` 的形式只打印
-「请用包管理器重装 / 手动下载」的指引，退出 0。
+报告二进制的更新方式。当存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
+`checksums.txt` 校验其 SHA-256，检查暂存二进制报告的版本，全部通过后才替换可执行文件。
+**任何失败都不会改动现有安装**——所有校验通过前不会碰目标文件。
 
+```bash
+nitter update [--confirm] [--proxy URL]
+nitter update --check [--prerelease] [--json] [--proxy URL]
+```
+
+- 不带 flag 的 `nitter update` 先比对版本，然后在终端询问
+  `install now? [y/N]`（默认 No）。无 `--confirm` 且无终端时，它打印比对结果加
+  `not installed: stdin is not a terminal — re-run with --confirm` 并退出 0
+  ——**绝不阻塞读取管道**，且拒绝安装**不是**错误。报告为 `current version:` /
+  `latest release:` / `up to date`（或 `update available:` / `installed <version> → <path>`）。
+- `--confirm` 不询问直接安装；stdin 非终端时必须给出（脚本显式 opt-in）。
+  与 `--check` 同用是用法错误（退出 2）——两种模式互斥。
 - `--check` 经 GitHub Releases API 将当前版本与
-  `github.com/shitianyaa/nitter-cli` 的最新发布版比较。草稿版恒被排除；
+  `github.com/shitianyaa/nitter-cli` 的最新发布版比较，**绝不写入任何东西**。草稿版恒被排除；
   `--prerelease` 允许预发布版参与"最新版"遴选。遴选按严格 semver 优先级
   （`v` 前缀可选、忽略构建元数据、遵循 semver 预发布排序）在 API 首页内
   进行，而非按发布时间。所有成功的检查均退出 0——过时是报告结果而非失败：
@@ -613,7 +629,18 @@ nitter update --check [--prerelease] [--json]
 - `--json`（仅可与 `--check` 同用）打印一个键齐全的 JSON 文档：
   `{"current":"0.1.0","latest":"0.2.0","outdated":true,"prerelease":false,"release_url":"…"}`。
   开发构建输出：`{"current":"dev","development_build":true}`。
-- 开发构建（编译时未注入版本元数据）完全跳过检查：没有可比较的发布版。
+- **`go install` 安装的二进制会被拒绝**，绝不替换：后续的 `go install` 会静默
+  抹掉更新，因此命令退出 1 并给出对应的
+  `go install github.com/shitianyaa/nitter-cli/cmd/nitter@<tag>` 行。无法判定
+  安装来源的安装退出 1，并指向发布页面。
+- 开发构建（编译时未注入版本元数据）完全跳过检查并退出 0：没有可比较的发布版，
+  也没有可替换的对象。
+- **代理**：`--proxy`（或 `config.proxy`）对本命令的**每个请求**生效——发布查询与
+  资产下载。不支持的代理 scheme 在任何网络调用之前就是用法错误（退出 2）。
+  注意：**不**读取环境变量代理（`HTTPS_PROXY`/`ALL_PROXY`）。
 - 检查失败——网络错误、GitHub 错误（仅报 HTTP 状态码；绝不回显响应体）、
-  无可用发布版——是运行时失败（退出 1）。
+  无可用发布版——是运行时失败（退出 1）。校验失败（checksum 不符、归档格式错误，
+  或暂存二进制报告的版本不对）同样是退出 1，且现有安装保持不变。
 - `--json` 与 `--prerelease` 仅可与 `--check` 同用（否则用法错误，退出 2）。
+- **Agent 不得在未获用户授权时执行 `nitter update`。** `--confirm` 是为用户自己的
+  脚本提供的机制，不构成授权。

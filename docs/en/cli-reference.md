@@ -409,7 +409,11 @@ other fetch of this CLI.
 
 The output directory is `--output DIR`, else the `download_path` config key
 (default `./nitter-media`; relative paths resolve against the working
-directory); it is created on demand (`mkdir -p`).
+directory); it is created on demand (`mkdir -p`). The resolved **absolute**
+path is reported once on stderr before anything is written
+(`note: writing to <dir>`) — informational, never a gate, and it never
+appears on stdout (which stays a clean machine contract for `--json` and
+`--ndjson`).
 
 **`--on-exists`** (default `refuse`) decides what happens when a target file
 is already on disk: `refuse` reports the entry as an error and the batch
@@ -685,31 +689,59 @@ without a `seen.json` is simply the empty store.
 ## nitter update
 
 ```bash
-nitter update
-nitter update --check [--prerelease] [--json]
+nitter update [--confirm] [--proxy URL]
+nitter update --check [--prerelease] [--json] [--proxy URL]
 ```
 
-Reports how to update the binary. **`update` never self-installs** — the
-guidance form (without `--check`) prints the package-manager / manual-download
-instructions and exits 0.
+Checks the latest release on GitHub and, when a newer one exists, offers to
+install it. The install path downloads **only this platform's archive**,
+verifies its SHA-256 against the release's `checksums.txt`, checks that the
+staged binary reports the expected version, and only then replaces the
+executable. **Every failure leaves the current installation untouched** —
+nothing touches the target until all checks pass.
 
+- Bare `nitter update` compares versions and then asks
+  `install now? [y/N]` (default No) on a terminal. Without `--confirm` and
+  without a terminal it prints the comparison plus
+  `not installed: stdin is not a terminal — re-run with --confirm` and exits 0
+  — it never blocks reading a pipe, and declining is **not** an error. The
+  report is `current version:` / `latest release:` / `up to date` (or
+  `update available:` / `installed <version> → <path>`).
+- `--confirm` installs without asking. It is required whenever stdin is not a
+  terminal, so scripts opt in explicitly. Passing it with `--check` is a usage
+  error (exit 2): the two modes are mutually exclusive.
 - `--check` compares the installed version against the latest release of
-  `github.com/shitianyaa/nitter-cli` via the GitHub Releases API. Drafts are
-  always excluded; `--prerelease` admits prereleases into the "latest"
-  selection. Selection is by strict semver precedence (optional `v` prefix,
-  build metadata ignored, spec prerelease ordering) over the first API page,
-  not by recency. Exit 0 on every successful check — outdatedness is a
-  reported result, not a failure:
+  `github.com/shitianyaa/nitter-cli` via the GitHub Releases API and **never
+  writes anything**. Drafts are always excluded; `--prerelease` admits
+  prereleases into the "latest" selection. Selection is by strict semver
+  precedence (optional `v` prefix, build metadata ignored, spec prerelease
+  ordering) over the first API page, not by recency. Exit 0 on every
+  successful check — outdatedness is a reported result, not a failure:
   `update available: <version> (<release URL>)` versus `up to date`. The
   installed version being newer than the latest release (e.g. an installed
   prerelease) counts as up to date.
 - `--json` (only with `--check`) prints one JSON document with every key
   present: `{"current":"0.1.0","latest":"0.2.0","outdated":true,"prerelease":false,"release_url":"…"}`.
   On a development build: `{"current":"dev","development_build":true}`.
+- **`go install` installations are refused**, never replaced: a later
+  `go install` would silently undo the update, so the command exits 1 with the
+  matching `go install github.com/shitianyaa/nitter-cli/cmd/nitter@<tag>` line.
+  An installation whose source cannot be determined exits 1 with a pointer to
+  the release page.
 - Development builds (compiled without version metadata) skip the check
-  entirely: there is no release to compare `dev` against.
+  entirely and exit 0: there is no release to compare `dev` against, and
+  nothing to replace.
+- **Proxy**: `--proxy` (or `config.proxy`) applies to every request this
+  command makes — the release lookup and the asset downloads. An unsupported
+  proxy scheme is a usage error (exit 2) before any network call. Note the
+  environment-variable proxy (`HTTPS_PROXY`/`ALL_PROXY`) is not consulted.
 - A failed check — network failure, GitHub error (HTTP status only; response
   bodies are never echoed), or no usable release — is a runtime failure
-  (exit 1).
+  (exit 1). A verification failure (checksum mismatch, malformed archive, or a
+  staged binary reporting the wrong version) is also exit 1, with the existing
+  installation unchanged.
 - `--json` and `--prerelease` are only valid together with `--check`
   (otherwise a usage error, exit 2).
+- **Agents must not run `nitter update` without the user's authorization.**
+  `--confirm` is a mechanism for the user's own scripts, not a grant of
+  permission.

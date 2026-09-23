@@ -55,8 +55,12 @@ Hermes）打造的灵活 CLI，以 NDJSON 消费。
 - **可管理的状态**——`config path/get/set/unset` 管理十三个标量键，
   `seen list/clear [--state-dir]` 管理 watch 去重状态；写入全部原子化，状态
   文件损坏是硬错误（绝不静默重置）。
-- **诚实的更新检查**——`update --check [--prerelease] [--json]` 按严格 semver
-  与 GitHub 最新发布版比较，不做自替换安装。
+- **诚实且经验证的更新**——`update --check [--prerelease] [--json]` 按严格 semver
+  与 GitHub 最新发布版比较且不写任何东西；`update` 另外会在确认后提供安装，
+  `--confirm` 则可跳过询问供脚本使用。安装器在替换可执行文件前，用发布的
+  `checksums.txt` 校验归档、并校验暂存二进制的版本，因此校验失败不会改动现有安装。
+  `go install` 安装会被拒绝并给出对应的 `go install` 行；agent 不得在未获用户
+  授权时执行 `update`。
 - **公开 Go SDK**——类型化模型（`Tweet`、`Profile`、`Conversation`、`Trend`
   等）的 JSON 键永不消失、狭窄的 `Transport` 边界、脱敏的错误；CLI 命令消费
   的就是同一套接口。
