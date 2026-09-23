@@ -15,12 +15,31 @@ sh scripts/build.sh    # 产出 ./nitter（VERSION=可覆盖，默认 dev）
 ```
 
 - `go test -race ./...` 由 CI 执行（ci.yml）；本地 `go test -race` 不可用时，
-  以 CI 结果为准。
+  以 CI 结果为准。Windows 开发机上 `CGO_ENABLED=0` 且通常没有 gcc，本地
+  **跑不了** `-race`，所以这一项无法本地替代——不要因此把 CI 挪到只在合并后跑，
+  否则竞态只能在上 main 之后才被发现。本地能完整替代的是上一条命令组：
+  `go test ./...`、`go vet`、`gofmt -l`、`sh scripts/build.sh`，以及在 Git Bash
+  下跑 `sh e2e/run.sh`（POSIX 权限断言在 MINGW64 上会自动 skip）。
 - 若安装了 `pre-commit`，交付前运行 `pre-commit run --all-files`。仓库钩子：
   `gofmt -l` 必须为空 + `go test ./...`。
 - 手工冒烟（离线安全）：`./nitter --version`、`./nitter <cmd> --help`、
   `nitter config path/get/set` 往返、`nitter watch --once`（无实例时应以
   退出码 1 报每源失败而非崩溃）、`nitter seen list`（空库打印 `(empty)`）。
+
+### CI 触发范围（不必为纯文档改动担心）
+
+`ci.yml` 的 `push`（限 `main`）与 `pull_request` 都带同一组 `paths-ignore`：
+`docs/**`、`**/*.md`、`skills/**`、`changelog/**`。因此**纯文档 push 不会触发
+CI**，无需额外加 `[skip ci]`。三点容易误会：
+
+- GitHub 按**整次 push/PR 的聚合 diff** 判断，而不是按单个 commit。一个 PR 里
+  只要混进一个非忽略文件（哪怕某个 commit 本身是纯文档），就会跑。
+- `.gitignore`、`.gitattributes`、`.github/**`、`scripts/**`、`LICENSE` 等不属于
+  上述忽略范围，仍会触发完整门禁。这是刻意的：EOL 与 ignore 规则的错误会真实
+  影响构建产物。
+- 合并到 `main` 会再跑一次 `ci`（合并提交的树通常与 PR 头相同，那次运行严格
+  来说重复）。保留它是为了（a）覆盖直接 push `main` 的提交，（b）让 `main` 上的
+  `ci` 徽章反映真实结果。不要为了省这一次而移除 `main` 触发器。
 
 ## 目录地图
 
