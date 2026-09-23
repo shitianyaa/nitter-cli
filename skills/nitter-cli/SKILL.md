@@ -211,11 +211,11 @@ nitter search "digital art" --type user --limit 10      # search user profiles /
 nitter search "moon landing" --limit 10                 # plain phrase
 
 nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
-nitter get https://x.com/NASA/status/2081668333762687236 --json
-nitter get 2081668333762687236 --json                   # bare numeric ID also works
-echo https://x.com/NASA/status/2081668333762687236 | nitter get   # one ref from non-TTY stdin
+nitter get https://x.com/NASA/status/2102761519985332442 --json
+nitter get 2102761519985332442 --json                   # bare numeric ID also works
+echo https://x.com/NASA/status/2102761519985332442 | nitter get   # one ref from non-TTY stdin
 
-nitter media https://x.com/NASA/status/2081668333762687236 --json   # resolve downloadable media (image originals + video mp4)
+nitter media https://x.com/NASA/status/2102761519985332442 --json   # resolve downloadable media (image originals + video mp4)
 nitter media <ref> --strategy xdown --json                # force one resolver (auto = fx→nitter→xdown)
 nitter media <ref> --quality medium --ndjson              # video bitrate / image pbs tier
 nitter media <ref> --probe --json                         # + duration/size (extra ranged requests; best-effort)
@@ -238,6 +238,7 @@ nitter watch user:NASA --once --max-new 10 --max-new-overflow keep --ndjson   # 
 nitter watch user:NASA tag:#AI --once --ndjson --no-reposts   # field filter before dedup: reposts re-fetched each cycle, never emitted
 nitter watch user:NASA --interval 5m                    # resident loop; SIGINT/SIGTERM exits gracefully
 nitter watch user:NASA --once --state-dir D:/tmp/state --ndjson   # isolated state; inspect with seen list --state-dir D:/tmp/state
+nitter watch user:NASA tag:#AI --once --state-dir ~/.nitter-cli/state/news --ndjson   # ONE state dir per subscription category (see trap 13)
 
 nitter seen list                                        # inspect dedup state (default location)
 nitter seen list --json
@@ -340,10 +341,22 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     batch failure / partial `download` batch failure / corrupt state file /
     unknown subcommand), 2 usage error.
     Check the exit code before parsing any JSON; stderr is never JSON.
-13. **`--state-dir` isolates watch state** (testing, multi-instance setups);
-    `seen list`/`seen clear` accept the same `--state-dir DIR` to operate on
-    that directory's `seen.json` — without the flag they use the default
-    location (`~/.nitter-cli/state`).
+13. **`--state-dir` isolates watch state — mandatory for multi-category
+    subscriptions** (testing, multi-instance setups, and every independent
+    subscription category); `seen list`/`seen clear` accept the same
+    `--state-dir DIR` to operate on that directory's `seen.json` — without the
+    flag they use the default location (`~/.nitter-cli/state`). When the user
+    runs several subscription categories (different purpose, cadence, or push
+    channel), give EACH category its own
+    `--state-dir ~/.nitter-cli/state/<category>` and pass it in every
+    scheduler line of that category. Dedup state is keyed by source key inside
+    one `seen.json`, so two categories watching the same account share the key
+    `user:HANDLE`: the category whose cycle runs first marks the tweet seen and
+    the other one silently drops it (no error, `--once` still exits 0); and
+    two cron entries firing in the same second would also read-modify-write the
+    same file and lose each other's marks (the store locks only within one
+    process). Details and the naming/diagnosis rules:
+    [references/watch.md](references/watch.md), "Multi-category subscriptions".
 14. **Instances are trust boundaries**: only the user's own instances belong in
     config; the CLI follows media/redirect URLs an instance returns, so the
     network around the instance must isolate internal services. Instance
@@ -476,5 +489,5 @@ references/download.md).
 | The user has no Nitter instance (deploy with Docker, default localhost) or its URL is unknown | [references/deploy.md](references/deploy.md) |
 | Resolve media links (strategies, trust boundary, quality, probe, delivery) | [references/media.md](references/media.md) |
 | Write media to disk (download, templates, `--on-exists`, stdin pipelines) | [references/download.md](references/download.md) |
-| Schedule monitoring (`watch` cycles, dedup, `--max-new` and the overflow policy, state dirs) | [references/watch.md](references/watch.md) |
+| Schedule monitoring (`watch` cycles, dedup, `--max-new` and the overflow policy, per-category state dirs) | [references/watch.md](references/watch.md) |
 | Errors: failure messages, exit codes, and fixes | [references/troubleshooting.md](references/troubleshooting.md) |
