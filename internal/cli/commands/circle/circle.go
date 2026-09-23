@@ -51,6 +51,7 @@ func New(s *invocation.Streams) *cobra.Command {
 	}
 	cmd.AddCommand(newListCmd(s))
 	cmd.AddCommand(newShowCmd(s))
+	cmd.AddCommand(newRefreshCmd(s))
 	cmd.AddCommand(newSuggestCmd(s))
 	cmd.AddCommand(newAddCmd(s))
 	cmd.AddCommand(newRunCmd(s))
