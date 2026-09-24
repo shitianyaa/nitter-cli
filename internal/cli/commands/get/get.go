@@ -101,9 +101,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJ
 	if len(args) == 1 {
 		ref = args[0]
 	}
-	if ref == "" && s.In != nil && !s.InIsTTY {
-		// An empty line (e.g. `echo "" | nitter get 101`) carries no ref:
-		// only a non-empty line counts as "given on stdin".
+	if len(args) == 0 && s.In != nil && !s.InIsTTY {
+		// Only a non-empty stdin line counts as "given on stdin": an empty
+		// payload (e.g. `echo "" | nitter get`) carries no ref and falls
+		// through to the usage error below. An explicitly supplied empty
+		// argument is a positional argument too, so it never reaches here.
 		if line, ok := firstLine(s.In); ok && line != "" {
 			ref = line
 		}

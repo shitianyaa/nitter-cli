@@ -27,6 +27,7 @@
   才读取 stdin。此前命令会先读 stdin，再以歧义错误拒绝输入（`status reference given both as an
   argument and on stdin`，退出 2）；当管道的写端保持打开时，这次读取会永久阻塞，导致管道中的
   `nitter get <REF>`（以及带位置参数的 `media`/`download`）挂起而非执行。歧义报错及其退出 2 分支已彻底
-  移除；输入只需给出一种方式，两种同时给出不再报错。
+  移除；输入只需给出一种方式，两种同时给出不再报错。显式传入的空位置参数
+  （`nitter get ""`）是用法错误（退出 2），绝不回退读取 stdin。
 
 ## 安全

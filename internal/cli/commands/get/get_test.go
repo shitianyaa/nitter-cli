@@ -390,6 +390,51 @@ func TestGetArgDoesNotBlockOnOpenStdin(t *testing.T) {
 	}
 }
 
+// TestGetEmptyArgIsUsageErrorNotStdinRead: an explicitly supplied empty
+// positional argument is still a positional argument. It must not fall back to
+// stdin — that would silently fetch the piped ref, and on a pipe whose writer
+// stays open it would hang exactly like the pre-0.7.4 code. It reaches the
+// usage error instead.
+func TestGetEmptyArgIsUsageErrorNotStdinRead(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/i/status/101": {200, statusPage("nasa", "101")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, _ := runCLIStdin(t, "101\n", "get", "")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (an empty positional REF is a usage error, not a stdin read)", code)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want empty: stdin must not be read", out)
+	}
+	if got := fake.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (no fetch from the stdin ref)", got)
+	}
+}
+
+// neverReadReader fails the test if the command reads stdin at all. It is
+// deterministic (no pipe, no timeout) and pins the stronger property the
+// empty-argument fix exists for: reaching the usage error without a read, so
+// an open pipe cannot hang it.
+type neverReadReader struct{ t *testing.T }
+
+func (r neverReadReader) Read([]byte) (int, error) {
+	r.t.Error("get with an explicit empty positional REF read stdin")
+	return 0, io.EOF
+}
+
+func TestGetEmptyArgNeverReadsStdin(t *testing.T) {
+	tempHome(t)
+
+	var out, errOut strings.Builder
+	code := cli.Run([]string{"get", ""}, neverReadReader{t}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut.String())
+	}
+}
+
 func TestGetNoRefIsUsageError(t *testing.T) {
 	tempHome(t)
 	for _, stdin := range []string{"", "\n", "   \n"} {

@@ -31,6 +31,7 @@
   rejected the input as ambiguous (`status reference given both as an argument and on stdin`, exit 2); on a
   pipe whose writer stayed open that read blocked forever, so `nitter get <REF>` (or `media`/`download` with
   positional refs) inside a pipeline hung instead of running. The ambiguity error and its exit-2 branch are
-  gone; passing the input one way is the rule, and having both is no longer an error.
+  gone; passing the input one way is the rule, and having both is no longer an error. An explicitly
+  empty positional argument (`nitter get ""`) is a usage error (exit 2) and never falls back to stdin.
 
 ## Security
