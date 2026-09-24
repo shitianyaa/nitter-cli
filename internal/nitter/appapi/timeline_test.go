@@ -524,7 +524,6 @@ func TestTimelineRSSCursorLoopIsBounded(t *testing.T) {
 	}
 }
 
-// MaxPages bounds the scan.
 // A repeated HTML cursor ends the scan instead of spinning forever. The
 // unbounded budget (`--max-pages 0` -> -1, reachable from `user`) is what
 // makes the guard load-bearing: without it the same page is requested until
@@ -553,6 +552,7 @@ func TestTimelineHTMLCursorLoopIsBounded(t *testing.T) {
 	}
 }
 
+// MaxPages bounds the scan.
 func TestTimelineRSSMaxPagesBoundsTheScan(t *testing.T) {
 	srv, rec := newTimelineFake(t,
 		timelineRoute{target: "/NASA/rss", status: 200, body: rssBody("101"),
