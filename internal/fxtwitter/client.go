@@ -260,7 +260,7 @@ func (c *Client) FetchUserTimeline(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor || seenCursors[lastCursor] {
+		if lastCursor == "" || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
 		seenCursors[lastCursor] = true
@@ -367,7 +367,10 @@ func (c *Client) FetchUserMedia(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor || seenCursors[lastCursor] {
+		// currentCursor is always already in seenCursors (it is seeded before
+		// the loop and re-seeded from the previous page's cursor), so a
+		// self-repeat is covered here without a separate comparison.
+		if lastCursor == "" || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
 		seenCursors[lastCursor] = true
