@@ -412,9 +412,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     consumer can still pick another tier from `media` output.
 19. **`following` is FxTwitter-powered**: fetches accounts followed by `HANDLE`
     with avatar, bio, and follower/following counts. In non-TTY pipes it emits
-    `kind: "profile"` NDJSON envelopes; `--limit` caps the pages fetched (must
-    be >= 1 — there is no "all" spelling), and the lane returns at most one
-    upstream page regardless.
+    `kind: "profile"` NDJSON envelopes; `--limit` caps the number of profiles
+    returned (must be >= 1 — there is no "all" spelling). The lane fetches one
+    upstream page regardless of `--limit`, so the result can be shorter.
 20. **`comments` extracts conversation trees & hidden author links**: returns
     the root status, parent thread ancestors, and replies (sorted by `--sort likes`
     or `recency`). This is the primary mechanism for discovering author self-replies
