@@ -29,8 +29,9 @@ safety boundaries, and semantics traps.
   location, typically `~/.nitter-cli/config.toml`). The default
   `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
   `comments`, `following`, `profile`, `quotes`, `trends` and `search --type
-  user` (FxTwitter fast lane); instances are required for `list`, for the
-  fully self-hosted `nitter` mode, and as the fallback when Fx is unavailable.
+  user` (FxTwitter fast lane); instances are required for `list`, for the Fx
+  fallback, and for `--instance` (one call on a single instance, on `user` /
+  `search` / `get` / `list` only).
   When the user wants those, ask whether they run their own Nitter instance:
   yes → find and verify its URL
   ([references/deploy.md](references/deploy.md), "Finding an existing
@@ -183,8 +184,8 @@ nitter user NASA --with-replies --limit 5                # include user replies 
 nitter user NASA --limit 20 --json                      # array of tweet objects (single object when exactly one)
 nitter user NASA --no-reposts --media-only --json       # field filters: drop retweets, keep only tweets with media
 nitter user NASA --media-type image --json              # keep only tweets carrying an image entry (video|gif likewise)
-nitter user NASA --limit 0 --max-pages 3                # 0 = all, bounded by max pages (RSS yields ~20/page)
-nitter user NASA --limit 0 --max-pages 0                # max-pages 0 = unbounded pagination, until upstream exhaustion
+nitter user NASA --limit 60 --max-pages 3               # 60 tweets, bounded by max pages (RSS yields ~20/page)
+nitter user NASA --limit 200 --max-pages 20             # a deep backlog: state both caps, there is no "unlimited"
 nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instance override (never persisted)
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
@@ -259,7 +260,7 @@ Thirteen scalar keys in `~/.nitter-cli/config.toml`, managed with
 `config set`/`config unset` (precedence env > file > default; baseline
 default in parentheses): `default_limit` (20), `max_pages` (5),
 `request_interval` (1s), `retry_attempts` (2), `retry_delay` (1s),
-`instance_cooldown` (60s), `fetch_backend` (`mix` — mix|nitter|fx), `proxy` (empty), `log_level` (info), `log_format`
+`instance_cooldown` (60s), `fetch_backend` (`mix` — mix|fx), `proxy` (empty), `log_level` (info), `log_format`
 (text), `download_path` (`./nitter-media`, cwd-relative — where `download`
 writes media; `download --output` overrides it per call), `filename_template`
 (`{id}-{seq}` — the download filename, placeholders
@@ -276,13 +277,17 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
 ## Key semantics and traps
 
 1. **Fetch layering & hybrid dispatch (`fetch_backend`)**: `fetch_backend`
-   controls user timeline and search routing (`mix` default, `nitter`, `fx`).
+   controls user timeline and search routing and has exactly two values —
+   `mix` (default) and `fx`. The old `nitter` value was removed and is now
+   rejected (exit 2); the instance path is selected per call with
+   `--instance URL`, which is a testing aid rather than a routine flag.
    In `mix` mode, FxTwitter fast-lane is tried first without credentials; on
    failure (network error, rate-limit 429, or SafeSearch 404) or when an
    explicit `--instance` flag is provided, it falls back smoothly to the
-   configured Nitter instance pool (RSS first, then HTML user page). `list`
-   timeline is strictly isolated and ALWAYS fetches from Nitter instances
-   (Fx has no List endpoint).
+   configured Nitter instance pool (RSS first, then HTML user page). Under
+   `fx` the fast lane is the only permitted source and its error surfaces
+   as-is. `list` timeline is strictly isolated and ALWAYS fetches from Nitter
+   instances (Fx has no List endpoint).
 2. **RSS pages along the `Min-Id` cursor.** Nitter's RSS feed serves about 20
    tweets per page and advertises the next page's cursor in a `Min-Id` response
    header; the client follows that chain, so `--limit 40` returns up to 40
@@ -325,10 +330,11 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    the requested handle); search/list, which fetch no RSS, get no such flag.
    Do not treat an empty `reposted_by` on RSS data as "not a retweet".
 9. **Empty JSON fields are contract, not bugs**: `published_at` is always UTC
-   RFC3339; a tweet without media marshals `"media": null` (not `[]`);
-   `--max-pages 0` on `user` means UNBOUNDED (the HTML fallback paginates until
-   upstream exhaustion, and the RSS `Min-Id` scan follows the same rule) — on
-   `search`/`list` it still means the built-in default (5).
+   RFC3339; a tweet without media marshals `"media": null` (not `[]`).
+   Separately: `--limit` and `--max-pages` are caps, each must be >= 1 when
+   given (0 and negatives exit 2), and an omitted flag resolves from
+   `default_limit`/`max_pages`. There is no "unlimited" value — for a deep
+   backlog state a large `--limit` and a large `--max-pages`.
 10. **New lists may look empty**: a freshly created list can be empty until the
     Nitter instance ingests it — indistinguishable from a truly empty list;
     neither is an error.
@@ -402,7 +408,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     consumer can still pick another tier from `media` output.
 19. **`following` is FxTwitter-powered**: fetches accounts followed by `HANDLE`
     with avatar, bio, and follower/following counts. In non-TTY pipes it emits
-    `kind: "profile"` NDJSON envelopes; `--limit 0` fetches all available pages.
+    `kind: "profile"` NDJSON envelopes; `--limit` caps the pages fetched (must
+    be >= 1 — there is no "all" spelling), and the lane returns at most one
+    upstream page regardless.
 20. **`comments` extracts conversation trees & hidden author links**: returns
     the root status, parent thread ancestors, and replies (sorted by `--sort likes`
     or `recency`). This is the primary mechanism for discovering author self-replies
@@ -425,22 +433,27 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     Emits tab-separated table on TTY or `kind: "trend"` NDJSON in pipes.
 23. **`quotes` uncovers quote tweets and second-creations**: status quote tweets retrieval;
     supports `--media-only` and `--no-reposts` filters, emitting tweet rows on TTY or
-    `kind: "tweet"` NDJSON in pipes.
+    `kind: "tweet"` NDJSON in pipes. That upstream route is flaky, so the command exits 1
+    with `not_found` when it fails; a genuinely quote-less tweet still prints the empty
+    result and exits 0.
 24. **`profile` and `search --type user` for creator discovery**: `profile <HANDLE>`
     displays a structured user card on TTY or `kind: "profile"` NDJSON in pipes.
     `search <QUERY> --type user` discovers creators, artists, and topic influencers
     matching keyword/bio.
-25. **`get` fast-lane dispatch**: `nitter get` uses FxTwitter fast-lane first under `mix`
-    (default) and `fx` modes, falling back to configured Nitter instances on failure.
+25. **`get` fast-lane dispatch**: `nitter get` uses the FxTwitter fast lane first under
+    `mix` (default), falling back to configured Nitter instances on failure; under `fx`
+    the fast lane is the only permitted source and its error surfaces as-is, so a
+    `not_found` there is the real cause rather than a masked fallback.
 26. **Profile-first discovery, search as the fallback**: the FxTwitter search
-    endpoints are unreliable — `from:` tweet search returns 404 for any query
-    and name-based `search --type user` can return empty even for existing
-    accounts — while the handle-based endpoints (`profile`, `user`, `get`)
-    work reliably. When a task needs a specific account, resolve the handle
-    first (from the user, a mention, a profile URL, or a followed account) and
-    go straight to `profile <HANDLE>`; only fall back to `search --type user`
-    when no handle can be established, and treat an empty search result as
-    "unknown", not as proof the account does not exist.
+    endpoints are unreliable — `from:` tweet search returns 404 for any query and
+    the user-search route fails with `not_found` when it is degraded — while the
+    handle-based endpoints (`profile`, `user`, `get`) work reliably. When a task
+    needs a specific account, resolve the handle first (from the user, a mention, a
+    profile URL, or a followed account) and go straight to `profile <HANDLE>`; only
+    fall back to `search --type user` when no handle can be established. Read the
+    exit code: an empty result (exit 0) means the query matched nothing, while a
+    `not_found` (exit 1) means the upstream failed — retry later instead of
+    concluding the account does not exist.
 
 ## Media delivery for agents
 

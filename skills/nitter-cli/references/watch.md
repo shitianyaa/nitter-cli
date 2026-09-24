@@ -195,7 +195,7 @@ document for the whole cycle:
 | 0 | Consumer closed stdout early (EPIPE) | Possibly truncated stream; state may lag — next round re-pushes |
 | 0 | SIGINT/SIGTERM (also in loop mode) | Graceful shutdown; sources not yet run in the cycle are simply skipped |
 | 1 | At least one source failed | Failed sources produce `kind:"error"` envelopes on stdout (or `error: <key>: <message>` lines on stderr without `--ndjson`); healthy sources' tweets still stream; failed sources' state is untouched |
-| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`/`--max-pages`, invalid `--max-new-overflow`, `--json` without `--once`, `--json --ndjson` together, invalid config values |
+| 2 | Usage error | No fetch: bad source string, empty source set, `--interval < 1s`, negative `--max-new`, `--max-pages < 1`, invalid `--max-new-overflow`, `--json` without `--once`, `--json --ndjson` together, invalid config values |
 
 Loop mode: exit 1 only for unrecoverable errors (state-store failure,
 non-EPIPE write failure); SIGINT/SIGTERM exit 0.

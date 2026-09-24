@@ -43,7 +43,7 @@ internal/buildinfo（版本元数据）
   `SearchSource`、`ListSource`、`StatusSource`、`FollowingSource`、
   `ConversationSource`、`QuotesSource`、`TrendsSource`、`ProfileSource`）与
   类型别名（`TestOptions`、`TimelineOption`）、函数（`ParseStatusRef`）——
-  appapi 与 fxtwitter 的类型不越过这堵墙。`fetch_backend`（mix/nitter/fx）的
+  appapi 与 fxtwitter 的类型不越过这堵墙。`fetch_backend`（mix/fx；实例路径由 `--instance` 逐次选择）的
   混合路由同样只实现在这里：`mix` 先试 FxTwitter、失败增量回退实例池；List
   物理隔离、始终走实例；`--instance` 覆盖强制实例路径。
 - `internal/cli/result` 不编码 JSON、不建命令、不调 SDK 抓取——只把 sdk 类型
@@ -68,7 +68,7 @@ paths 管理 `~/.nitter-cli/` 布局（`config.toml`、`circles.toml`、
 no-replace 原子发布（并发/重复调用安全）。settings 拥有 config.toml schema：
 env > file > default 优先级（`NITTER_DEFAULT_LIMIT`/`NITTER_LOG_LEVEL`/
 `NITTER_LOG_FORMAT`/`NITTER_FETCH_BACKEND`），duration 字符串在 Load 时校验；
-`fetch_backend` 只接受 `mix|nitter|fx`，非法值返回 `ValidationError`（CLI 层
+`fetch_backend` 只接受 `mix|fx`（`nitter` 已移除，其语义在新两模式下无等价物，故硬拒绝并提示改 `mix`），非法值返回 `ValidationError`（CLI 层
 映射为退出码 2）；`SaveKnown` 读整树 → 改已知键 → 原子写 0600，保留未知键与
 数组表，注释不保证保留。创作者圈子（`circle` 命令域）在 `circles.toml` 单独
 加载/保存（原子写，保留 `list_id` 等建模字段）。
@@ -96,8 +96,11 @@ timeline（`/2/profile/{h}/statuses`，含转推守卫与纯文本过滤）、me
 status（`/2/status/{id}`）、quotes（`/2/status/{id}/quotes`）、trends
 （`/2/trends`，空 rank 按 1-based 防御编号）、user search
 （`/2/search/users`）、tweet search（`/2/search`）。全部映射为 `sdk.Tweet`/
-`Profile`/`Conversation`/`Trend`；游标停滞或耗尽时**平滑部分返回**；404 且
-`results` 为空（SafeSearch 无结果 / 无引用）归一化为空切片而非错误。
+`Profile`/`Conversation`/`Trend`；游标停滞或耗尽时**平滑部分返回**；404
+**不再**归一化为空切片：`/2/status/{id}/quotes` 的 404 二义（「确实无引用」与上游故障同码，
+上游实测约 85% 请求返回它），故先用 `/2/status/{id}` 的 `quotes` 计数消歧——计数可读且为 0
+才是空成功，正数或不可读都上报错误；`/2/search/users` 的「无匹配」是 200 + 空列表，
+故 404 一律作为失败上报。两处都不得再把真实失败藏进空成功（`CONTRIBUTING.md`）。
 
 ### `internal/watch` + `internal/storage/seen`
 
@@ -134,5 +137,7 @@ nitter.pipeline/v1 信封协议：`ResolveOutputMode`（`--json`/`--ndjson` 互�
   后续的 FxTwitter 混合路由（`fetch_backend`）也按同一裁决落在这一层：命令
   永远不知道数据来自快车道还是实例池，只通过 `meta.instance` 得到来源标注。
 - **R18（watch 抓取边界，计划偏差，已记账）**：每轮以标准有界抓取（MaxPages
-  预算、Limit 0 = 全量）取数后由 `Select` 去重；插件式「到水位即早停」的分页
-  推迟到 MVP 后。正确性等价（不重复、不丢失），差异只在预算内抓取量。
+  预算、limit 用 `allTweetsSentinel`）取数后由 `Select` 去重；插件式「到水位即
+  早停」的分页推迟到 MVP 后。正确性等价（不重复、不丢失），差异只在预算内
+  抓取量。CLI 面没有「不限制」取值（`--limit`/`--max-pages` 必须 `>= 1`），
+  需要全量的调用方传正数哨兵。

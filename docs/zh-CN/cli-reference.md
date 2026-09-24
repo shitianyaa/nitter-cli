@@ -12,10 +12,27 @@
 | 选项 | 含义 |
 | --- | --- |
 | `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy`。两者都为空时，环境变量 `HTTPS_PROXY`/`ALL_PROXY` 对 FxTwitter 快车道与 `update` 生效，但**不**作用于 nitter 传输——要给实例流量走代理请用 `--proxy` 或配置 `proxy`。 |
-| `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
+| `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**，并把本次调用钉在实例路径上（跳过 Fx 快车道）——这是验证单个实例的手段。它只对**有实例路径的命令**生效（`user`、`search`、`get`、`list`）；六个 fx-only 能力（`comments`、`following`、`profile`、`quotes`、`trends`、`search --type user`）会忽略它。该覆盖**不携带 basic-auth 凭据**，因此需要认证的实例会返回 401。它不是日常开关：路由由 `fetch_backend` 决定，它只覆盖本次调用的实例集。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
 
 `nitter --version` 输出 `nitter version <版本号>`；裸调用 `nitter` 显示帮助。
 未知子命令退出 1（不是 2）。
+
+## 数据流向与隐私
+
+`fetch_backend` 决定由哪个服务应答，也决定了什么会离开你的机器。默认 `mix` 下：
+
+- `user`、`search`、`get` 优先尝试 **`api.fxtwitter.com`**（第三方公共服务）：
+  handle、查询串或状态 ID 会发往该服务，**不携带你的任何凭证**；失败时回退到
+  你自己的实例。
+- `comments`、`following`、`profile`、`quotes`、`trends`、`search --type user`
+  与 `circle refresh` 没有 Nitter 等价端点，因此无论 `fetch_backend` 怎么设，
+  都会访问 `api.fxtwitter.com`。
+- `list` 始终运行在你自己的实例上（FxTwitter 没有 List 端点）。
+
+`fx` 去掉回退（只走快车道，失败即报错）；`--instance URL` 把某一次调用钉在单个
+实例上，仅对有实例路径的四个命令有效。basic-auth 凭证在传输层内按主机限定：凭证
+只会附着在发往其所属实例的请求上，绝不进入错误、日志或响应。`media`/`download`
+使用的第三方媒体解析器只会收到媒体 URL，永远收不到你的凭证。
 
 ## 退出码
 
@@ -70,13 +87,10 @@ SDK 错误 Kind（`rate_limited`、`upstream_unavailable`、`challenge_required`
 - 按配置顺序轮换实例；抓取失败的实例（429、网络错误）进入冷却（配置
   `instance_cooldown`，默认 60s），期间改试下一个。全部实例失败是运行时失败
   （退出码 1）。
-- `--limit` 限制推文条数（`0` = 全部）；不传时应用配置 `default_limit`
-  （默认 20）。flag 传负数是用法错误。
-- `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。在 `user` 上
-  **显式传 `--max-pages 0` 表示不设上限**：HTML 回退路径会一直跟随 load-more
-  游标翻页，直至上游穷尽（失控运行由上下文取消兜底）；RSS 路径同样会沿
-  `Min-Id` 游标一直翻页。在 `search`/`list` 上 `0` 仍表示「用默认值」。负数是
-  用法错误。
+- `--limit` 限制推文条数；不传时应用配置 `default_limit`（默认 20）。
+- `--max-pages` 限制分页；不传时应用配置 `max_pages`（默认 5）。
+- 两者都是**上限**，显式传值**必须 >= 1**：`0` 与负数都是用法错误（退出码 2）。
+  没有「不限制」这个取值——要深挖积压就同时给一个大的 `--limit` 与 `--max-pages`。
 - 重试：`retry_attempts`（默认 2）次额外尝试，线性退避 `retry_delay`
   （默认 1s）；429 且带合法 `Retry-After` 时等待一次、重试一次。
 
@@ -89,7 +103,8 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 
 抓取 `HANDLE` 的时间线——1–15 个字母、数字或下划线，不带 `@`（形状不对时在任何
 网络动作前退出 2）。默认 `fetch_backend=mix` 时优先通过 FxTwitter 极速免登通道拉取，
-遇到故障或指定 `--instance` 时平滑走 Nitter 实例。`--max-pages 0` 表示不设页数上限。
+遇到故障时平滑走 Nitter 实例。传 `--instance URL` 会用该 URL 替换本次调用的实例集，并把本次调用
+钉在实例路径上、完全跳过快车道。
 
 Nitter RSS 源会按其 `Min-Id` 游标逐页读取，因此积压跨越多页时不会被截断在
 第一页：`--limit N` 会一直翻页到凑满 N 条或耗尽 `--max-pages` 预算为止
@@ -144,13 +159,14 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
   - 成功时输出 `refreshed N/M members in circle <key>`。从不 prune：已不在圈子中的 handle 其侧写条目原样保留。
   - 侧写文件以 handle 小写为键且由机器管理——重写会丢弃注释与未声明字段，手改请只动 `role`/`note`。
 - `suggest`：只读的圈子候选发现，为新建圈子服务；聚合两路现成数据——`HANDLE` 的**关注列表**（静态关系）与其时间线中**被转推的原作者**（行为关系）。输出按同现次数降序（两路都命中的排最前），再按粉丝数降序，再按 handle 字母序（确定性）。
-  - `--limit N`（默认 20，**必须 ≥ 1**）：每路取数上限。`--limit 0` 是 usage error（退出 2），故意如此——两路对 `0` 的语义相反且都无用（timeline：空；following：服务端单页）。following 路在上游忽略 `limit`/`count`，恒定返回一页约 50–67 个账号，因此由客户端截断；实际条数可能少于 `N`。
+  - `--limit N`（默认 20，**必须 ≥ 1**）：每路取数上限。`--limit 0` 是 usage error（退出 2），与所有命令一致；在这里更是如此——两路对 `0` 的语义相反且都无用（timeline：空；following：服务端单页）。following 路在上游忽略 `limit`/`count`，恒定返回一页约 50–67 个账号，因此由客户端截断；实际条数可能少于 `N`。
   - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。
   - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
   - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
   - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。
+  - **页数预算**：`run` 没有 `--max-pages` flag；每个成员的抓取使用配置 `max_pages`（默认 5）。需要更深时请改配置（这同时会提高 `watch` 每轮的预算）。
   - **确定性顺序**：Fx 快车道下结果按推文 ID 降序（时间线序）排序后再按 `--limit` 截断，即使上游翻页组成在多次运行间波动，同输入也产生同输出序列。
   - **过滤标注**：`--media-only` 或 `--media-type` 生效时，NDJSON 信封携带 `meta.filter`（`"media_only"` 或媒体类型值），消费者可验证过滤；无过滤时无该字段。
   - **媒体端点翻页**：`--media-only` 走 Fx media 端点，每页数量翻倍以补偿非媒体推文——结果集可能比普通拉取探得更深（文档化行为，非错误）。
@@ -174,9 +190,11 @@ nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
 ```
 
 挖掘指定推文（ID 或 URL）的引用推文（Quotes，二创及转发点评）。
+
+空结果与上游故障会被区分。该接口对「这条推文确实没有引用」和「真实故障」都返回 404，因此命令会回查推文自身的引用计数：计数为 0 时输出空结果并退出 0，计数为正或不可读则上报 `not_found` 并退出 1。该故障只写 **stderr 并退出 1**——与所有取数失败一样，它**不会**被包成 `kind: "error"` 的 NDJSON 信封，因此 `--ndjson` 的消费方在 stdout 上看不到任何行，必须靠退出码判断。
 - TTY 默认渲染推文行：`<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`。
 - 管道模式（`!isatty`）自动输出 `kind: "tweet"` 单行 NDJSON 信封，`meta.source` 标记为 `quotes:<id>`。
-- `--limit`：限制条数（默认 20，0 表示无限制）。
+- `--limit`：限制条数（默认 20，必须 ≥ 1）。
 - `--media-only`：仅保留带媒体附件的引用推文。
 - `--no-reposts`：过滤纯转推。
 - `--json`：输出 JSON 文档。
@@ -190,7 +208,7 @@ nitter trends [--limit N] [--json|--ndjson]
 获取实时 Twitter/X 热搜榜单趋势。
 - TTY 默认渲染排版表格：`#  TREND TOPIC  CONTEXT  TWEETS`。
 - 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "trend"`）单行 NDJSON 信封。
-- `--limit`：限制展示条数（默认 0，表示全量展示）。
+- `--limit`：限制展示条数（默认 20，必须 ≥ 1）。
 - `--json`：输出完整 `Trend` 数组。
 
 ## nitter search
@@ -204,8 +222,15 @@ nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-repo
 适用 Nitter 自身的查询语法：前导 `#` 搜话题标签，`from:user` 搜某用户的帖子，
 其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
 `search:<按原样输入的查询>`。
+在 FxTwitter 车道上（`fetch_backend = fx`，或 `mix` 下由快车道应答时）搜索接口
+**只请求一次**，因此 `--max-pages` 在那里不生效，`--limit` 超过 100 也拿不到——
+单次请求最多返回 100 条。实例路径按文档正常翻页；在实例路径上，搜索是 Nitter 的
+一项独立能力，某个实例可能禁用或响应很慢——先用 `nitter instances test --full`
+探测，再怀疑查询串。
 
 当 `--type user` 时，按关键词搜索推主、画师、KOL 账号：
+
+无匹配时上游返回 200 + 空列表（退出 0）；上游用户搜索接口返回 404 属故障，按 `not_found` 上报（退出 1），而不是当作空结果。与所有取数失败一样，它只写 stderr——`--ndjson` **不会**输出 `kind: "error"` 信封，请靠退出码判断。
 - TTY 渲染用户表格：`@<handle>  <name>  <followers>  <bio>`。
 - 管道模式（`!isatty`）自动输出 `kind: "profile"` NDJSON 信封。
 - `--json` 输出 Profile 对象或数组。
@@ -234,7 +259,7 @@ nitter list <LIST_ID> [--limit N] [--max-pages N] [--no-reposts] [--media-only] 
 nitter get <REF> [--json|--ndjson]
 ```
 
-抓取单条推文。默认 `fetch_backend=mix` 与 `fx` 模式下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例。
+抓取单条推文。默认 `fetch_backend=mix` 下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例；`fx` 模式下快道是唯一允许的来源，错误按原样上报，不再有降级掩盖真因。
 `REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
 `/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
@@ -448,22 +473,59 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-管理 `~/.nitter-cli/config.toml` 的十三个标量键（默认值、环境变量覆盖与数组表见
-[README](../../README.zh-CN.md#配置)）：
+管理 `~/.nitter-cli/config.toml`（TOML，权限 0600）的十三个标量键。优先级：
+命令行 flag > 环境变量 > 文件 > 内置默认。`[[instances]]` 与 `[[watch.sources]]`
+数组表需直接编辑文件——`config set` 拒绝它们。创作者圈层（`nitter circle` 名册）
+存放在另一个文件 `~/.nitter-cli/circles.toml`，由 `circle` 子命令管理。
 
-```text
-default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
-filename_template, directory_template
+| 键 | 类型 | 默认 | 环境变量覆盖 | 含义 |
+| --- | --- | --- | --- | --- |
+| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | 命令未传 `--limit` 时的条数上限 |
+| `max_pages` | int | `5` | — | 单次抓取分页上限 |
+| `request_interval` | duration | `1s` | — | 相邻请求开始时间的全局最小间隔 |
+| `retry_attempts` | int | `2` | — | 首次之外的重试次数（网络错误与 5xx） |
+| `retry_delay` | duration | `1s` | — | 线性退避基数：第 n 次重试等待 `retry_delay × n` |
+| `instance_cooldown` | duration | `60s` | — | 实例失败（429 / 网络错误）后的冷却时长 |
+| `fetch_backend` | 枚举 | `mix` | `NITTER_FETCH_BACKEND` | `mix`（默认优先 FxTwitter，故障回退自建 Nitter）或 `fx`（纯 FxTwitter）。已移除的 `nitter` 值会被拒绝；要让某次调用只走自建实例，用 `--instance URL`（仅 `user`/`search`/`get`/`list`） |
+| `proxy` | string | `""` | — | 代理 URL（`http(s)`、`socks5(h)`）；空 = 未配置代理——`HTTPS_PROXY`/`ALL_PROXY` 只对 FxTwitter 快车道与 `update` 生效，**不**作用于 nitter 传输 |
+| `log_level` | 枚举 | `info` | `NITTER_LOG_LEVEL` | `debug` 或 `info`；诊断只进 stderr，不污染 stdout |
+| `log_format` | 枚举 | `text` | `NITTER_LOG_FORMAT` | `text` 或 `json`（单行） |
+| `download_path` | string | `./nitter-media` | — | `nitter download` 写入媒体的位置（相对当前工作目录；按需创建；`download --output DIR` 单次覆盖） |
+| `filename_template` | string | `{id}-{seq}` | — | 普通媒体的下载文件名，占位符 `{id}` `{seq}` `{user}` `{kind}` `{ext}`（默认 = 模板出现前的 `<id>-<seq>.<ext>` 命名；封面始终 `<id>-cover.<ext>`；`download --filename-template` 单次覆盖；非法模板告警并回退默认） |
+| `directory_template` | string | `""` | — | `download_path` 之下的下载子目录，占位符 `{id}` `{user}` `{kind}`（`/` 分隔层级；禁用 `{seq}`/`{ext}`；空 = 平铺） |
+
+`default_limit` 与 `max_pages` 是上限，必须 `>= 1`：`0` 不是「不限制」的写法。
+环境变量优先于文件：`NITTER_DEFAULT_LIMIT`（整数）、`NITTER_LOG_LEVEL`、
+`NITTER_LOG_FORMAT`、`NITTER_FETCH_BACKEND`。
+
+数组表（手工编辑）：
+
+```toml
+[[instances]]
+url = "http://nitter.internal:8080"   # 必填
+username = ""                         # 可选 basic auth（见下注）
+password = ""
+
+[[watch.sources]]                     # `nitter watch` 无参数时的默认来源
+id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```
+
+注意：当 `[[instances]]` 条目**同时**设置 `username` 与 `password` 时，发往该
+实例的请求会携带 HTTP basic auth。凭证策略在传输层内按主机限定——凭证只会
+附着在发往其所属实例的请求上，第三方媒体端点（`media`/`download` 的解析器，
+如 fx/xdown 与 twimg）永远收不到它；凭证也不会进入错误、日志
+或响应。只设置一半的凭证对视为未配置。单次的 `--instance URL` 覆盖是纯 URL，
+**不携带**凭证——需要认证的实例请使用配置条目。无法配置凭证的实例，请在网络
+层为其加访问控制。
 
 - `config path` 打印配置文件路径。不接受参数（否则退出 2）。
 - `config get` 不带键时按 `key = value` 打印全部十三个键；带键时只打印该键。
   未知键在读取文件之前即被拒绝（退出 2）。
 - `config set KEY [VALUE]` 在**任何磁盘写入之前**校验并转型（`default_limit`/
-  `max_pages`/`retry_attempts` 为 `>= 0` 的整数；
+  `max_pages` 为 `>= 1` 的整数——它们是上限，`0` 不是「不限制」的写法；
+  `retry_attempts` 为 `>= 0`；
   `request_interval`/`retry_delay`/`instance_cooldown` 为 `>= 0` 的时长；
-  `fetch_backend` 取 `mix|nitter|fx`；
+  `fetch_backend` 取 `mix|fx`（`nitter` 已移除——实例路径改为用 `--instance` 在有实例路径的命令上逐次选择）；
   `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
   `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
   读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。
@@ -520,7 +582,7 @@ Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源�
 | `--interval D` | `10m` | 不带 `--once` 时轮次间的睡眠时长；必须是 `>= 1s` 的 duration（两种模式下都会校验）。 |
 | `--max-new N` | `10` | 每源每轮最多输出的新推文数（从新到旧）。`0` 不输出任何内容，并把当前首页封存为新基准；负数是用法错误。 |
 | `--max-new-overflow drop\|keep` | `drop` | 单轮突发超出 `--max-new` 上限的部分如何处理。`drop` 立即将超出部分标记为已见——之后绝不补推（宁丢勿重）。`keep` 不将其标记为已见，后续各轮会在同一上限下重新推送（宁重勿丢；突发量超过两倍上限时需多轮才能排空）。其他值是用法错误；`--max-new 0` 始终按规则重建基准，不受本项影响。 |
-| `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；`0` = 用默认值。 |
+| `--max-pages N` | 配置 `max_pages`（5） | 每轮抓取页数预算；显式传值必须 ≥ 1（`0` 与负数都是用法错误），不传时应用配置值。 |
 | `--include-existing` | 关 | 未初始化源的首轮输出整个首抓结果（默认：首跑只记录状态）。 |
 | `--state-dir DIR` | `~/.nitter-cli/state` | 存放 `seen.json` 的目录（不存在则创建）。每个订阅类别使用各自的目录——见下文「多类别订阅」。 |
 | `--ndjson` | 关 | 每条记录一个信封：`kind` 为 `tweet` 与 `error`。 |

@@ -40,7 +40,7 @@ or any URL that is not an official GitHub Release asset of this repository.
    the PATH action (added / already reachable / none needed), plus any
    warning, exactly.
 7. Post-install backend briefing: configure NOTHING automatically. Before
-   the first data fetch, explain the three `fetch_backend` modes and ask the
+   the first data fetch, explain the two `fetch_backend` modes and ask the
    user to pick one; configure only what that mode needs:
    - `mix` (default): the FxTwitter fast-lane commands work out of the box;
      say explicitly that handles and queries are sent to the third-party
@@ -49,9 +49,12 @@ or any URL that is not an official GitHub Release asset of this repository.
    - `fx`: fast lane only, no Nitter fallback — when Fx fails the command
      fails. `config set fetch_backend fx` (a state change: consent each
      time) or the `NITTER_FETCH_BACKEND` env override.
-   - `nitter`: fully self-hosted, nothing leaves the user's facilities;
-     an instance is required first — route to deploy.md's
-     "Finding an existing instance" flow.
+   There is no self-hosted-only mode. `--instance URL` sends ONE call to a
+   single instance, and it applies only to the commands that have an instance
+   path (`user`, `search`, `get`, `list`) — the Fx-only commands ignore it.
+   To go fully self-hosted, run a Nitter instance and use `list` (always
+   instance-served) plus `--instance` for the rest; an instance is required
+   first, so route to deploy.md's "Finding an existing instance" flow.
    Red line (all modes): never fill in a public instance on your own;
    an `[[instances]]` entry is written only after `instances test` passes
    against the user's own instance.

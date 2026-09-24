@@ -13,10 +13,32 @@ Every command accepts these persistent options:
 | Option | Meaning |
 | --- | --- |
 | `--proxy URL` | Proxy for this invocation (`http`, `https`, `socks5`, `socks5h`). Precedence: flag > config `proxy`. When both are empty the environment variables `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and to `update`, but **not** to the nitter transport — use `--proxy` or `config proxy` to proxy instance traffic. |
-| `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
+| `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL and pins the invocation to the instance path, skipping the Fx fast lane — the way to exercise one instance. It applies only to the commands that have an instance path (`user`, `search`, `get`, `list`); the Fx-only commands (`comments`, `following`, `profile`, `quotes`, `trends`, `search --type user`) ignore it. The override carries no basic-auth credentials, so a credential-protected instance will answer 401. It is not a routine flag: `fetch_backend` chooses the routing, and this only overrides the instance set for one call. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
 
 `nitter --version` prints `nitter version <version>`; a bare `nitter` prints
 help. An unknown subcommand exits 1 (not 2).
+
+## Data flow and privacy
+
+`fetch_backend` decides which service answers, and that decides what leaves your
+machine. Under the default `mix`:
+
+- `user`, `search` and `get` try **`api.fxtwitter.com`** — a third-party public
+  service — first: the handle, query or status ID goes there, with **no
+  credentials of yours attached**. On failure they fall back to your own
+  instances.
+- `comments`, `following`, `profile`, `quotes`, `trends`, `search --type user`
+  and `circle refresh` have no Nitter equivalent, so they always reach
+  `api.fxtwitter.com`, whatever `fetch_backend` says.
+- `list` always runs on your own instances (FxTwitter has no List endpoint).
+
+`fx` removes the fallback (fast lane only, its failures surface as errors);
+`--instance URL` pins one call to a single instance, for the four commands that
+have an instance path. Basic-auth credentials are host-scoped inside the
+transport: a credential is attached only to requests addressed to its own
+configured instance, and never enters errors, logs or responses. The
+third-party media resolvers used by `media`/`download` receive the media URL,
+never your credentials.
 
 ## Exit codes
 
@@ -75,14 +97,13 @@ successful output; stderr is never JSON.
 - Instances are tried in config order; an instance whose fetch fails (429,
   network error) cools down (config `instance_cooldown`, default 60s) while the
   next is tried. All instances failing is a runtime failure (exit 1).
-- `--limit` caps the number of tweets (`0` = all); when omitted the config
-  `default_limit` (default 20) applies. A negative flag value is a usage error.
+- `--limit` caps the number of tweets; when omitted the config `default_limit`
+  (default 20) applies.
 - `--max-pages` caps pagination; when omitted the config `max_pages` (default 5)
-  applies. On `user` an **explicit `--max-pages 0` removes the cap**: the HTML
-  fallback follows the load-more cursor chain until upstream exhaustion (the
-  context bounds a runaway run), and the RSS path follows the feed's `Min-Id`
-  cursor chain the same way. On `search`/`list` `0` keeps meaning "use the
-  default". A negative value is a usage error.
+  applies.
+- Both are caps and **must be >= 1 when given**: `0` and negative values are
+  usage errors (exit 2). There is no "unlimited" value — for a deep backlog
+  state a large `--limit` and a large `--max-pages`.
 - Retries: `retry_attempts` (default 2) extra attempts with linear backoff
   `retry_delay` (default 1s); a 429 with a valid `Retry-After` waits once and
   retries once.
@@ -97,8 +118,9 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 Fetches the timeline of `HANDLE` — 1–15 letters, digits or underscores, without
 the `@` (bad shape exits 2 before any network). When `fetch_backend=mix` (default)
 FxTwitter fast-lane is tried first without credentials, falling back smoothly to
-configured Nitter instances on failure or when `--instance` is specified.
-`--max-pages 0` removes the pagination cap.
+configured Nitter instances on failure. Passing `--instance URL` replaces the
+instance set for this call and pins it to the instance path, skipping the fast
+lane entirely.
 
 The Nitter RSS feed is read page by page along its `Min-Id` cursor, so a
 backlog spanning several feed pages is fetched instead of being cut off at the
@@ -155,13 +177,14 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
   - Prints `refreshed N/M members in circle <key>`. It never prunes: sidecar entries for handles no longer in the circle are left alone.
   - The sidecar is keyed by lowercase handle and is machine-managed — a rewrite drops comments and unlisted fields, so only edit `role`/`note` by hand.
 - `suggest`: read-only candidate discovery for building a new circle, merging two existing data lanes — `HANDLE`'s **following list** (static relation) and the **authors of the retweets** in its timeline (behavioral relation). Output is ranked by co-occurrence count (a handle appearing in both lanes ranks first), then by follower count descending, then handle ascending (deterministic).
-  - `--limit N` (default 20, **must be >= 1**): per-lane fetch cap. `--limit 0` is a usage error (exit 2) on purpose — the two lanes give `0` opposite, useless meanings (timeline: empty; following: one server-side page). The following lane ignores `limit`/`count` upstream and returns one page of ~50–67 accounts regardless, so the client truncates; the actual count may therefore be below `N`.
+  - `--limit N` (default 20, **must be >= 1**): per-lane fetch cap. `--limit 0` is a usage error (exit 2), as on every command; here it is doubly so, because the two lanes would give `0` opposite, useless meanings (timeline: empty; following: one server-side page). The following lane ignores `limit`/`count` upstream and returns one page of ~50–67 accounts regardless, so the client truncates; the actual count may therefore be below `N`.
   - `--min-followers N` (default 0): filters only the trailing `top matches` summary section, never the main table or `--json` output.
   - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
   - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
 - `add`: adds handle to a circle (creates file/circle on demand).
 - `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
+  - **Page budget**: `run` takes no `--max-pages` flag; each member's fetch uses the config `max_pages` (default 5). Raise it in the config if a member's timeline needs more pages (that also raises `watch`'s per-cycle budget).
   - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
   - **Filter marker**: when `--media-only` or `--media-type` is in effect, NDJSON envelopes carry `meta.filter` (`"media_only"` or the media-type value) so consumers can verify filtering; without a filter the key is absent.
   - **Media-endpoint pagination**: `--media-only` fetches through the Fx media endpoint with a doubled per-page count to compensate for non-media entries — the result set may therefore reach deeper into the member's timeline than the plain fetch (documented behavior, not an error).
@@ -185,9 +208,11 @@ nitter quotes <REF> [--limit N] [--media-only] [--no-reposts] [--json|--ndjson]
 ```
 
 Fetches quote tweets for a tweet status ID or URL.
+
+An empty result and an upstream failure are told apart. The quote endpoint answers 404 both for "this tweet has no quotes" and for a real failure, so the command cross-checks the tweet's own quote count: a count of zero prints the empty result and exits 0, while a positive or unreadable count reports `not_found` and exits 1. That failure goes to **stderr with exit 1** — like every fetch failure, it is not wrapped in a `kind: "error"` NDJSON envelope, so an `--ndjson` consumer sees no stdout line at all and must check the exit code.
 - Renders tweet rows on TTY: `<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>`.
 - Emits single-line `nitter.pipeline/v1` (`kind: "tweet"`) NDJSON envelopes in pipe mode with `meta.source` set to `quotes:<id>`.
-- `--limit`: caps number of quotes to fetch (default: 20, 0 = all).
+- `--limit`: caps number of quotes to fetch (default: 20; must be >= 1).
 - `--media-only`: keeps only quotes carrying media attachments.
 - `--no-reposts`: filters out retweets.
 - `--json`: outputs JSON document.
@@ -201,7 +226,7 @@ nitter trends [--limit N] [--json|--ndjson]
 Fetches real-time trending topics on Twitter/X via FxTwitter.
 - Renders formatted table on TTY: `#  TREND TOPIC  CONTEXT  TWEETS`.
 - Emits single-line `nitter.pipeline/v1` (`kind: "trend"`) NDJSON envelopes in pipe mode.
-- `--limit`: caps number of trends to display (default: 0, 0 = all).
+- `--limit`: caps number of trends to display (default: 20; must be >= 1).
 - `--json`: outputs array of `Trend` objects.
 
 ## nitter search
@@ -217,8 +242,16 @@ Nitter unchanged (URL-escaped once by the HTTP layer), so Nitter's own query
 syntax applies: a leading `#` searches a hashtag, `from:user` a user's posts,
 anything else is a plain phrase search. An empty (whitespace-only) query exits 2.
 NDJSON `meta.source` is `search:<query as typed>`.
+On the FxTwitter lane (`fetch_backend = fx`, or `mix` when the fast lane answers)
+the search endpoint is fetched exactly once, so `--max-pages` does not apply
+there and a `--limit` above 100 cannot be reached — the single request returns
+at most 100 items. The instance path paginates as documented, and there search is
+a separate Nitter capability that a given instance may have disabled or serve
+slowly — probe it with `nitter instances test --full` before blaming the query.
 
 When `--type user`, searches for user profiles, artists, and creators matching the query:
+
+A query with no matches answers 200 with an empty list (exit 0); a 404 from the upstream user-search endpoint is a failure and is reported as `not_found` (exit 1), not as an empty result. Like every fetch failure it goes to stderr only — `--ndjson` emits no `kind: "error"` envelope, so check the exit code.
 - Renders user table on TTY: `@<handle>  <name>  <followers>  <bio>`.
 - Emits `kind: "profile"` NDJSON envelopes in pipe mode.
 - `--json` outputs Profile objects.
@@ -249,7 +282,7 @@ The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 nitter get <REF> [--json|--ndjson]
 ```
 
-Fetches one single status. In `mix` (default) and `fx` modes, tries FxTwitter fast-lane first, smoothly falling back to Nitter instances on failure.
+Fetches one single status. In `mix` (default) the FxTwitter fast lane is tried first and falls back smoothly to Nitter instances on failure; in `fx` mode the fast lane is the only permitted source, so its error surfaces as it is — there is no fallback to mask it.
 `REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
@@ -510,24 +543,67 @@ nitter config set KEY [VALUE]
 nitter config unset KEY
 ```
 
-Manages the thirteen scalar keys of `~/.nitter-cli/config.toml` (defaults, env
-overrides and the array tables are documented in the
-[README](../../README.md#configuration)):
+Manages the thirteen scalar keys of `~/.nitter-cli/config.toml` (TOML, mode
+0600). Precedence: CLI flag > environment > file > built-in default. The
+`[[instances]]` and `[[watch.sources]]` array tables are managed by editing the
+file directly — `config set` refuses them. Creator circles (the `nitter circle`
+rosters) live in a separate file, `~/.nitter-cli/circles.toml`, managed by the
+`circle` subcommands.
 
-```text
-default_limit, max_pages, request_interval, retry_attempts, retry_delay,
-instance_cooldown, fetch_backend, proxy, log_level, log_format, download_path,
-filename_template, directory_template
+| Key | Type | Default | Env override | Meaning |
+| --- | --- | --- | --- | --- |
+| `default_limit` | int | `20` | `NITTER_DEFAULT_LIMIT` | Item cap when a command receives no `--limit` |
+| `max_pages` | int | `5` | — | Upper bound on pagination |
+| `request_interval` | duration | `1s` | — | Global floor on delay between request start times |
+| `retry_attempts` | int | `2` | — | Extra attempts on network errors and 5xx |
+| `retry_delay` | duration | `1s` | — | Linear backoff base: attempt n waits `retry_delay × n` |
+| `instance_cooldown` | duration | `60s` | — | How long an instance is skipped after a failure (429 / network error) |
+| `fetch_backend` | enum | `mix` | `NITTER_FETCH_BACKEND` | `mix` (default, FxTwitter fast lane with Nitter fallback) or `fx` (pure FxTwitter). The removed `nitter` value is rejected; to send one call to your own instances, `--instance URL` (on `user`, `search`, `get`, `list`) |
+| `proxy` | string | `""` | — | Proxy URL (`http(s)`, `socks5(h)`); empty = no configured proxy — `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and `update` only, **not** to the nitter transport |
+| `log_level` | enum | `info` | `NITTER_LOG_LEVEL` | `debug` or `info`; diagnostics go to stderr only, stdout stays pure data |
+| `log_format` | enum | `text` | `NITTER_LOG_FORMAT` | `text` or single-line `json` |
+| `download_path` | string | `./nitter-media` | — | Where `nitter download` writes media files (cwd-relative; created on demand; overridden per call by `download --output DIR`) |
+| `filename_template` | string | `{id}-{seq}` | — | Filename template for non-cover media, placeholders `{id}` `{seq}` `{user}` `{kind}` `{ext}` (default = legacy `<id>-<seq>.<ext>` naming; covers are always `<id>-cover.<ext>`; overridden per call by `download --filename-template`; an invalid template warns and falls back to the default) |
+| `directory_template` | string | `""` | — | Subdirectory under `download_path`, placeholders `{id}` `{user}` `{kind}` (`/` separates nesting; `{seq}`/`{ext}` forbidden; empty = flat) |
+
+`default_limit` and `max_pages` are caps and must be `>= 1`: `0` is not a
+spelling for "unlimited". Environment variables win over the file:
+`NITTER_DEFAULT_LIMIT` (integer), `NITTER_LOG_LEVEL`, `NITTER_LOG_FORMAT`,
+`NITTER_FETCH_BACKEND`.
+
+Array tables (hand-edited):
+
+```toml
+[[instances]]
+url = "http://nitter.internal:8080"   # required
+username = ""                         # optional basic auth (see note)
+password = ""
+
+[[watch.sources]]                     # default sources for `nitter watch`
+id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 ```
+
+When an `[[instances]]` entry sets **both** `username` and `password`, requests
+to that instance carry HTTP basic auth. The credential policy is host-scoped
+inside the transport — a credential is only ever attached to a request addressed
+to its own configured instance, so the third-party media endpoints
+(`media`/`download` resolvers such as fx/xdown and twimg) can never receive it;
+credentials also never enter errors, logs, or responses. An incomplete pair
+(only one half set) is treated as unconfigured. A one-off `--instance URL`
+override is a plain URL and carries **no** credentials — for a credentialed
+instance, use the config entry. Put instances you cannot credential behind your
+own network-layer access control instead.
 
 - `config path` prints the config file path. Takes no arguments (else exit 2).
 - `config get` without a key prints all thirteen keys as `key = value`; with a
   key it prints that one. Unknown keys are rejected (exit 2) before the file
   is read.
 - `config set KEY [VALUE]` validates and coerces the value **before any disk
-  write** (integers `>= 0` for `default_limit`/`max_pages`/`retry_attempts`;
+  write** (integers `>= 1` for `default_limit`/`max_pages` — they are caps, and
+  `0` is not a spelling for "unlimited"; `retry_attempts` is `>= 0`;
   durations `>= 0` for `request_interval`/`retry_delay`/`instance_cooldown`;
-  `fetch_backend` is `mix|nitter|fx`;
+  `fetch_backend` is `mix|fx` (`nitter` was removed — the instance path is
+  selected per call with `--instance`, on the commands that have one);
   `log_level` is `debug|info`; `log_format` is `text|json`; `proxy`,
   `download_path` and the two naming templates accept any string). Without a
   VALUE, one line is read from piped stdin (secrets should not need argv); on
@@ -596,7 +672,7 @@ not lost: the affected sources fall back to their own fetch.
 | `--interval D` | `10m` | Loop sleep between cycles without `--once`; must be a duration `>= 1s` (validated in both modes). |
 | `--max-new N` | `10` | Emit at most N new tweets per source per cycle (newest first). `0` emits nothing and seals the current first page as the new baseline; negative is a usage error. |
 | `--max-new-overflow drop\|keep` | `drop` | What happens to new tweets beyond the `--max-new` cap in one cycle. `drop` marks the excess seen immediately — never re-emitted (宁丢勿重). `keep` leaves it unseen so the next cycles re-emit it under the same cap (宁重勿丢; a burst larger than twice the cap drains over several cycles). Another value is a usage error; `--max-new 0` always rebuilds the baseline regardless. |
-| `--max-pages N` | config `max_pages` (5) | Fetch-page budget per cycle; `0` = use the default. |
+| `--max-pages N` | config `max_pages` (5) | Fetch-page budget per cycle; when given it must be >= 1 (`0` and negatives are usage errors), and omitting it applies the config value. |
 | `--include-existing` | off | Emit the whole first fetch on an uninitialized source (default: first run only records state). |
 | `--state-dir DIR` | `~/.nitter-cli/state` | Directory holding `seen.json` (created if missing). Give each subscription category its own directory — see "Multi-category subscriptions" below. |
 | `--ndjson` | off | One envelope per record: `kind` `tweet` and `kind` `error`. |
