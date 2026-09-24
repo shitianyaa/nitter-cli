@@ -64,6 +64,31 @@ func TestListTimelinePaginationBoundedByMaxPages(t *testing.T) {
 	}
 }
 
+// A repeated list cursor ends the scan instead of re-requesting the same page
+// until the page budget runs out.
+func TestListCursorLoopIsBounded(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "same"), nil},
+		timelineRoute{"/i/lists/12345?cursor=same", 200, htmlPage([]string{"402"}, "same"), nil},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).ListTimeline(context.Background(), "12345", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("ListTimeline: %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("tweets = %d, want 2 (two pages, then the repeated cursor stops the scan)", len(tweets))
+	}
+	fetches := 0
+	for _, r := range rec.requests() {
+		if strings.HasPrefix(r, "/i/lists/") {
+			fetches++
+		}
+	}
+	if fetches != 2 {
+		t.Errorf("list fetches = %d, want exactly 2 (the loop guard must stop the repeated cursor)", fetches)
+	}
+}
+
 func TestListTimelineLimitStopsPaginationEarly(t *testing.T) {
 	srv, rec := newTimelineFake(t,
 		timelineRoute{"/i/lists/12345", 200, htmlPage([]string{"401"}, "c1"), nil},

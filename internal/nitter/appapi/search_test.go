@@ -87,6 +87,32 @@ func TestSearchPaginationBoundedByMaxPages(t *testing.T) {
 	}
 }
 
+// A repeated search cursor ends the scan instead of re-requesting the same
+// page until the page budget runs out.
+func TestSearchCursorLoopIsBounded(t *testing.T) {
+	q := searchRouteTarget("#artemis")
+	srv, rec := newTimelineFake(t,
+		timelineRoute{q, 200, htmlPage([]string{"301"}, "same"), nil},
+		timelineRoute{q + "&cursor=same", 200, htmlPage([]string{"302"}, "same"), nil},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "#artemis", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("tweets = %d, want 2 (two pages, then the repeated cursor stops the scan)", len(tweets))
+	}
+	fetches := 0
+	for _, r := range rec.requests() {
+		if strings.HasPrefix(r, "/search?") {
+			fetches++
+		}
+	}
+	if fetches != 2 {
+		t.Errorf("search fetches = %d, want exactly 2 (the loop guard must stop the repeated cursor)", fetches)
+	}
+}
+
 func TestSearchLimitStopsPaginationEarly(t *testing.T) {
 	q := searchRouteTarget("moon")
 	srv, rec := newTimelineFake(t,
