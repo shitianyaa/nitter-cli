@@ -1,6 +1,6 @@
 ---
 slug: nitter-cli
-version: 0.7.3
+version: 0.8.0
 displayName: Nitter CLI
 summary: Safely operate public-tweet retrieval through the nitter binary, FxTwitter fast-lane, and your own Nitter instances, with explicit state changes and scheduler-friendly watch semantics.
 license: MIT
