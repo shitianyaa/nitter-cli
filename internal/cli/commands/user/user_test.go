@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
@@ -879,5 +880,45 @@ func TestUserWithRepliesFlag(t *testing.T) {
 	}
 	if !strings.Contains(out, "101") {
 		t.Errorf("output = %q, want tweet 101", out)
+	}
+}
+
+func TestUserLimitZeroUnderFxBackend(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, strings.Replace(fastTOML, `fetch_backend = "nitter"`, `fetch_backend = "mix"`, 1))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/2/profile/NASA/statuses") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"tweets": []map[string]any{
+					{
+						"id":   "101",
+						"text": "fx tweet 101",
+						"author": map[string]any{
+							"screen_name": "NASA",
+						},
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	prevBase := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = prevBase
+	})
+
+	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "0", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(out, "101") {
+		t.Errorf("output = %q, want tweet 101 from Fx under --limit 0", out)
 	}
 }

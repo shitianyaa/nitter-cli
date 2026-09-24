@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -346,13 +347,23 @@ func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, m
 		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Timeline", "no fxtwitter client wired")
 	}
 
+	// 0 = all is the CLI contract (--limit 0, config default_limit <= 0),
+	// but the Fx protocol client treats count <= 0 as requesting zero tweets.
+	// Map limit <= 0 to a sentinel here at the wiring adapter so both user
+	// and circle run can fetch all tweets within their maxPages budget
+	// without returning empty results.
+	count := limit
+	if count <= 0 {
+		count = math.MaxInt
+	}
+
 	var tweets []nitter.Tweet
 	var err error
 
 	if opt.MediaOnly {
-		tweets, _, err = a.w.Fx.FetchUserMedia(ctx, handle, limit, "", maxPages)
+		tweets, _, err = a.w.Fx.FetchUserMedia(ctx, handle, count, "", maxPages)
 	} else {
-		tweets, _, err = a.w.Fx.FetchUserTimeline(ctx, handle, limit, "", maxPages, false, false)
+		tweets, _, err = a.w.Fx.FetchUserTimeline(ctx, handle, count, "", maxPages, false, false)
 	}
 	if err != nil {
 		return nil, "", err

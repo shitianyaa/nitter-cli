@@ -21,6 +21,11 @@
 
 ## Fixed
 
+- **`user --limit 0` and `circle run --limit 0` no longer return empty under Fx/mix backend**: `--limit 0`
+  means "all" in the CLI contract, but the underlying FxTwitter client treated `count <= 0` as a request for 0
+  items and returned `(nil, "", nil)`. The wiring adapter now maps `limit <= 0` to a sentinel so FxTwitter fetches
+  all tweets within the page budget. Additionally, Fx honors unbounded `--max-pages 0` without clamping to 3 pages,
+  defaults to 5 pages when unspecified, and adds cursor cycle guards.
 - **`get`, `media` and `download`: a positional reference now wins over stdin** — the commands read stdin
   only when they receive no positional reference AND stdin is not a TTY. Previously they read stdin first and
   rejected the input as ambiguous (`status reference given both as an argument and on stdin`, exit 2); on a

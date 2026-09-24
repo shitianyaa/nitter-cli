@@ -19,6 +19,10 @@
 
 ## 修复
 
+- **`user --limit 0` 与 `circle run --limit 0` 在 Fx/mix 后端下不再静默返回空**：CLI 契约中 `--limit 0`
+  代表全量（all），但底层 FxTwitter 客户端此前把 `count <= 0` 视作获取 0 条推文并返回成功空结果。
+  现于 wiring 适配层将 `limit <= 0` 映射为全量哨兵，使 FxTwitter 能按分页预算正常拉取全部推文。同时 Fx
+  真正支持 `--max-pages 0` 无界翻页（未指定时默认对齐 5 页上限）并补充游标防回环守卫。
 - **`get`、`media`、`download`：位置参数优先于标准输入**——仅当未提供位置参数**且** stdin 非 TTY 时
   才读取 stdin。此前命令会先读 stdin，再以歧义错误拒绝输入（`status reference given both as an
   argument and on stdin`，退出 2）；当管道的写端保持打开时，这次读取会永久阻塞，导致管道中的

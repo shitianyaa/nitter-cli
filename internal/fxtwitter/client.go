@@ -197,7 +197,11 @@ func (c *Client) FetchUserTimeline(
 
 	perPage := count
 	if skipPlainText {
-		perPage = count * 2
+		if count > 50 {
+			perPage = 100
+		} else {
+			perPage = count * 2
+		}
 		if perPage < 20 {
 			perPage = 20
 		}
@@ -210,8 +214,8 @@ func (c *Client) FetchUserTimeline(
 	}
 
 	pagesLimit := maxPages
-	if pagesLimit <= 0 {
-		pagesLimit = 3
+	if pagesLimit == 0 {
+		pagesLimit = 5
 	}
 
 	// capacityHint clamps the eager allocation: the count doubles as the
@@ -224,11 +228,15 @@ func (c *Client) FetchUserTimeline(
 	}
 	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
+	seenCursors := make(map[string]bool)
+	if currentCursor != "" {
+		seenCursors[currentCursor] = true
+	}
 	pagesFetched := 0
 	var lastCursor string
 	cursorStalled := false
 
-	for len(accumulated) < count && pagesFetched < pagesLimit {
+	for len(accumulated) < count && (pagesLimit < 0 || pagesFetched < pagesLimit) {
 		params := url.Values{}
 		params.Set("count", strconv.Itoa(perPage))
 		if currentCursor != "" {
@@ -252,9 +260,10 @@ func (c *Client) FetchUserTimeline(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor {
+		if lastCursor == "" || lastCursor == currentCursor || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
+		seenCursors[lastCursor] = true
 
 		for _, raw := range rawResults {
 			tw := raw.Resolve().ToSDK()
@@ -304,8 +313,8 @@ func (c *Client) FetchUserMedia(
 
 	endpoint := fmt.Sprintf("/2/profile/%s/media", cleanUser)
 	pagesLimit := maxPages
-	if pagesLimit <= 0 {
-		pagesLimit = 3
+	if pagesLimit == 0 {
+		pagesLimit = 5
 	}
 
 	perPage := count
@@ -326,11 +335,15 @@ func (c *Client) FetchUserMedia(
 	}
 	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
+	seenCursors := make(map[string]bool)
+	if currentCursor != "" {
+		seenCursors[currentCursor] = true
+	}
 	pagesFetched := 0
 	var lastCursor string
 	cursorStalled := false
 
-	for len(accumulated) < count && pagesFetched < pagesLimit {
+	for len(accumulated) < count && (pagesLimit < 0 || pagesFetched < pagesLimit) {
 		params := url.Values{}
 		params.Set("count", strconv.Itoa(perPage))
 		if currentCursor != "" {
@@ -354,9 +367,10 @@ func (c *Client) FetchUserMedia(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor {
+		if lastCursor == "" || lastCursor == currentCursor || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
+		seenCursors[lastCursor] = true
 
 		for _, raw := range rawResults {
 			tw := raw.Resolve().ToSDK()

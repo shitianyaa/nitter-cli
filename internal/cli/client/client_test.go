@@ -557,6 +557,23 @@ func TestHybridTimelineAndSearchDispatch(t *testing.T) {
 		}
 	})
 
+	t.Run("limit zero fetches all from Fx without returning empty", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		tweets, inst, err := w.Timeline().Timeline(context.Background(), "user", 0, 5)
+		if err != nil {
+			t.Fatalf("Timeline(limit=0): %v", err)
+		}
+		if inst != "FxTwitter" || len(tweets) != 1 || tweets[0].ID != "111" {
+			t.Errorf("got inst=%q tweets=%+v, want FxTwitter and tweet 111", inst, tweets)
+		}
+	})
+
 	t.Run("mix mode falls back to Nitter on Fx error", func(t *testing.T) {
 		cfg := fastCfg()
 		cfg.FetchBackend = "mix"

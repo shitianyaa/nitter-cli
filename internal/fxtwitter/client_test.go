@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1059,5 +1060,94 @@ func TestSearchTweetsFeedParameter(t *testing.T) {
 	}
 	if got := seen(); len(got) != 0 {
 		t.Errorf("queries = %v, want none (the feed is validated before any request)", got)
+	}
+}
+
+func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. Verify that pagesLimit defaults to 5 when maxPages <= 0
+	reqCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount), "text": "tweet"},
+			},
+			"cursor": fmt.Sprintf("cur_%d", reqCount),
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, _, err := client.FetchUserTimeline(ctx, "user", 100, "", 0, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline failed: %v", err)
+	}
+	if reqCount != 5 {
+		t.Errorf("reqCount = %d, want 5 pages by default", reqCount)
+	}
+	if len(tweets) != 5 {
+		t.Errorf("got %d tweets, want 5", len(tweets))
+	}
+
+	// 2. Verify loop guard breaks on cyclic cursors (A -> B -> A breaks on 3rd request instead of 5)
+	reqCount2 := 0
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount2++
+		w.Header().Set("Content-Type", "application/json")
+		nextCursor := "cur_A"
+		if reqCount2 == 1 {
+			nextCursor = "cur_B"
+		} else if reqCount2 == 2 {
+			nextCursor = "cur_A"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount2), "text": "tweet"},
+			},
+			"cursor": nextCursor,
+		})
+	}))
+	defer srv2.Close()
+
+	client2 := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv2.URL), fxtwitter.WithHTTPClient(srv2.Client()))
+	_, _, err = client2.FetchUserTimeline(ctx, "user", 100, "", 5, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline failed: %v", err)
+	}
+	if reqCount2 != 3 {
+		t.Errorf("reqCount2 = %d, want loop to stop after cyclic cursor (3 requests, not 5)", reqCount2)
+	}
+
+	// 3. Verify unbounded pagination (maxPages < 0) is not clamped by default 5 pages
+	reqCount3 := 0
+	srv3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount3++
+		w.Header().Set("Content-Type", "application/json")
+		next := fmt.Sprintf("cur_%d", reqCount3)
+		if reqCount3 >= 7 {
+			next = ""
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount3), "text": "tweet"},
+			},
+			"cursor": next,
+		})
+	}))
+	defer srv3.Close()
+
+	client3 := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv3.URL), fxtwitter.WithHTTPClient(srv3.Client()))
+	tweets3, _, err := client3.FetchUserTimeline(ctx, "user", 100, "", -1, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline unbounded failed: %v", err)
+	}
+	if reqCount3 != 7 || len(tweets3) != 7 {
+		t.Errorf("unbounded: reqCount = %d, tweets = %d, want 7 pages to completion", reqCount3, len(tweets3))
 	}
 }
