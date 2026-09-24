@@ -230,13 +230,13 @@ func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, m
 	// otherwise be asked for the same page until the context is cancelled.
 	followed := make(map[string]bool)
 	for cursor != "" && (limit <= 0 || len(tweets) < limit) && (maxPages < 0 || pages < maxPages) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if followed[cursor] {
 			break
 		}
 		followed[cursor] = true
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		body, _, err := c.HTTP.Get(ctx, base+"/"+handle+"?cursor="+url.QueryEscape(cursor), nil)
 		if err != nil {
 			return nil, err
