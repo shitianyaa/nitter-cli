@@ -81,7 +81,7 @@
   `sdk` redaction contract requires.
 - **`user --help` no longer describes the RSS layer as single-page**: it claimed the RSS feed is one page and
   that `--max-pages` only capped the HTML fallback. The feed is in fact read page by page along its `Min-Id`
-  cursor and the page budget applies to both layers, so the help text contradicted the implementation and every
+  cursor and each layer counts its own `--max-pages` budget, so the help text contradicted the implementation and every
   document that describes the scan; a bounded fetch also stops before the next page once `--limit` is satisfied.
   Help text only — no behavior change.
 

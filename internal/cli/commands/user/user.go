@@ -61,9 +61,10 @@ Instances are tried in config order; an instance whose whole fetch fails
 cools down while the next one is tried.
 
 --limit caps the number of tweets; without the flag the config's default_limit
-applies. --max-pages caps pagination on both layers: the RSS feed is read page
-by page along its Min-Id cursor, and the HTML fallback follows its load-more
-cursor; without the flag the config's max_pages (default 5) applies. Both are
+applies. --max-pages caps pagination per layer, and each layer counts its own
+pages: the RSS feed is read page by page along its Min-Id cursor, and when that
+yields nothing the HTML fallback follows its load-more cursor with a fresh
+budget. Without the flag the config's max_pages (default 5) applies. Both are
 caps and must be >= 1 when given: there is no "unlimited" value, so ask for a
 bound instead. A fetch whose --limit is already satisfied stops before the next
 page, so a small --limit does not spend the page budget.

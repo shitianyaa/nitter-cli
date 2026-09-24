@@ -126,7 +126,9 @@ The Nitter RSS feed is read page by page along its `Min-Id` cursor, so a
 backlog spanning several feed pages is fetched instead of being cut off at the
 first one: `--limit N` keeps paging until N tweets or the `--max-pages` budget
 is reached (a feed that advertises no `Min-Id` — a plain RSS proxy — stays a
-single page).
+single page). The budget is **per layer**: the RSS scan and the HTML fallback
+each count their own pages, so a scan that spends its budget and still yields
+nothing leaves the fallback a fresh budget.
 
 - `--with-replies` includes the user's reply tweets.
 - `--no-reposts` drops pure retweets.
@@ -707,8 +709,8 @@ Global `--proxy`/`--instance` apply as everywhere.
   `--max-new` for that first fetch.
 - An uninitialized `user:` source initializes even when its first fetch comes
   back empty, so the next cycle emits its new tweets; `tag:` and `list:` sources
-  stay uninitialized until a non-empty cycle, so a transient empty first
-  response is never mistaken for "caught up".
+  stay uninitialized until a cycle that returns at least one tweet, so a
+  transient empty first response is never mistaken for "caught up".
 - Later cycles emit each source's new tweets, at most `--max-new` per source per
   cycle. By default (`--max-new-overflow drop`) **excess new tweets are marked
   seen immediately and never re-emitted**: after a downtime, a burst larger than
