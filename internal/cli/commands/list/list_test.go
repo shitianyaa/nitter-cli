@@ -204,7 +204,9 @@ func TestListPaginationBoundedByMaxPages(t *testing.T) {
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
-	code, out, errOut := runCLI(t, "list", "12345", "--limit", "0", "--max-pages", "2")
+	// A limit larger than the four tweets on offer, so --max-pages is what
+	// bounds the fetch (there is no "unlimited" limit any more).
+	code, out, errOut := runCLI(t, "list", "12345", "--limit", "100", "--max-pages", "2")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
@@ -435,13 +437,18 @@ func TestListExtraArgsAreUsageError(t *testing.T) {
 	}
 }
 
-func TestListNegativeLimitIsUsageError(t *testing.T) {
+func TestListNonPositiveCapsAreUsageErrors(t *testing.T) {
 	tempHome(t)
-	code, _, errOut := runCLI(t, "list", "12345", "--limit=-5")
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
-	}
-	if !strings.Contains(errOut, "--limit") {
-		t.Fatalf("stderr = %q, want it to name the flag", errOut)
+	for _, flag := range []string{"--limit=-5", "--limit=0", "--max-pages=0"} {
+		code, _, errOut := runCLI(t, "list", "12345", flag)
+		if code != 2 {
+			t.Fatalf("%s: exit = %d, want 2 (stderr %q)", flag, code, errOut)
+		}
+		if !strings.Contains(errOut, "must be >= 1") {
+			t.Fatalf("%s: stderr = %q, want it to state the >= 1 floor", flag, errOut)
+		}
+		if name, _, _ := strings.Cut(flag, "="); !strings.Contains(errOut, name) {
+			t.Fatalf("%s: stderr = %q, want it to name %s", flag, errOut, name)
+		}
 	}
 }

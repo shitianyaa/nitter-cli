@@ -115,7 +115,7 @@ func (c *Client) doGet(ctx context.Context, op string, endpoint string, query ur
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, sdk.Errorf(sdk.KindInvalidArg, op, "create request: %w", err)
+		return nil, sdk.Errorf(sdk.KindInvalidArg, op, "create request: %w", redactURLError(err))
 	}
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("User-Agent", "nitter-cli/fxtwitter")
@@ -125,12 +125,14 @@ func (c *Client) doGet(ctx context.Context, op string, endpoint string, query ur
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, sdk.Errorf(sdk.KindUnavailable, op, "request failed: %w", err)
+		return nil, sdk.Errorf(sdk.KindUnavailable, op, "request failed: %w", redactURLError(err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, sdk.Errorf(sdk.KindNotFound, op, "resource not found (404): %s", reqURL)
+		// The query string carries the caller's own search terms, so the error
+		// names the route only — never reqURL (sdk/errors.go redaction).
+		return nil, sdk.Errorf(sdk.KindNotFound, op, "resource not found (404): %s", endpoint)
 	}
 	if resp.StatusCode >= 400 {
 		return nil, sdk.Errorf(sdk.KindUnavailable, op, "upstream HTTP error %d", resp.StatusCode)
@@ -149,15 +151,14 @@ func (c *Client) doGet(ctx context.Context, op string, endpoint string, query ur
 	}
 
 	var probe struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
+		Code int `json:"code"`
 	}
 	if err := json.Unmarshal(data, &probe); err == nil && probe.Code != 0 {
 		if probe.Code == 404 {
-			return nil, sdk.Errorf(sdk.KindNotFound, op, "fxtwitter returned code 404: %s", probe.Message)
+			return nil, sdk.Errorf(sdk.KindNotFound, op, "fxtwitter returned code 404")
 		}
 		if probe.Code >= 400 {
-			return nil, sdk.Errorf(sdk.KindUnavailable, op, "fxtwitter error %d: %s", probe.Code, probe.Message)
+			return nil, sdk.Errorf(sdk.KindUnavailable, op, "fxtwitter error %d", probe.Code)
 		}
 	}
 
@@ -173,6 +174,33 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// redactURLError serves the sdk/errors.go redaction contract on the FxTwitter
+// lane. A *url.Error renders the full request URL — query string included —
+// into its Error() text ("Get \"https://…/2/search?q=…\": dial tcp …"), so the
+// wrapper is replaced by its cause before it enters the *sdk.Error chain. Every
+// transport failure would otherwise print the caller's search terms. The httpx
+// lane has its own sanitizer, unexported in another package; this lane builds
+// its own net/http client and does not share that transport.
+func redactURLError(err error) error {
+	// Repeated, not once: http.Client.Do wraps whatever the transport returned
+	// in its own *url.Error, so a transport that already reports one yields a
+	// nested pair and a single unwrap would leave the inner URL in place.
+	// Bounded: a *url.Error whose Err points back into its own chain would
+	// otherwise spin forever, and past the cap the text cannot be proven clean
+	// — so the redaction stays total and says nothing instead.
+	for i := 0; i < 8; i++ {
+		var ue *url.Error
+		if !errors.As(err, &ue) {
+			return err
+		}
+		if ue.Err == nil {
+			return errors.New("transport failure")
+		}
+		err = ue.Err
+	}
+	return errors.New("transport failure")
+}
+
 // FetchUserTimeline retrieves tweets for a given user handle with pagination and filtering.
 func (c *Client) FetchUserTimeline(
 	ctx context.Context,
@@ -184,8 +212,15 @@ func (c *Client) FetchUserTimeline(
 	filterReposts bool,
 ) ([]sdk.Tweet, string, error) {
 	cleanUser := strings.TrimPrefix(strings.TrimSpace(handle), "@")
-	if cleanUser == "" || count <= 0 {
-		return nil, "", nil
+	if cleanUser == "" {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserTimeline, "handle cannot be empty")
+	}
+	// count <= 0 used to return an empty success, which turned "everything"
+	// into "nothing" one layer above; the CLI has no unlimited value any more
+	// and resolves every limit to a positive cap (or a large sentinel) before
+	// calling, so a non-positive count is a caller bug and must be loud.
+	if count <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserTimeline, "count must be >= 1, got %d", count)
 	}
 
 	var endpoint string
@@ -307,8 +342,12 @@ func (c *Client) FetchUserMedia(
 	maxPages int,
 ) ([]sdk.Tweet, string, error) {
 	cleanUser := strings.TrimPrefix(strings.TrimSpace(handle), "@")
-	if cleanUser == "" || count <= 0 {
-		return nil, "", nil
+	if cleanUser == "" {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserMedia, "handle cannot be empty")
+	}
+	// See FetchUserTimeline: a non-positive count is a caller bug, not "none".
+	if count <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserMedia, "count must be >= 1, got %d", count)
 	}
 
 	endpoint := fmt.Sprintf("/2/profile/%s/media", cleanUser)
@@ -617,6 +656,78 @@ func (c *Client) FetchStatus(ctx context.Context, statusID string) (*sdk.Tweet, 
 	return tweet, nil
 }
 
+// quoteCount decodes an integer and stays "unknown" for every other JSON shape
+// (array, string, object, null, fractional number). It must never fail the
+// enclosing decode: "quotes" is an ARRAY in FxTwitter's timeline payloads
+// (RawTimelineResponse.Quotes), so a strict int in the shared model would turn
+// a legitimate timeline response into a KindMalformed error.
+type quoteCount struct {
+	N     int
+	Known bool
+}
+
+func (q *quoteCount) UnmarshalJSON(b []byte) error {
+	var n int
+	if err := json.Unmarshal(b, &n); err == nil {
+		q.N, q.Known = n, true
+	}
+	return nil
+}
+
+// quotesProbe is the minimal projection of a /2/status/{id} payload used only
+// by FetchQuotes' 404 cross-check. It deliberately avoids the shared Raw*
+// model so the check cannot affect any other payload shape. The count is read
+// from every position FxTwitter uses for a single status, because the live
+// probe pinned it to the nested status object without distinguishing the
+// spellings; a wrong guess fails safe (unknown keeps the 404). Pointer fields
+// give "null" the same meaning for free — json leaves them nil.
+type quotesProbe struct {
+	Quotes *quoteCount `json:"quotes"`
+	Tweet  *struct {
+		Quotes *quoteCount `json:"quotes"`
+	} `json:"tweet"`
+	Status *struct {
+		Quotes *quoteCount `json:"quotes"`
+	} `json:"status"`
+}
+
+// count returns the tweet's own quote count when the payload carried it as an
+// integer. ok=false means "cannot be read" — never zero.
+func (p *quotesProbe) count() (n int, ok bool) {
+	if p == nil {
+		return 0, false
+	}
+	if p.Tweet != nil && p.Tweet.Quotes != nil && p.Tweet.Quotes.Known {
+		return p.Tweet.Quotes.N, true
+	}
+	if p.Status != nil && p.Status.Quotes != nil && p.Status.Quotes.Known {
+		return p.Status.Quotes.N, true
+	}
+	if p.Quotes != nil && p.Quotes.Known {
+		return p.Quotes.N, true
+	}
+	return 0, false
+}
+
+// statusQuoteCount reads a tweet's own quote count from /2/status/{id} — the
+// cross-check that disambiguates the 404 of /2/status/{id}/quotes, which
+// FxTwitter returns both for "this tweet has no quotes" and for a pure upstream
+// failure (both verified live 2026-09-24). known=false means the count could
+// not be read (the status fetch failed, or the payload carried no integer
+// count); callers must treat that as unknown, never as zero. The request rides
+// the same transport, base URL and timeout as every other Fx call.
+func (c *Client) statusQuoteCount(ctx context.Context, statusID string) (int, bool) {
+	body, err := c.doGet(ctx, opStatus, fmt.Sprintf("/2/status/%s", statusID), nil)
+	if err != nil {
+		return 0, false
+	}
+	var probe quotesProbe
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return 0, false
+	}
+	return probe.count()
+}
+
 // FetchQuotes retrieves quote tweets for a given status ID.
 func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cursor string) ([]sdk.Tweet, string, error) {
 	cleanID := strings.TrimSpace(statusID)
@@ -636,8 +747,16 @@ func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cu
 
 	body, err := c.doGet(ctx, opQuotes, endpoint, params)
 	if err != nil {
-		var sdkErr *sdk.Error
-		if errors.As(err, &sdkErr) && sdkErr.Kind == sdk.KindNotFound {
+		if !IsNotFound(err) {
+			return nil, "", err
+		}
+		// This endpoint shares one upstream SearchTimeline query with
+		// /2/search and /2/search/users, so it fails with the same 404 — and a
+		// tweet with zero quotes answers 404 too (both verified live). Only a
+		// readable count of exactly 0 makes this the legitimate empty result; a
+		// positive or unreadable count keeps the failure, because a 404 must
+		// never be reported as an empty success (CONTRIBUTING.md).
+		if n, known := c.statusQuoteCount(ctx, cleanID); known && n == 0 {
 			return nil, "", nil
 		}
 		return nil, "", err
@@ -719,10 +838,9 @@ func (c *Client) SearchUsers(ctx context.Context, query string, count int) ([]sd
 
 	body, err := c.doGet(ctx, opSearchUsers, "/2/search/users", params)
 	if err != nil {
-		var sdkErr *sdk.Error
-		if errors.As(err, &sdkErr) && sdkErr.Kind == sdk.KindNotFound {
-			return nil, nil
-		}
+		// No 404 special case: on this endpoint a query with genuinely no
+		// matches answers 200 with an empty user list (verified live
+		// 2026-09-24), so a 404 is a pure failure signal and must surface.
 		return nil, err
 	}
 

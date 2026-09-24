@@ -65,6 +65,7 @@ func TestFollowing_ArgsValidation(t *testing.T) {
 		{"invalid chars", []string{"following", "user-name"}},
 		{"handle too long", []string{"following", "toolonghandle1234567890"}},
 		{"negative limit", []string{"following", "NASA", "--limit", "-1"}},
+		{"zero limit", []string{"following", "NASA", "--limit", "0"}},
 		{"both json and ndjson", []string{"following", "NASA", "--json", "--ndjson"}},
 	}
 

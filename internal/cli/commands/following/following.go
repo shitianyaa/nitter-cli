@@ -41,7 +41,7 @@ without the @) and print one row per followed profile:
 
   @<handle>  <name>  <followers_count>  <bio>
 
---limit caps the number of profiles to fetch (default: 20, 0 = all).
+--limit caps the number of profiles to fetch (default: 20; must be >= 1).
 --json prints a JSON array of profile objects ([] when empty).
 --ndjson prints one nitter.pipeline/v1 envelope per profile (kind profile).
 --json and --ndjson are mutually exclusive.`,
@@ -55,7 +55,7 @@ without the @) and print one row per followed profile:
 			return run(cmd, s, args[0], limitFlag, asJSON, asNDJSON)
 		},
 	}
-	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum profiles to fetch (default: 20, 0 = all)")
+	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum profiles to fetch")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print a JSON array of profile objects")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per profile (kind profile)")
 	return cmd
@@ -69,8 +69,8 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag int
 	if !handleRe.MatchString(handle) {
 		return invocation.Usagef("following: %q is not a valid handle (1-15 letters, digits or underscores, without the @)", handle)
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("following: --limit must be >= 0 (0 means all)")
+	if limitFlag < 1 {
+		return invocation.Usagef("following: --limit must be >= 1 (there is no unlimited value)")
 	}
 
 	cfg, err := client.LoadEffectiveSettings()

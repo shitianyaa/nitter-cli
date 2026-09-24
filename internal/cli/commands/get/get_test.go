@@ -23,7 +23,7 @@ import (
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -38,6 +38,18 @@ func tempHome(t *testing.T) string {
 	} {
 		t.Setenv(key, "")
 	}
+	// fetch_backend has only mix and fx now, and these tests exercise the
+	// instance path: point the Fx fast lane at a stub that answers 404 so mix
+	// fails over to the configured fake instance (and a fixture with no
+	// instances still reaches the chooser's "no instances configured" error).
+	// Without this the fast lane would reach the real network.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(stub.Close)
+	prevFxBase := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = stub.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = prevFxBase })
 	return home
 }
 
@@ -564,5 +576,41 @@ func TestGetFxFastLane(t *testing.T) {
 	}
 	if !strings.Contains(out, `"id":"555"`) || !strings.Contains(out, "fast lane status") {
 		t.Errorf("out = %q, want tweet from Fx fast-lane", out)
+	}
+}
+
+// TestGetFxBackendSurfacesFxErrorWithoutInstances: under fetch_backend = fx the
+// fast lane is the only permitted source, so its error must surface as itself.
+// Falling back to Nitter here replaced the real cause with the chooser's "no
+// instances configured" and hid it. The fallback stays for mix (pinned by
+// TestGetFxFastLane's sibling in the client package).
+func TestGetFxBackendSurfacesFxErrorWithoutInstances(t *testing.T) {
+	home := tempHome(t) // zero instances
+	writeConfig(t, home, "fetch_backend = \"fx\"\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 404, "message": "Status not found"})
+	}))
+	defer srv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	code, out, errOut := runCLI(t, "get", "101")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "not_found") {
+		t.Errorf("stderr = %q, want the Fx cause", errOut)
+	}
+	if strings.Contains(errOut, "no instances configured") {
+		t.Errorf("stderr = %q — a Nitter fallback masked the real cause", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing on the failure path", out)
 	}
 }

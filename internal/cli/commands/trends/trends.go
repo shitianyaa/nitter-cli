@@ -35,7 +35,7 @@ func New(s *invocation.Streams) *cobra.Command {
 
   #  TREND TOPIC  CONTEXT  TWEETS
 
---limit caps the number of trends to display (default: 0, 0 = all).
+--limit caps the number of trends to display (default: 20; must be >= 1).
 --json prints a JSON array of trend objects ([] when empty).
 --ndjson prints one nitter.pipeline/v1 envelope per trend (kind trend).
 --json and --ndjson are mutually exclusive.`,
@@ -49,7 +49,7 @@ func New(s *invocation.Streams) *cobra.Command {
 			return run(cmd, s, limitFlag, asJSON, asNDJSON)
 		},
 	}
-	cmd.Flags().IntVar(&limitFlag, "limit", 0, "Maximum trends to display (default: 0, 0 = all)")
+	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum trends to display")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print a JSON array of trend objects")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per trend (kind trend)")
 	return cmd
@@ -60,8 +60,8 @@ func run(cmd *cobra.Command, s *invocation.Streams, limitFlag int, asJSON, asNDJ
 	if err != nil {
 		return err
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("trends: --limit must be >= 0")
+	if limitFlag < 1 {
+		return invocation.Usagef("trends: --limit must be >= 1 (there is no unlimited value)")
 	}
 
 	cfg, err := client.LoadEffectiveSettings()

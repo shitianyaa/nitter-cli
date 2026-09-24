@@ -40,6 +40,24 @@ func TestRunUnknownFlagIsUsageError(t *testing.T) {
 	}
 }
 
+// TestRunFlagParseFailuresAreUsageErrors: an unparsable flag VALUE and a flag
+// missing its argument are argument-contract failures exactly like an unknown
+// flag, so all three must exit 2. This pinned the previous split where
+// "--limit=abc" exited 1 while "--unknownflag" exited 2.
+func TestRunFlagParseFailuresAreUsageErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"user", "NASA", "--limit=abc"},
+		{"user", "NASA", "--limit"},
+		{"user", "NASA", "--limit=1e1"},
+		{"user", "NASA", "--max-pages=abc"},
+	} {
+		var out, errOut bytes.Buffer
+		if code := cli.Run(args, strings.NewReader(""), &out, &errOut); code != 2 {
+			t.Errorf("%v: exit = %d, want 2 (stderr %q)", args, code, errOut.String())
+		}
+	}
+}
+
 // TestRunVersionAndHelpNeverCreateConfig pins the PersistentPreRunE contract:
 // --version and --help/-h are handled by cobra before the PreRun stage, and
 // the auto-generated help subcommand is skipped by the hook itself, so none of

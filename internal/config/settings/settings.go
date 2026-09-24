@@ -108,6 +108,24 @@ type ValidationError struct {
 func (e *ValidationError) Error() string { return e.Key + ": " + e.Err.Error() }
 func (e *ValidationError) Unwrap() error { return e.Err }
 
+// ValidateFetchBackend accepts the two supported fetch modes. The nitter-only
+// mode was removed: its meaning (instances only, never the fast lane) has no
+// equivalent among what remains, and quietly mapping it onto mix would add the
+// fast lane the user asked to avoid — so it fails with a one-edit migration.
+// The instance path itself still exists: --instance pins one invocation to a
+// single instance, but only for the commands that have an instance path (user,
+// search, get, list) — the six Fx-only capabilities ignore it. Exported so
+// `nitter config set` rejects exactly the same set.
+func ValidateFetchBackend(key, v string) error {
+	switch v {
+	case "mix", "fx":
+		return nil
+	case "nitter":
+		return fmt.Errorf("invalid %s %q: the nitter-only mode was removed; use \"mix\" (fast lane first, Nitter instances as the fallback). To send one call to your own instances, --instance URL applies to user, search, get and list", key, v)
+	}
+	return fmt.Errorf("invalid %s %q (allowed: mix, fx)", key, v)
+}
+
 // Load resolves settings with env > file > default precedence. A missing
 // config file yields pure Defaults() and creates nothing; malformed TOML
 // returns a plain wrapped error, while schema/type validation failures
@@ -145,6 +163,9 @@ func Load(cfgPath string, env func(string) string) (Settings, error) {
 		if err != nil {
 			return Settings{}, &ValidationError{Key: EnvDefaultLimit, Err: fmt.Errorf("parse %s: %w", EnvDefaultLimit, err)}
 		}
+		if n < 1 {
+			return Settings{}, &ValidationError{Key: EnvDefaultLimit, Err: fmt.Errorf("%s: %d is not a valid cap; must be >= 1 (there is no unlimited value)", EnvDefaultLimit, n)}
+		}
 		s.DefaultLimit = n
 	}
 	if v := env(EnvLogLevel); v != "" {
@@ -154,19 +175,29 @@ func Load(cfgPath string, env func(string) string) (Settings, error) {
 		s.LogFormat = v
 	}
 	if v := env(EnvFetchBackend); v != "" {
-		if v != "mix" && v != "nitter" && v != "fx" {
-			return Settings{}, &ValidationError{
-				Key: EnvFetchBackend,
-				Err: fmt.Errorf("invalid %s %q (allowed: mix, nitter, fx)", EnvFetchBackend, v),
-			}
+		if err := ValidateFetchBackend(EnvFetchBackend, v); err != nil {
+			return Settings{}, &ValidationError{Key: EnvFetchBackend, Err: err}
 		}
 		s.FetchBackend = v
 	}
 
-	if s.FetchBackend != "mix" && s.FetchBackend != "nitter" && s.FetchBackend != "fx" {
-		return Settings{}, &ValidationError{
-			Key: "fetch_backend",
-			Err: fmt.Errorf("invalid fetch_backend %q (allowed: mix, nitter, fx)", s.FetchBackend),
+	if err := ValidateFetchBackend("fetch_backend", s.FetchBackend); err != nil {
+		return Settings{}, &ValidationError{Key: "fetch_backend", Err: err}
+	}
+
+	// The two acquisition caps must be positive. 0 used to be the "unlimited"
+	// spelling, which the two fetch lanes read in opposite ways; it is gone, so
+	// a hand-edited config carrying 0 fails loudly (exit 2) instead of silently
+	// asking for nothing.
+	for _, cap := range []struct {
+		key   string
+		value int
+	}{
+		{"default_limit", s.DefaultLimit},
+		{"max_pages", s.MaxPages},
+	} {
+		if cap.value < 1 {
+			return Settings{}, &ValidationError{Key: cap.key, Err: fmt.Errorf("parse config %s: %d is not a valid cap; must be >= 1 (there is no unlimited value)", cap.key, cap.value)}
 		}
 	}
 

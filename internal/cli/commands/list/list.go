@@ -66,9 +66,9 @@ Note: an empty result may mean the list is simply empty — or that it is new
 and not yet ingested by this Nitter instance; the two are indistinguishable
 from the outside. Neither is an error.
 
---limit caps the number of tweets (0 = all); without the flag the config's
-default_limit applies. --max-pages caps pagination (0 = default 5); without
-the flag the config's max_pages applies.
+--limit caps the number of tweets; without the flag the config's default_limit
+applies. --max-pages caps pagination; without the flag the config's max_pages
+applies. Both must be >= 1 when given: there is no "unlimited" value.
 
 --json prints a machine-readable document: one JSON object for a single
 tweet, an array otherwise (an empty timeline prints []). --ndjson instead
@@ -88,7 +88,7 @@ the default modes.`,
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
-		"Maximum tweets to fetch, 0 for all (default: config default_limit)")
+		"Maximum tweets to fetch (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Maximum list pages (default: config max_pages; built-in default 5)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
@@ -104,10 +104,11 @@ the default modes.`,
 	return cmd
 }
 
-// run executes one list fetch. Flag/config resolution order: an explicit
-// flag wins over the config value; a negative flag is a usage error while a
-// negative config value keeps its documented "0 semantics = all" pixiv
-// heritage (appapi treats limit <= 0 as unbounded).
+// run executes one list fetch. Flag/config resolution order: an explicit flag
+// wins over the config value. Both caps must be >= 1: a flag below 1 is a usage
+// error and a config below 1 is rejected at load, so the acquisition layer
+// never receives a non-positive limit or page budget. The flag defaults stay 0
+// ("not given"), which is why the checks are gated on Changed.
 func run(cmd *cobra.Command, s *invocation.Streams, listID string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
@@ -116,11 +117,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, listID string, limitFlag, ma
 	if !validListID(listID) {
 		return invocation.Usagef("list: %q is not a valid list ID (non-empty, no whitespace, ?, # or /)", listID)
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("list: --limit must be >= 0 (0 means all)")
+	if cmd.Flags().Changed("limit") && limitFlag < 1 {
+		return invocation.Usagef("list: --limit must be >= 1 (there is no unlimited value)")
 	}
-	if maxPagesFlag < 0 {
-		return invocation.Usagef("list: --max-pages must be >= 0")
+	if cmd.Flags().Changed("max-pages") && maxPagesFlag < 1 {
+		return invocation.Usagef("list: --max-pages must be >= 1 (there is no unlimited value)")
 	}
 	if err := filters.Validate(); err != nil {
 		return invocation.Usagef("list: %v", err)

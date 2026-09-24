@@ -14,13 +14,14 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 	"github.com/shitianyaa/nitter-cli/internal/storage/seen"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast. Negative values are documented opt-outs in httpx; hand-edited
 // config.toml is the user's power tool.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -35,6 +36,18 @@ func tempHome(t *testing.T) string {
 	} {
 		t.Setenv(key, "")
 	}
+	// fetch_backend has only mix and fx now, and these tests exercise the
+	// instance path: point the Fx fast lane at a stub that answers 404 so mix
+	// fails over to the configured fake instance (and a fixture with no
+	// instances still reaches the chooser's "no instances configured" error).
+	// Without this the fast lane would reach the real network.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(stub.Close)
+	prevFxBase := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = stub.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = prevFxBase })
 	return home
 }
 
@@ -760,6 +773,21 @@ func TestWatchNegativeMaxNewIsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "--max-new") {
 		t.Errorf("stderr = %q, want it to name the flag", errOut)
+	}
+}
+
+// TestWatchNonPositiveMaxPagesIsUsageError: --max-pages is a cap, so 0 (which
+// used to slip through as "one page") and negatives are usage errors.
+func TestWatchNonPositiveMaxPagesIsUsageError(t *testing.T) {
+	tempHome(t)
+	for _, flag := range []string{"--max-pages=0", "--max-pages=-1"} {
+		code, _, errOut := runCLI(t, "watch", "user:NASA", "--once", flag)
+		if code != 2 {
+			t.Fatalf("%s: exit = %d, want 2 (stderr %q)", flag, code, errOut)
+		}
+		if !strings.Contains(errOut, "--max-pages") {
+			t.Errorf("%s: stderr = %q, want it to name the flag", flag, errOut)
+		}
 	}
 }
 

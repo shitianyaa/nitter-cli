@@ -6,9 +6,10 @@ semantics are governed by the installed binary's `nitter <command> --help`.
 > Context first: with the default `fetch_backend = mix`, `user` / `search` /
 > `get` / `comments` / `following` / `profile` / `quotes` / `trends` all work
 > **without any instance** through the FxTwitter fast lane. A Nitter instance
-> is needed for `list`, for the fully self-hosted `nitter` backend, and as the
-> fallback when Fx is unavailable — say this before proposing a deployment,
-> and let the user decide whether they want one.
+> is needed for `list`, for the Fx fallback, and for `--instance` (which pins
+> ONE call to a single instance, on `user` / `search` / `get` / `list` only) —
+> say this before proposing a deployment, and let the user decide whether they
+> want one.
 
 ## Ask first
 

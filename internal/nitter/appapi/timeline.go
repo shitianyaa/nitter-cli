@@ -45,13 +45,20 @@ type PageOptions struct {
 	// all — still bounded by MaxPages. The RSS feed is scanned through the
 	// Min-Id cursor chain: its items are collected up to the limit, and the
 	// scan stops before requesting a page the limit would discard.
+	//
+	// The CLI no longer has an "unlimited" spelling, so every command resolves
+	// its limit to a positive cap (or a large positive sentinel) before
+	// calling; this 0/negative = all contract stays because MergedTimeline
+	// relies on it (it passes no Limit at all).
 	Limit int
 	// MaxPages caps how many HTML timeline pages are fetched on the HTML
 	// path (the first page counts). 0 → defaultMaxPages; negative →
 	// UNBOUNDED: the cursor chain is followed until the upstream stops
-	// serving a cursor (or the context is canceled) — the CLI's `user
-	// --max-pages 0` maps to this. Search/List keep the historical
-	// "0 = default" semantics at their own entry points.
+	// serving a cursor (or the context is canceled). No CLI command passes a
+	// non-positive budget any more. The negative-is-unbounded reading is this
+	// Timeline entry point's alone: Search/ListTimeline normalize `<= 0` to the
+	// same defaultMaxPages, and the FxTwitter lane normalizes `<= 0` to three
+	// pages.
 	MaxPages int
 	// Stop is consulted after each RSS page of the Min-Id cursor scan;
 	// returning true ends the scan. The watch command uses it to stop once a

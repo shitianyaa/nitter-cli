@@ -323,7 +323,9 @@ func TestConfigSetBareNegativeValueIsRejectedByFlagParsing(t *testing.T) {
 func TestConfigSetZeroAndBoundaryValues(t *testing.T) {
 	tempHome(t)
 	for _, tc := range []struct{ key, value, want string }{
-		{"default_limit", "0", "default_limit = 0"},
+		{"default_limit", "1", "default_limit = 1"}, // the smallest cap; 0 is rejected
+		{"max_pages", "1", "max_pages = 1"},
+		{"retry_attempts", "0", "retry_attempts = 0"}, // 0 retries is meaningful and stays legal
 		{"request_interval", "0s", "request_interval = 0s"},
 		{"log_level", "debug", "log_level = debug"},
 		{"log_format", "json", "log_format = json"},
@@ -338,6 +340,18 @@ func TestConfigSetZeroAndBoundaryValues(t *testing.T) {
 		}
 		if got := strings.TrimSpace(out); got != tc.want {
 			t.Fatalf("get %s = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+
+	// The two acquisition caps have no zero: 0 was the "unlimited" spelling,
+	// which the Nitter lane read as unbounded and the Fx lane as nothing.
+	for _, key := range []string{"default_limit", "max_pages"} {
+		code, _, errOut := runCLI(t, "", "config", "set", key, "0")
+		if code != 2 {
+			t.Fatalf("set %s 0: exit = %d, want 2 (stderr %q)", key, code, errOut)
+		}
+		if !strings.Contains(errOut, "must be >= 1") {
+			t.Errorf("set %s 0: stderr = %q, want it to state the >= 1 floor", key, errOut)
 		}
 	}
 }
@@ -537,7 +551,7 @@ func TestConfigUnknownSubcommandExits1(t *testing.T) {
 
 func TestConfigSetGetFetchBackend(t *testing.T) {
 	home := tempHome(t)
-	for _, val := range []string{"fx", "nitter", "mix"} {
+	for _, val := range []string{"fx", "mix"} {
 		code, _, errOut := runCLI(t, "", "config", "set", "fetch_backend", val)
 		if code != 0 {
 			t.Fatalf("set fetch_backend %s exit = %d, want 0 (stderr %q)", val, code, errOut)
@@ -557,6 +571,20 @@ func TestConfigSetGetFetchBackend(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "fetch_backend") {
 		t.Fatalf("stderr = %q, want it to name fetch_backend", errOut)
+	}
+
+	// The nitter-only mode was removed. It must be rejected with a migration
+	// hint rather than silently mapped onto mix, which would add the fast lane
+	// the setting used to exclude.
+	code, _, errOut = runCLI(t, "", "config", "set", "fetch_backend", "nitter")
+	if code != 2 {
+		t.Fatalf("set fetch_backend nitter exit = %d, want 2", code)
+	}
+	// Assert the nitter-specific arm, not just "mix": the generic rejection
+	// (allowed: mix, fx) also contains "mix", so a weaker assertion would still
+	// pass with the migration arm deleted.
+	if !strings.Contains(errOut, "nitter-only mode was removed") {
+		t.Errorf("stderr = %q, want the nitter-specific migration hint", errOut)
 	}
 	_ = home
 }

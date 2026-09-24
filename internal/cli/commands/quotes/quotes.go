@@ -38,7 +38,7 @@ func New(s *invocation.Streams) *cobra.Command {
 
   <ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>
 
---limit caps the number of quotes to fetch (default: 20, 0 = all).
+--limit caps the number of quotes to fetch (default: 20; must be >= 1).
 --media-only drops quotes that carry no media attachments.
 --no-reposts drops reposted quotes.
 --json prints a machine-readable document: one JSON object for a single quote, an array otherwise ([] when empty).
@@ -54,7 +54,7 @@ func New(s *invocation.Streams) *cobra.Command {
 			return run(cmd, s, args[0], limitFlag, asJSON, asNDJSON, filters)
 		},
 	}
-	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum quotes to fetch (default: 20, 0 = all)")
+	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum quotes to fetch")
 	cmd.Flags().BoolVar(&filters.MediaOnly, "media-only", false, "Drop quotes that carry no media attachments")
 	cmd.Flags().BoolVar(&filters.NoReposts, "no-reposts", false, "Drop pure reposts from the output")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print JSON document")
@@ -67,8 +67,8 @@ func run(cmd *cobra.Command, s *invocation.Streams, ref string, limitFlag int, a
 	if err != nil {
 		return err
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("quotes: --limit must be >= 0")
+	if limitFlag < 1 {
+		return invocation.Usagef("quotes: --limit must be >= 1 (there is no unlimited value)")
 	}
 
 	statusID, _, err := client.ParseStatusRef(ref)

@@ -359,10 +359,14 @@ func TestCircle_Run(t *testing.T) {
 			t.Errorf("run missing name code = %d, want 2", code)
 		}
 
-		// Negative limit exits 2
+		// Non-positive limit exits 2 (0 was the "all" spelling and is gone)
 		code, _, _ = runCLI(t, "circle", "run", "space", "--limit", "-1")
 		if code != 2 {
 			t.Errorf("run negative limit code = %d, want 2", code)
+		}
+		code, _, _ = runCLI(t, "circle", "run", "space", "--limit", "0")
+		if code != 2 {
+			t.Errorf("run zero limit code = %d, want 2", code)
 		}
 
 		// Both json and ndjson exits 2

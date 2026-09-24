@@ -56,10 +56,14 @@ func TestTrendsValidation(t *testing.T) {
 		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
 	}
 
-	// Negative limit -> exit 2
+	// Non-positive limit -> exit 2 (0 was the "all" spelling and is gone)
 	code, _, errOut = runCLI(t, "trends", "--limit=-1")
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	code, _, errOut = runCLI(t, "trends", "--limit=0")
+	if code != 2 {
+		t.Fatalf("--limit=0: exit = %d, want 2 (stderr %q)", code, errOut)
 	}
 
 	// --json and --ndjson together -> exit 2

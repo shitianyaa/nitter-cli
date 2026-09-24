@@ -68,9 +68,9 @@ the newest-first feed) or "top" (the popular-results feed). It maps to the
 backends' own ordering parameter — Nitter's f= (tweets|top) and FxTwitter's
 feed — and is carried on every page, so pagination keeps the chosen order.
 --sort is rejected together with --type user (exit 2), which has no ordering.
---limit caps the number of items (0 = all); without the flag the config's
-default_limit applies. --max-pages caps pagination (0 = default 5); without
-the flag the config's max_pages applies.
+--limit caps the number of items; without the flag the config's default_limit
+applies. --max-pages caps pagination; without the flag the config's max_pages
+applies. Both must be >= 1 when given: there is no "unlimited" value.
 
 --json prints a machine-readable document: one JSON object for a single
 item, an array otherwise (an empty result prints []). --ndjson instead
@@ -90,7 +90,7 @@ stderr in the default modes.`,
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
-		"Maximum items to fetch, 0 for all (default: config default_limit)")
+		"Maximum items to fetch (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Maximum result pages (default: config max_pages; built-in default 5)")
 	cmd.Flags().StringVar(&typeFlag, "type", "tweet",
@@ -110,10 +110,11 @@ stderr in the default modes.`,
 	return cmd
 }
 
-// run executes one search. Flag/config resolution order: an explicit flag
-// wins over the config value; a negative flag is a usage error while a
-// negative config value keeps its documented "0 semantics = all" pixiv
-// heritage (appapi treats limit <= 0 as unbounded).
+// run executes one search. Flag/config resolution order: an explicit flag wins
+// over the config value. Both caps must be >= 1: a flag below 1 is a usage
+// error and a config below 1 is rejected at load, so the acquisition layer
+// never receives a non-positive limit or page budget. The flag defaults stay 0
+// ("not given"), which is why the checks are gated on Changed.
 func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, typeFlag, sortFlag string, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
@@ -139,11 +140,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 	if cmd.Flags().Changed("sort") && typeFlag == "user" {
 		return invocation.Usagef("search: --sort cannot be used with --type user")
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("search: --limit must be >= 0 (0 means all)")
+	if cmd.Flags().Changed("limit") && limitFlag < 1 {
+		return invocation.Usagef("search: --limit must be >= 1 (there is no unlimited value)")
 	}
-	if maxPagesFlag < 0 {
-		return invocation.Usagef("search: --max-pages must be >= 0")
+	if cmd.Flags().Changed("max-pages") && maxPagesFlag < 1 {
+		return invocation.Usagef("search: --max-pages must be >= 1 (there is no unlimited value)")
 	}
 	if err := filters.Validate(); err != nil {
 		return invocation.Usagef("search: %v", err)
