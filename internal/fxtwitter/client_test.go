@@ -205,6 +205,56 @@ func TestTimelinePaginationAndMaxPages(t *testing.T) {
 	}
 }
 
+// TestFetchUserMediaCursorCycleGuard mirrors the timeline cycle case for the
+// media endpoint: the chain B -> A -> B revisits cur_B from page 1, which is
+// neither an empty cursor nor an immediate self-repeat, so only the
+// seenCursors guard can stop the loop (without it the run would use the full
+// 5-page budget). The single-page media test cannot reach this code.
+//
+// The bounded budget is deliberate: the production unbounded form (limit <= 0
+// becomes count = MaxInt with maxPages = -1) is exercised elsewhere, but here a
+// missing guard would spin forever instead of failing the assertions — a
+// bounded budget turns that into a readable failure.
+func TestFetchUserMediaCursorCycleGuard(t *testing.T) {
+	reqCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount++
+		w.Header().Set("Content-Type", "application/json")
+		nextCursor := "cur_A"
+		switch reqCount {
+		case 1:
+			nextCursor = "cur_B"
+		case 2:
+			nextCursor = "cur_A"
+		case 3:
+			nextCursor = "cur_B"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount), "text": "media tweet"},
+			},
+			"cursor": nextCursor,
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, cur, err := client.FetchUserMedia(context.Background(), "artist", 100, "", 5)
+	if err != nil {
+		t.Fatalf("FetchUserMedia failed: %v", err)
+	}
+	if reqCount != 3 {
+		t.Errorf("reqCount = %d, want the loop to stop on the revisited cursor (3 requests, not 5)", reqCount)
+	}
+	if len(tweets) != 3 {
+		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets))
+	}
+	if cur != "" {
+		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur)
+	}
+}
+
 func TestUserMediaEndpointAndTweetConversion(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/2/profile/artist/media") {
@@ -1093,16 +1143,22 @@ func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
 		t.Errorf("got %d tweets, want 5", len(tweets))
 	}
 
-	// 2. Verify loop guard breaks on cyclic cursors (A -> B -> A breaks on 3rd request instead of 5)
+	// 2. Verify the seenCursors guard breaks a multi-step cursor cycle: the
+	// chain B -> A -> B revisits cur_B from page 1, which is neither an empty
+	// cursor nor an immediate self-repeat, so only seenCursors can stop it
+	// (without that guard the loop would run to the 5-page budget).
 	reqCount2 := 0
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqCount2++
 		w.Header().Set("Content-Type", "application/json")
 		nextCursor := "cur_A"
-		if reqCount2 == 1 {
+		switch reqCount2 {
+		case 1:
 			nextCursor = "cur_B"
-		} else if reqCount2 == 2 {
+		case 2:
 			nextCursor = "cur_A"
+		case 3:
+			nextCursor = "cur_B"
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"code": 200,
@@ -1115,12 +1171,18 @@ func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
 	defer srv2.Close()
 
 	client2 := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv2.URL), fxtwitter.WithHTTPClient(srv2.Client()))
-	_, _, err = client2.FetchUserTimeline(ctx, "user", 100, "", 5, false, false)
+	tweets2, cur2, err := client2.FetchUserTimeline(ctx, "user", 100, "", 5, false, false)
 	if err != nil {
 		t.Fatalf("FetchUserTimeline failed: %v", err)
 	}
 	if reqCount2 != 3 {
 		t.Errorf("reqCount2 = %d, want loop to stop after cyclic cursor (3 requests, not 5)", reqCount2)
+	}
+	if len(tweets2) != 3 {
+		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets2))
+	}
+	if cur2 != "" {
+		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur2)
 	}
 
 	// 3. Verify unbounded pagination (maxPages < 0) is not clamped by default 5 pages
