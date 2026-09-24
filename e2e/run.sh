@@ -111,6 +111,11 @@ esac
 check "user --help exits 0" 0 'Usage' -- ./nitter user --help
 check "watch without sources exits 2" 2 '' -- ./nitter watch --once --ndjson
 check "watch --json without --once exits 2" 2 '' -- ./nitter watch user:e2e --json
+# The caps have no "unlimited" value: 0 and negatives are usage errors, and the
+# rejection must happen before any network (no fixture is set up here).
+check "user --limit 0 exits 2" 2 'must be >= 1' -- ./nitter user e2e --limit 0
+check "user --max-pages 0 exits 2" 2 'must be >= 1' -- ./nitter user e2e --max-pages 0
+check "watch --max-pages 0 exits 2" 2 'must be >= 1' -- ./nitter watch user:e2e --once --max-pages 0
 check "seen list on empty store" 0 '\(empty\)' -- ./nitter seen list
 check "seen clear without --confirm exits 2" 2 '' -- ./nitter seen clear
 

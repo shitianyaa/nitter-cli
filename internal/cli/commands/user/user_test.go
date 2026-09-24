@@ -13,12 +13,13 @@ import (
 	"testing"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
+	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
 )
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast. Negative values are documented opt-outs in httpx; hand-edited
 // config.toml is the user's power tool.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -33,6 +34,18 @@ func tempHome(t *testing.T) string {
 	} {
 		t.Setenv(key, "")
 	}
+	// fetch_backend has only mix and fx now, and these tests exercise the
+	// instance path: point the Fx fast lane at a stub that answers 404 so mix
+	// fails over to the configured fake instance (and a fixture with no
+	// instances still reaches the chooser's "no instances configured" error).
+	// Without this the fast lane would reach the real network.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(stub.Close)
+	prevFxBase := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = stub.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = prevFxBase })
 	return home
 }
 
@@ -253,13 +266,17 @@ func TestUserLimitDefaultsFromConfig(t *testing.T) {
 		t.Fatalf("got %d rows, want 1 (config default_limit):\n%s", n, out)
 	}
 
-	// An explicit --limit 0 overrides the config default: all tweets.
-	code, out, _ = runCLI(t, "user", "NASA", "--limit", "0")
+	// An explicit --limit overrides the config default. 100 exceeds the three
+	// tweets the fixture serves, so the whole timeline comes back; there is no
+	// "unlimited" spelling any more, so a cap is always stated. Pinned to the
+	// instance path because the assertion is about the RSS/HTML pagination
+	// chain rather than the Fx fast lane.
+	code, out, _ = runCLI(t, "--instance", fake.addr, "user", "NASA", "--limit", "100")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	if n := strings.Count(out, "\n"); n != 3 {
-		t.Fatalf("got %d rows, want 3 (--limit 0 = all):\n%s", n, out)
+		t.Fatalf("got %d rows, want 3 (the whole fixture timeline):\n%s", n, out)
 	}
 }
 
@@ -333,7 +350,7 @@ func TestUserBothFailExitsOneWithClassifiedError(t *testing.T) {
 	}
 }
 
-func TestUserLimitZeroBoundedByMaxPages(t *testing.T) {
+func TestUserLargeLimitBoundedByMaxPages(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/NASA/rss":       {500, "boom"},
@@ -344,9 +361,10 @@ func TestUserLimitZeroBoundedByMaxPages(t *testing.T) {
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
-	// --limit 0 = all; the cursor chain never ends, so MaxPages is the only
-	// stop signal: exactly 2 HTML pages may be fetched.
-	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "0", "--max-pages", "2")
+	// A limit larger than the four tweets the chain serves, so MaxPages is the
+	// only stop signal: exactly 2 HTML pages may be fetched. Pinned to the
+	// instance path — the assertion is about the RSS/HTML paging chain.
+	code, out, errOut := runCLI(t, "--instance", fake.addr, "user", "NASA", "--limit", "100", "--max-pages", "2")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
@@ -364,12 +382,12 @@ func TestUserLimitZeroBoundedByMaxPages(t *testing.T) {
 	}
 }
 
-// TestUserMaxPagesZeroIsUnbounded: an explicit --max-pages 0 lifts the page
-// cap — the HTML fallback follows the cursor chain until upstream exhaustion
-// (the last page carries no cursor). The chain is 7 pages, longer than the
-// built-in default of 5, so the two contracts are distinguishable. The
-// omitted flag still applies the config's max_pages.
-func TestUserMaxPagesZeroIsUnbounded(t *testing.T) {
+// TestUserRejectsNonPositiveCaps: both flags are caps, so 0 and negatives are
+// usage errors. 0 used to mean "all" for --limit and "lift the page cap" for
+// --max-pages; the two fetch lanes read it in opposite ways, so the spelling is
+// gone and the rejection happens before any network. The omitted flags still
+// resolve from the config.
+func TestUserRejectsNonPositiveCaps(t *testing.T) {
 	answers := map[string]answer{
 		"/NASA/rss":       {500, "boom"},
 		"/NASA":           {200, htmlPage([]string{"201"}, "c1")},
@@ -384,33 +402,33 @@ func TestUserMaxPagesZeroIsUnbounded(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, answers)
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
-	code, out, errOut := runCLI(t, "user", "NASA", "--limit", "0", "--max-pages", "0")
-	if code != 0 {
-		t.Fatalf("--max-pages 0: exit = %d, want 0 (stderr %q)", code, errOut)
-	}
-	if n := strings.Count(out, "\n"); n != 7 {
-		t.Errorf("--max-pages 0: got %d rows, want 7 (the whole chain):\n%s", n, out)
-	}
-	htmlFetches := 0
-	for _, r := range fake.rec.requests() {
-		if r == "/NASA" || strings.HasPrefix(r, "/NASA?cursor=") {
-			htmlFetches++
+
+	for _, flag := range []string{"--limit=0", "--limit=-1", "--max-pages=0", "--max-pages=-1"} {
+		code, out, errOut := runCLI(t, "--instance", fake.addr, "user", "NASA", flag)
+		if code != 2 {
+			t.Errorf("%s: exit = %d, want 2 (stderr %q)", flag, code, errOut)
+		}
+		if !strings.Contains(errOut, "must be >= 1") {
+			t.Errorf("%s: stderr = %q, want it to state the >= 1 floor", flag, errOut)
+		}
+		if out != "" {
+			t.Errorf("%s: stdout = %q, want nothing", flag, out)
 		}
 	}
-	if htmlFetches != 7 {
-		t.Errorf("--max-pages 0: html fetches = %d, want 7 (unbounded until the cursor ends)", htmlFetches)
+	if got := fake.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none: the rejection must precede any network", got)
 	}
 
-	// Omitted flag: the config's max_pages still caps (2 of the 7 pages).
+	// Omitted flags: the config's max_pages still caps (2 of the 7 pages).
 	home2 := tempHome(t)
 	fake2 := newFake(t, answers)
 	writeConfig(t, home2, fastTOML+"max_pages = 2\n[[instances]]\nurl = \""+fake2.addr+"\"\n")
-	code, out, errOut = runCLI(t, "user", "NASA", "--limit", "0")
+	code, out, errOut := runCLI(t, "--instance", fake2.addr, "user", "NASA")
 	if code != 0 {
-		t.Fatalf("omitted flag: exit = %d, want 0 (stderr %q)", code, errOut)
+		t.Fatalf("omitted flags: exit = %d, want 0 (stderr %q)", code, errOut)
 	}
 	if n := strings.Count(out, "\n"); n != 2 {
-		t.Errorf("omitted flag: got %d rows, want 2 (config max_pages cap):\n%s", n, out)
+		t.Errorf("omitted flags: got %d rows, want 2 (config max_pages cap):\n%s", n, out)
 	}
 }
 

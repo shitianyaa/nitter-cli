@@ -62,10 +62,14 @@ func TestQuotesValidation(t *testing.T) {
 		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
 	}
 
-	// Negative limit -> exit 2
+	// Non-positive limit -> exit 2 (0 was the "all" spelling and is gone)
 	code, _, errOut = runCLI(t, "quotes", "12345", "--limit=-1")
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	code, _, errOut = runCLI(t, "quotes", "12345", "--limit=0")
+	if code != 2 {
+		t.Fatalf("--limit=0: exit = %d, want 2 (stderr %q)", code, errOut)
 	}
 
 	// --json and --ndjson together -> exit 2
@@ -211,5 +215,69 @@ func TestQuotesEmpty(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "(empty)") {
 		t.Errorf("errOut = %q, want (empty)", errOut.String())
+	}
+}
+
+// The pair below is the user-visible half of the 404 fix: the quotes endpoint
+// answers 404 both for "this tweet has no quotes" and for an upstream failure
+// (verified live 2026-09-24), so the command must tell the two apart instead of
+// printing an empty list for both.
+
+// emptyQuotesBody is the verbatim body FxTwitter returns with those 404s.
+const emptyQuotesBody = `{"code":404,"results":[],"cursor":{"top":null,"bottom":null}}`
+
+func quotesServer(t *testing.T, quoteCount int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/2/status/12345/quotes":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(emptyQuotesBody))
+		case "/2/status/12345":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":   200,
+				"status": map[string]any{"id": "12345", "quotes": quoteCount},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestQuotesNotFoundWithZeroQuotesIsEmpty(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+	srv := quotesServer(t, 0)
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	code, out, errOut := runCLI(t, "quotes", "12345", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — the tweet really has no quotes; stderr = %q", code, errOut)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("stdout = %q, want []", out)
+	}
+}
+
+func TestQuotesNotFoundWithQuotesExitsOne(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+	srv := quotesServer(t, 3)
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	code, out, errOut := runCLI(t, "quotes", "12345", "--json")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 — the tweet has 3 quotes, so an empty success would be a lie; stderr = %q", code, errOut)
+	}
+	if !strings.Contains(errOut, "not_found") {
+		t.Errorf("stderr = %q, want the classified not_found kind", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing on the failure path", out)
 	}
 }

@@ -38,7 +38,7 @@ func New(s *invocation.Streams) *cobra.Command {
   <ID>  <YYYY-MM-DD HH:MM>  @<handle>  <text>
     <ID>  <YYYY-MM-DD HH:MM>  @<handle>  <reply_text>
 
---limit caps the number of replies to fetch (default: 20, 0 = all).
+--limit caps the number of replies to fetch (default: 20; must be >= 1).
 --sort specifies reply ordering ("likes" or "recency", default: "likes").
 --json prints the full sdk.Conversation object.
 --ndjson prints one nitter.pipeline/v1 envelope per reply (kind tweet).
@@ -53,7 +53,7 @@ func New(s *invocation.Streams) *cobra.Command {
 			return run(cmd, s, args[0], limitFlag, sortFlag, asJSON, asNDJSON)
 		},
 	}
-	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum replies to fetch (default: 20, 0 = all)")
+	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum replies to fetch")
 	cmd.Flags().StringVar(&sortFlag, "sort", "likes", "Sort replies by \"likes\" or \"recency\" (default: likes)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print sdk.Conversation JSON object")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false, "Print one nitter.pipeline/v1 envelope per reply (kind tweet)")
@@ -65,8 +65,8 @@ func run(cmd *cobra.Command, s *invocation.Streams, ref string, limitFlag int, s
 	if err != nil {
 		return err
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("comments: --limit must be >= 0")
+	if limitFlag < 1 {
+		return invocation.Usagef("comments: --limit must be >= 1 (there is no unlimited value)")
 	}
 	if sortFlag != "likes" && sortFlag != "recency" {
 		return invocation.Usagef("comments: invalid sort %q (allowed: likes, recency)", sortFlag)

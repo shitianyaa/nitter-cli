@@ -151,7 +151,7 @@ func TestLoad(t *testing.T) {
 
 	t.Run("env overrides win over file", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
-		const fixture = "default_limit = 7\nlog_level = \"debug\"\nfetch_backend = \"nitter\"\n"
+		const fixture = "default_limit = 7\nlog_level = \"debug\"\nfetch_backend = \"mix\"\n"
 		if err := os.WriteFile(cfgPath, []byte(fixture), 0o600); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
@@ -317,6 +317,28 @@ func TestLoadValidationError(t *testing.T) {
 		}
 	})
 
+	t.Run("the removed nitter mode is rejected with a migration hint", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(cfgPath, []byte("fetch_backend = \"nitter\"\n"), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		_, err := settings.Load(cfgPath, envMap(nil))
+		var verr *settings.ValidationError
+		if !errors.As(err, &verr) {
+			t.Fatalf("Load() error = %v, want *settings.ValidationError", err)
+		}
+		if verr.Key != "fetch_backend" {
+			t.Fatalf("ValidationError.Key = %q, want %q", verr.Key, "fetch_backend")
+		}
+		// Assert the nitter-specific arm, not just "mix": the generic
+		// rejection (allowed: mix, fx) also contains "mix", so a weaker
+		// assertion would still pass with the migration arm deleted.
+		if !strings.Contains(verr.Error(), "nitter-only mode was removed") {
+			t.Errorf("error = %q, want the nitter-specific migration hint", verr.Error())
+		}
+	})
+
 	t.Run("invalid NITTER_FETCH_BACKEND env value carries the key", func(t *testing.T) {
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
 
@@ -389,6 +411,34 @@ func TestDefaultConfigTOML(t *testing.T) {
 		}
 		if !strings.Contains(settings.DefaultConfigTOML, `directory_template = ""`) {
 			t.Fatalf("baseline must carry the empty directory_template default (flat):\n%s", settings.DefaultConfigTOML)
+		}
+	})
+
+	// The baseline is what every fresh install reads, so the value set its
+	// comment advertises must be exactly the set ValidateFetchBackend accepts:
+	// a stale `# mix|nitter|fx` would send users to a value that now exits 2.
+	t.Run("fetch_backend comment advertises exactly the accepted values", func(t *testing.T) {
+		var advertised []string
+		for _, line := range strings.Split(settings.DefaultConfigTOML, "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(line), "fetch_backend") {
+				continue
+			}
+			_, comment, ok := strings.Cut(line, "#")
+			if !ok {
+				t.Fatalf("baseline fetch_backend line carries no value comment: %q", line)
+			}
+			advertised = strings.Split(strings.TrimSpace(comment), "|")
+		}
+		if len(advertised) == 0 {
+			t.Fatalf("baseline carries no fetch_backend line:\n%s", settings.DefaultConfigTOML)
+		}
+		for _, v := range advertised {
+			if err := settings.ValidateFetchBackend("fetch_backend", v); err != nil {
+				t.Errorf("baseline advertises fetch_backend %q, which ValidateFetchBackend rejects: %v", v, err)
+			}
+		}
+		if want := []string{"mix", "fx"}; !reflect.DeepEqual(advertised, want) {
+			t.Errorf("baseline advertises %v, want %v", advertised, want)
 		}
 	})
 }

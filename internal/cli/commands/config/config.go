@@ -240,15 +240,26 @@ func valueInput(s *invocation.Streams, key string, args []string) (string, error
 
 // validateAndCoerce checks raw against the key's schema and returns the typed
 // value to store (int for integer keys, string otherwise). It runs before any
-// file read/write so a rejected value never touches the disk. Integer and
-// duration keys accept 0 (its semantics are defined downstream) and reject
-// negatives; log_level/log_format are enums; proxy, download_path and the two
-// download naming templates accept any string (download_path is checked at
-// download runtime with a mkdir -p; an invalid template is a download-time
-// warning plus fallback to the default, never a set-time rejection).
+// file read/write so a rejected value never touches the disk. The two
+// acquisition caps (default_limit, max_pages) must be >= 1 — 0 is not a
+// spelling for "unlimited"; retry_attempts accepts 0 (no retries) and rejects
+// negatives; durations reject negatives; log_level/log_format are enums; proxy,
+// download_path and the two download naming templates accept any string
+// (download_path is checked at download runtime with a mkdir -p; an invalid
+// template is a download-time warning plus fallback to the default, never a
+// set-time rejection).
 func validateAndCoerce(key, raw string) (any, error) {
 	switch key {
-	case "default_limit", "max_pages", "retry_attempts":
+	case "default_limit", "max_pages":
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, invocation.Usagef("config set %s: %q is not an integer", key, raw)
+		}
+		if n < 1 {
+			return nil, invocation.Usagef("config set %s: %d is not a valid cap; must be >= 1 (there is no unlimited value)", key, n)
+		}
+		return n, nil
+	case "retry_attempts":
 		n, err := strconv.Atoi(raw)
 		if err != nil {
 			return nil, invocation.Usagef("config set %s: %q is not an integer", key, raw)
@@ -277,8 +288,8 @@ func validateAndCoerce(key, raw string) (any, error) {
 		}
 		return raw, nil
 	case "fetch_backend":
-		if raw != "mix" && raw != "nitter" && raw != "fx" {
-			return nil, invocation.Usagef("config set fetch_backend: %q is invalid; must be mix, nitter or fx", raw)
+		if err := settings.ValidateFetchBackend("fetch_backend", raw); err != nil {
+			return nil, invocation.Usagef("config set fetch_backend: %v", err)
 		}
 		return raw, nil
 	default: // "proxy", "download_path" — any string is accepted

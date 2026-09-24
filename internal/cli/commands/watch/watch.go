@@ -8,8 +8,8 @@
 // never imports internal/nitter/*.
 //
 // Fetch boundary (ruling R18, plan deviation, ledgered): each cycle fetches
-// with the standard bounded acquisition (MaxPages budget, Limit 0 = all) and
-// Select dedups. For user sources the RSS Min-Id scan stops early once a page
+// with the standard bounded acquisition (MaxPages budget, allTweetsSentinel as
+// the limit) and Select dedups. For user sources the RSS Min-Id scan stops early once a page
 // adds nothing the source has not already seen (rssStop), so a caught-up
 // source costs one request instead of the whole page budget; tag/list sources
 // keep the plain bounded fetch. Correctness is identical (no duplicates, no
@@ -163,6 +163,7 @@ HTML parse path, so --no-reposts acts on HTML-sourced tweets.`,
 				maxNew:          maxNewFlag,
 				maxNewOverflow:  maxNewOverflowFlag,
 				maxPages:        maxPagesFlag,
+				maxPagesSet:     cmd.Flags().Changed("max-pages"),
 				stateDir:        stateDirFlag,
 				asJSON:          asJSON,
 				asNDJSON:        asNDJSON,
@@ -205,6 +206,7 @@ type options struct {
 	maxNew          int
 	maxNewOverflow  string
 	maxPages        int
+	maxPagesSet     bool
 	stateDir        string
 	asJSON          bool
 	asNDJSON        bool
@@ -287,8 +289,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts options)
 	if opts.maxNewOverflow != overflowDrop && opts.maxNewOverflow != overflowKeep {
 		return invocation.Usagef("watch: --max-new-overflow must be %q or %q, got %q", overflowDrop, overflowKeep, opts.maxNewOverflow)
 	}
-	if opts.maxPages < 0 {
-		return invocation.Usagef("watch: --max-pages must be >= 0")
+	// The flag's zero value means "not given" (the config's max_pages applies),
+	// so only an explicitly typed value can be a usage error. 0 is not a
+	// spelling for "unbounded" any more.
+	if opts.maxPagesSet && opts.maxPages < 1 {
+		return invocation.Usagef("watch: --max-pages must be >= 1 (there is no unlimited value)")
 	}
 	if err := opts.filters.Validate(); err != nil {
 		return invocation.Usagef("watch: %v", err)
@@ -677,6 +682,10 @@ func mergedStop(store *seen.Store, batch []string, byHandle map[string]watchengi
 // mix tries fx first again).
 func prefetchMerged(ctx context.Context, w *client.Wiring, store *seen.Store, sources []watchengine.Source, noReposts bool, maxPages int) map[string]mergedPrefetch {
 	out := make(map[string]mergedPrefetch)
+	// Reading FetchBackend raw is equivalent to the wiring's effectiveBackend():
+	// Build validates the value before a Wiring reaches a command, so the only
+	// reachable values are "", "mix", "fx" and "nitter", and none of the
+	// non-fx ones may merge here.
 	if !noReposts || w.FetchBackend == "fx" {
 		return out
 	}

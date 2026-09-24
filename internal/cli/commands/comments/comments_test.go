@@ -63,6 +63,7 @@ func TestComments_ArgsValidation(t *testing.T) {
 		{"too many args", []string{"comments", "123", "456"}},
 		{"invalid status ref", []string{"comments", "invalid_ref_shape"}},
 		{"negative limit", []string{"comments", "123456789", "--limit", "-1"}},
+		{"zero limit", []string{"comments", "123456789", "--limit", "0"}},
 		{"invalid sort", []string{"comments", "123456789", "--sort", "alphabetical"}},
 		{"both json and ndjson", []string{"comments", "123456789", "--json", "--ndjson"}},
 	}

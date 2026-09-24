@@ -304,8 +304,8 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if limitFlag < 0 {
-				return invocation.Usagef("circle run: --limit must be >= 0")
+			if limitFlag < 1 {
+				return invocation.Usagef("circle run: --limit must be >= 1 (there is no unlimited value)")
 			}
 			// --media-type validation precedes any network (exit 2), the same
 			// placement as the user command's filter validation.
@@ -438,7 +438,7 @@ func newRunCmd(s *invocation.Streams) *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum tweets to fetch per user (default: 20, 0 = all)")
+	cmd.Flags().IntVar(&limitFlag, "limit", 20, "Maximum tweets to fetch per user")
 	cmd.Flags().BoolVar(&mediaOnlyFlag, "media-only", false,
 		"Fetch only tweets with media attachments (uses the Fx media endpoint; snapshot semantics: every run re-fetches each member's latest tweets from scratch, no incremental state — use watch for incremental tracking)")
 	cmd.Flags().StringVar(&mediaTypeFlag, "media-type", "",

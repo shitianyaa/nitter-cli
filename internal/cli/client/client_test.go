@@ -28,6 +28,10 @@ import (
 
 // validCfg returns Settings with valid duration strings (as settings.Load
 // would produce). Build is deliberately strict about unvalidated settings.
+// FetchBackend is the internal instance-only mode: config files can no longer
+// set "nitter" (only mix and fx are accepted there), but Build still takes it,
+// because that is what --instance selects for one invocation. These are unit
+// tests of the dispatcher, so they exercise it directly.
 func validCfg() settings.Settings {
 	return settings.Settings{RetryDelay: "1s", RequestInterval: "1s", InstanceCooldown: "1s", FetchBackend: "nitter"}
 }
@@ -573,11 +577,13 @@ func TestHybridTimelineAndSearchDispatch(t *testing.T) {
 		}
 	})
 
-	t.Run("nitter mode ignores Fx", func(t *testing.T) {
+	// --instance is the only way to reach the instance path now (fetch_backend
+	// has just mix and fx), and it must keep Fx out of the way entirely.
+	t.Run("instance pinning ignores Fx", func(t *testing.T) {
 		cfg := fastCfg()
-		cfg.FetchBackend = "nitter"
+		cfg.FetchBackend = "mix"
 		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
-		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		w, err := client.Build(&invocation.RootOptions{Instance: nitterSrv.URL}, cfg, time.Now)
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -589,6 +595,25 @@ func TestHybridTimelineAndSearchDispatch(t *testing.T) {
 			t.Errorf("got inst=%q, want nitter instance %q", inst, nitterSrv.URL)
 		}
 		_ = tweets
+	})
+
+	// The documented precedence: --instance selects the instance path even when
+	// the config explicitly asks for the fx-only lane.
+	t.Run("instance pinning overrides an explicit fx backend", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "fx"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{Instance: nitterSrv.URL}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		_, inst, err := w.Timeline().Timeline(context.Background(), "user", 5, 5)
+		if err != nil {
+			t.Fatalf("Timeline: %v", err)
+		}
+		if inst != nitterSrv.URL {
+			t.Errorf("got inst=%q, want the pinned instance %q — --instance must outrank fetch_backend=fx", inst, nitterSrv.URL)
+		}
 	})
 
 	t.Run("following and conversation sources wire through Fx", func(t *testing.T) {
@@ -725,11 +750,34 @@ func TestStatusDispatchAndCapabilityWiring(t *testing.T) {
 		}
 	})
 
-	t.Run("Status nitter mode ignores Fx", func(t *testing.T) {
+	t.Run("Status fx mode does not fall back to Nitter", func(t *testing.T) {
 		cfg := fastCfg()
-		cfg.FetchBackend = "nitter"
-		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		cfg.FetchBackend = "fx"
+		cfg.Instances = nil // fx is the only permitted source
 		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		// status 999 404s on Fx: its error must surface rather than being
+		// replaced by the chooser's "no instances configured".
+		_, _, err = w.Status().Status(context.Background(), "999")
+		if err == nil {
+			t.Fatal("expected the Fx error, got nil")
+		}
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindNotFound {
+			t.Errorf("want KindNotFound, got %v", err)
+		}
+		if strings.Contains(err.Error(), "no instances configured") {
+			t.Errorf("the Nitter fallback masked the real cause: %v", err)
+		}
+	})
+
+	t.Run("Status instance pinning ignores Fx", func(t *testing.T) {
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{Instance: nitterSrv.URL}, cfg, time.Now)
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}

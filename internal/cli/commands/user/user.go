@@ -60,12 +60,11 @@ user page is fetched instead, following its load-more cursor across pages.
 Instances are tried in config order; an instance whose whole fetch fails
 cools down while the next one is tried.
 
---limit caps the number of tweets (0 = all); without the flag the config's
-default_limit applies. --max-pages caps HTML pagination; an explicit
---max-pages 0 removes the cap — the HTML fallback follows the load-more
-cursor chain until upstream exhaustion (the RSS feed is single-page, so
-the cap never applies to it). Without the flag the config's max_pages
-(default 5) applies.
+--limit caps the number of tweets; without the flag the config's default_limit
+applies. --max-pages caps HTML pagination; without the flag the config's
+max_pages (default 5) applies. Both are caps and must be >= 1 when given:
+there is no "unlimited" value, so ask for a bound instead. (The RSS feed is
+single-page, so the page cap never applies to it.)
 
 --json prints a machine-readable document: one JSON object for a single
 tweet, an array otherwise (an empty timeline prints []). --ndjson instead
@@ -84,9 +83,9 @@ and the (empty) hint on stderr in the default modes.`,
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
-		"Maximum tweets to fetch, 0 for all (default: config default_limit)")
+		"Maximum tweets to fetch (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
-		"Maximum HTML pages when falling back (default: config max_pages; built-in default 5; 0 = unbounded until upstream exhaustion)")
+		"Maximum HTML pages when falling back (default: config max_pages; built-in default 5)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
@@ -102,10 +101,11 @@ and the (empty) hint on stderr in the default modes.`,
 	return cmd
 }
 
-// run executes one user fetch. Flag/config resolution order: an explicit
-// flag wins over the config value; a negative flag is a usage error while a
-// negative config value keeps its documented "0 semantics = all" pixiv
-// heritage (appapi treats limit <= 0 as unbounded).
+// run executes one user fetch. Flag/config resolution order: an explicit flag
+// wins over the config value. Both values are caps: a flag below 1 is a usage
+// error and a config below 1 is rejected at load, so the acquisition layer
+// never receives a non-positive limit or page budget. The flag defaults stay 0
+// ("not given"), which is why the checks are gated on Changed.
 func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, maxPagesFlag int, asJSON, asNDJSON, withReplies bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
@@ -114,11 +114,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, ma
 	if !handleRe.MatchString(handle) {
 		return invocation.Usagef("user: %q is not a valid handle (1-15 letters, digits or underscores, without the @)", handle)
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("user: --limit must be >= 0 (0 means all)")
+	if cmd.Flags().Changed("limit") && limitFlag < 1 {
+		return invocation.Usagef("user: --limit must be >= 1 (there is no unlimited value)")
 	}
-	if maxPagesFlag < 0 {
-		return invocation.Usagef("user: --max-pages must be >= 0")
+	if cmd.Flags().Changed("max-pages") && maxPagesFlag < 1 {
+		return invocation.Usagef("user: --max-pages must be >= 1 (there is no unlimited value)")
 	}
 	if err := filters.Validate(); err != nil {
 		return invocation.Usagef("user: %v", err)
@@ -136,12 +136,6 @@ func run(cmd *cobra.Command, s *invocation.Streams, handle string, limitFlag, ma
 	}
 	if cmd.Flags().Changed("max-pages") {
 		maxPages = maxPagesFlag
-		if maxPagesFlag == 0 {
-			// The explicit flag 0 is the unbounded contract (the omitted
-			// flag keeps the config/default cap): pass the acquisition
-			// layer's sentinel.
-			maxPages = client.UnboundedMaxPages
-		}
 	}
 
 	w, err := client.Build(s.RootOptions, cfg, time.Now)

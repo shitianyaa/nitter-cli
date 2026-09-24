@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -640,16 +641,25 @@ func TestEmptyInputsValidation(t *testing.T) {
 	client := fxtwitter.NewClient()
 	ctx := context.Background()
 
-	// Empty handle in timeline returns empty without error
+	// Empty handle in timeline returns KindInvalidArg (same contract as the
+	// profile/following entry points), never a silent empty success.
 	tw, cur, err := client.FetchUserTimeline(ctx, "", 10, "", 1, false, false)
-	if err != nil || len(tw) != 0 || cur != "" {
-		t.Errorf("expected empty return on empty handle, got tw=%v cur=%q err=%v", tw, cur, err)
+	var terr *sdk.Error
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for empty timeline handle, got tw=%v cur=%q err=%v", tw, cur, err)
 	}
 
-	// Zero count in timeline returns empty without error
+	// Zero count in timeline is a caller bug, not "none": the CLI has no
+	// unlimited value and always resolves a positive cap before calling.
 	tw, cur, err = client.FetchUserTimeline(ctx, "user", 0, "", 1, false, false)
-	if err != nil || len(tw) != 0 || cur != "" {
-		t.Errorf("expected empty return on zero count, got tw=%v cur=%q err=%v", tw, cur, err)
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for zero timeline count, got tw=%v cur=%q err=%v", tw, cur, err)
+	}
+
+	// Same contract on the media entry point.
+	tw, cur, err = client.FetchUserMedia(ctx, "user", 0, "", 1)
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for zero media count, got tw=%v cur=%q err=%v", tw, cur, err)
 	}
 
 	// Empty query in search returns empty without error
@@ -663,7 +673,6 @@ func TestEmptyInputsValidation(t *testing.T) {
 	if err == nil {
 		t.Error("expected error on empty profile handle, got nil")
 	}
-	var terr *sdk.Error
 	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
 		t.Errorf("expected KindInvalidArg for empty profile handle, got %v", err)
 	}
@@ -992,5 +1001,330 @@ func TestRealFxTwitterTweetCountKeys(t *testing.T) {
 	}
 	if following[0].TweetsCount != 8455 {
 		t.Errorf("following[0].TweetsCount = %d, want 8455 (from the \"statuses\" key)", following[0].TweetsCount)
+	}
+}
+
+// The three tests below pin the 404 contract of the two endpoints that used to
+// flatten it into an empty success. Both share one upstream SearchTimeline
+// query and answer 404 ~85% of the time (verified live 2026-09-24), so a 404
+// must never be reported as "no results" — CONTRIBUTING.md forbids hiding a
+// real failure behind an empty success.
+
+// emptySearchBody is the verbatim body FxTwitter returns with those 404s.
+const emptySearchBody = `{"code":404,"results":[],"cursor":{"top":null,"bottom":null}}`
+
+func TestFetchQuotesNotFoundWithZeroQuotesIsEmpty(t *testing.T) {
+	var mu sync.Mutex
+	var requested []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requested = append(requested, r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/2/status/777/quotes":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(emptySearchBody))
+		case "/2/status/777":
+			// The tweet's own payload reports no quotes, so the 404 was the
+			// endpoint's "nothing to list" answer after all.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":   200,
+				"status": map[string]any{"id": "777", "quotes": 0},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, cursor, err := client.FetchQuotes(context.Background(), "777", 20, "")
+	if err != nil {
+		t.Fatalf("a zero quote count must stay an empty success, got %v", err)
+	}
+	if len(tweets) != 0 || cursor != "" {
+		t.Errorf("tweets = %d, cursor = %q; want empty", len(tweets), cursor)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	checked := false
+	for _, p := range requested {
+		if p == "/2/status/777" {
+			checked = true
+		}
+	}
+	if !checked {
+		t.Errorf("the status cross-check was never requested; paths = %v", requested)
+	}
+}
+
+func TestFetchQuotesNotFoundWithPositiveQuoteCountIsNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/2/status/888/quotes":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(emptySearchBody))
+		case "/2/status/888":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":   200,
+				"status": map[string]any{"id": "888", "quotes": 47},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, _, err := client.FetchQuotes(context.Background(), "888", 20, "")
+	if err == nil {
+		t.Fatalf("a tweet with 47 quotes must not report an empty success; got %d tweets", len(tweets))
+	}
+	if !fxtwitter.IsNotFound(err) {
+		t.Errorf("want KindNotFound, got %v", err)
+	}
+}
+
+// quotesOnlyTransport fails every request except the /quotes route, so the
+// 404 cross-check can be starved at the transport level while the quotes call
+// itself still reaches the server.
+type quotesOnlyTransport struct{ inner http.RoundTripper }
+
+func (t quotesOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !strings.HasSuffix(r.URL.Path, "/quotes") {
+		return nil, errors.New("dial tcp 203.0.113.7:443: connect: connection refused")
+	}
+	return t.inner.RoundTrip(r)
+}
+
+func TestFetchQuotesNotFoundWhenCountUnreadableIsNotFound(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		// transportErr fails the cross-check request before any HTTP exchange,
+		// so the count is unreadable for a transport reason rather than a
+		// payload shape.
+		transportErr bool
+	}{
+		{"status route itself 404s", http.StatusNotFound, emptySearchBody, false},
+		{"payload carries no quotes key", http.StatusOK, `{"code":200,"status":{"id":"890"}}`, false},
+		{"quotes is an array, not a count", http.StatusOK, `{"code":200,"quotes":[]}`, false},
+		{"quotes is null", http.StatusOK, `{"code":200,"status":{"id":"892","quotes":null}}`, false},
+		{"quotes is a string, not a count", http.StatusOK, `{"code":200,"status":{"id":"893","quotes":"47"}}`, false},
+		{"quotes is fractional", http.StatusOK, `{"code":200,"status":{"id":"894","quotes":47.5}}`, false},
+		{"cross-check fails at the transport level", http.StatusOK, `{"code":200,"status":{"id":"895","quotes":47}}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/2/status/890/quotes":
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(emptySearchBody))
+				case "/2/status/890":
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			httpClient := srv.Client()
+			if tc.transportErr {
+				httpClient = &http.Client{Transport: quotesOnlyTransport{inner: srv.Client().Transport}}
+			}
+			client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(httpClient))
+			_, _, err := client.FetchQuotes(context.Background(), "890", 20, "")
+			if err == nil {
+				t.Fatal("an unreadable count must keep the failure, never become an empty success")
+			}
+			if !fxtwitter.IsNotFound(err) {
+				t.Errorf("want KindNotFound, got %v", err)
+			}
+			var terr *sdk.Error
+			if errors.As(err, &terr) && terr.Kind == sdk.KindMalformed {
+				t.Errorf("an unreadable quotes shape must not fail the decode: %v", err)
+			}
+		})
+	}
+}
+
+func TestFetchQuotesEmptyButOKStaysEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/status/999/quotes" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "results": []any{}})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, _, err := client.FetchQuotes(context.Background(), "999", 20, "")
+	if err != nil {
+		t.Fatalf("a 200 with no quotes is a legitimate empty result, got %v", err)
+	}
+	if len(tweets) != 0 {
+		t.Errorf("tweets = %d, want 0", len(tweets))
+	}
+}
+
+func TestSearchUsersNotFoundIsReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/search/users" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(emptySearchBody))
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	users, err := client.SearchUsers(context.Background(), "NASA", 10)
+	if err == nil {
+		t.Fatalf("a 404 must not report an empty success; got %d users", len(users))
+	}
+	if !fxtwitter.IsNotFound(err) {
+		t.Errorf("want KindNotFound, got %v", err)
+	}
+}
+
+func TestSearchUsersEmptyButOKStaysEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/search/users" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "users": []any{}})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	users, err := client.SearchUsers(context.Background(), "no-such-person-anywhere", 10)
+	if err != nil {
+		t.Fatalf("a query with no matches answers 200 + empty, so this is a success: %v", err)
+	}
+	if len(users) != 0 {
+		t.Errorf("users = %d, want 0", len(users))
+	}
+}
+
+// TestErrorsDoNotLeakQueryStringOrBody holds the sdk/errors.go redaction
+// contract on the FxTwitter lane: the caller's own search terms must not reach
+// the error text, and neither must the upstream body's message field.
+// TestErrorsDoNotLeakQueryStringOrBody covers the 404/body path only: doGet
+// already builds those messages from the route alone. The transport path is
+// the one that carries the URL in a *url.Error, and
+// TestTransportErrorDoesNotLeakRequestURL is the test that pins redactURLError
+// — this one still passes with the redaction removed.
+func TestErrorsDoNotLeakQueryStringOrBody(t *testing.T) {
+	const (
+		token   = "secret-query-token"
+		upstrip = "upstream detail that must not surface"
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/2/search", "/2/search/users", "/2/status/4242/quotes":
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 404, "message": upstrip, "results": []any{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	_, _, searchErr := client.SearchTweets(ctx, token, 10, "", "latest")
+	_, usersErr := client.SearchUsers(ctx, token, 10)
+	_, _, quotesErr := client.FetchQuotes(ctx, "4242", 10, "")
+	for name, err := range map[string]error{"search": searchErr, "users": usersErr, "quotes": quotesErr} {
+		if err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+		msg := err.Error()
+		for _, banned := range []string{token, "?q=", upstrip} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("%s error leaks %q: %s", name, banned, msg)
+			}
+		}
+	}
+}
+
+// urlErrTransport reproduces what net/http hands back on a transport failure: a
+// *url.Error whose message embeds the full request URL, query string included.
+type urlErrTransport struct{ cause error }
+
+func (t urlErrTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, &url.Error{Op: "Get", URL: r.URL.String(), Err: t.cause}
+}
+
+func TestTransportErrorDoesNotLeakRequestURL(t *testing.T) {
+	cause := errors.New("dial tcp 203.0.113.7:443: connect: connection refused")
+	client := fxtwitter.NewClient(
+		fxtwitter.WithBaseURL("http://fx.invalid"),
+		fxtwitter.WithHTTPClient(&http.Client{Transport: urlErrTransport{cause: cause}}),
+	)
+
+	_, _, err := client.SearchTweets(context.Background(), "secret-query-token", 10, "", "latest")
+	if err == nil {
+		t.Fatal("expected a transport error")
+	}
+	msg := err.Error()
+	for _, banned := range []string{"secret-query-token", "fx.invalid", "?q="} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("transport error leaks %q: %s", banned, msg)
+		}
+	}
+	var terr *sdk.Error
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindUnavailable {
+		t.Errorf("want KindUnavailable, got %v", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Errorf("the underlying cause must stay reachable through the chain: %v", err)
+	}
+}
+
+// selfRefTransport hands back a *url.Error whose Err points at itself — the
+// shape that would spin an unbounded unwrap loop forever.
+type selfRefTransport struct{ err *url.Error }
+
+func (t selfRefTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+// TestSelfReferentialURLErrorTerminates pins the unwrap cap: the redaction must
+// stay total and terminate, never print the URL, and never loop. Without the
+// cap this test does not fail — it hangs.
+func TestSelfReferentialURLErrorTerminates(t *testing.T) {
+	loop := &url.Error{Op: "Get", URL: "http://fx.invalid/2/search?q=secret-query-token"}
+	loop.Err = loop
+	client := fxtwitter.NewClient(
+		fxtwitter.WithBaseURL("http://fx.invalid"),
+		fxtwitter.WithHTTPClient(&http.Client{Transport: selfRefTransport{err: loop}}),
+	)
+
+	_, _, err := client.SearchTweets(context.Background(), "secret-query-token", 10, "", "latest")
+	if err == nil {
+		t.Fatal("expected a transport error")
+	}
+	msg := err.Error()
+	for _, banned := range []string{"secret-query-token", "fx.invalid", "?q="} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("self-referential error leaks %q: %s", banned, msg)
+		}
+	}
+	if !strings.Contains(msg, "transport failure") {
+		t.Errorf("error = %q, want the static redaction text once the unwrap cap is hit", msg)
 	}
 }

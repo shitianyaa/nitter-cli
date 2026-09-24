@@ -24,7 +24,7 @@ import (
 
 // fastTOML disables retries, backoff and pacing so fetches against httptest
 // stay fast.
-const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\nfetch_backend = \"nitter\"\n"
+const fastTOML = "retry_attempts = -1\nretry_delay = \"-1s\"\nrequest_interval = \"-1s\"\ninstance_cooldown = \"-1s\"\n"
 
 // tempHome redirects the home directory to a fresh temp dir and neutralizes
 // the settings and proxy env overrides.
@@ -39,6 +39,18 @@ func tempHome(t *testing.T) string {
 	} {
 		t.Setenv(key, "")
 	}
+	// fetch_backend has only mix and fx now, and these tests exercise the
+	// instance path: point the Fx fast lane at a stub that answers 404 so mix
+	// fails over to the configured fake instance (and a fixture with no
+	// instances still reaches the chooser's "no instances configured" error).
+	// Without this the fast lane would reach the real network.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(stub.Close)
+	prevFxBase := fxtwitter.EndpointOverrides.BaseURL
+	fxtwitter.EndpointOverrides.BaseURL = stub.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = prevFxBase })
 	return home
 }
 
@@ -227,7 +239,9 @@ func TestSearchPaginationBoundedByMaxPages(t *testing.T) {
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
-	code, out, errOut := runCLI(t, "search", "#artemis", "--limit", "0", "--max-pages", "2")
+	// A limit larger than the four tweets on offer, so --max-pages is what
+	// bounds the fetch (there is no "unlimited" limit any more).
+	code, out, errOut := runCLI(t, "search", "#artemis", "--limit", "100", "--max-pages", "2")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
@@ -473,14 +487,19 @@ func TestSearchExtraArgsAreUsageError(t *testing.T) {
 	}
 }
 
-func TestSearchNegativeLimitIsUsageError(t *testing.T) {
+func TestSearchNonPositiveCapsAreUsageErrors(t *testing.T) {
 	tempHome(t)
-	code, _, errOut := runCLI(t, "search", "moon", "--limit=-5")
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
-	}
-	if !strings.Contains(errOut, "--limit") {
-		t.Fatalf("stderr = %q, want it to name the flag", errOut)
+	for _, flag := range []string{"--limit=-5", "--limit=0", "--max-pages=0"} {
+		code, _, errOut := runCLI(t, "search", "moon", flag)
+		if code != 2 {
+			t.Fatalf("%s: exit = %d, want 2 (stderr %q)", flag, code, errOut)
+		}
+		if !strings.Contains(errOut, "must be >= 1") {
+			t.Fatalf("%s: stderr = %q, want it to state the >= 1 floor", flag, errOut)
+		}
+		if name, _, _ := strings.Cut(flag, "="); !strings.Contains(errOut, name) {
+			t.Fatalf("%s: stderr = %q, want it to name %s", flag, errOut, name)
+		}
 	}
 }
 
@@ -562,4 +581,57 @@ func TestSearchTypeUser(t *testing.T) {
 			t.Errorf("out = %q, want profile JSON", out)
 		}
 	})
+}
+
+// The pair below pins the --type user contract: a query with no matches answers
+// 200 + an empty user list, while a 404 is an upstream failure (verified live
+// 2026-09-24). The 404 used to be swallowed into an empty success.
+func searchUsersServer(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/2/search/users" {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSearchTypeUserNotFoundExitsOne(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+	srv := searchUsersServer(t, http.StatusNotFound, `{"code":404,"results":[],"cursor":{"top":null,"bottom":null}}`)
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	code, out, errOut := runCLI(t, "search", "NASA", "--type", "user", "--json")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 — a 404 is a failure, not an empty result; stderr = %q", code, errOut)
+	}
+	if !strings.Contains(errOut, "not_found") {
+		t.Errorf("stderr = %q, want the classified not_found kind", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing on the failure path", out)
+	}
+}
+
+func TestSearchTypeUserEmptyStaysEmpty(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+	srv := searchUsersServer(t, http.StatusOK, `{"code":200,"users":[]}`)
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	code, out, errOut := runCLI(t, "search", "no-such-person-anywhere", "--type", "user", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — no matches is a success; stderr = %q", code, errOut)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("stdout = %q, want []", out)
+	}
 }

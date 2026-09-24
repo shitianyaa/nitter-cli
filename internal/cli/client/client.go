@@ -41,14 +41,6 @@ const opBuild = "client.Build"
 // request pacing, retries and backoff come from settings.
 const wiringTimeout = 20 * time.Second
 
-// UnboundedMaxPages asks the acquisition layer to follow the HTML cursor
-// chain without a page budget: pagination stops only when the upstream
-// stops serving a cursor (or the context is canceled). `user --max-pages 0`
-// passes this sentinel; a positive value stays a hard page cap, and 0 (the
-// omitted flag — e.g. watch, or the config's max_pages) keeps the built-in
-// default of 5.
-const UnboundedMaxPages = -1
-
 // TestOptions re-exports the appapi probe options so command packages can
 // name the type without importing internal/nitter/appapi (R11 boundary).
 type TestOptions = appapi.TestOptions
@@ -293,10 +285,7 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 		fn(&opt)
 	}
 
-	backend := a.w.FetchBackend
-	if backend == "" {
-		backend = "mix"
-	}
+	backend := a.w.effectiveBackend()
 
 	switch backend {
 	case "nitter":
@@ -351,8 +340,10 @@ func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, m
 	// Deterministic order: sort by tweet ID descending (timeline order) so
 	// the same input always produces the same output sequence — the Fx media
 	// endpoint's page composition may fluctuate between runs, but the result
-	// set is stable once ordered. Truncate to limit afterwards (limit 0 =
-	// all). Purely client-side and documented in the CLI reference.
+	// set is stable once ordered. Truncate to limit afterwards; the CLI always
+	// resolves limit to a positive cap (allTweetsSentinel for "everything"), so
+	// the `limit > 0` guard is always true here and kept only for that
+	// invariant. Purely client-side and documented in the CLI reference.
 	sort.SliceStable(tweets, func(i, j int) bool {
 		a, b := tweetIDNum(tweets[i].ID), tweetIDNum(tweets[j].ID)
 		if a != b {
@@ -401,10 +392,7 @@ func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages
 		return nil, "", nitter.Errorf(nitter.KindInvalidArg, "client.Search", "query cannot be empty")
 	}
 
-	backend := a.w.FetchBackend
-	if backend == "" {
-		backend = "mix"
-	}
+	backend := a.w.effectiveBackend()
 
 	switch backend {
 	case "nitter":
@@ -466,30 +454,52 @@ func (a listAdapter) ListTimeline(ctx context.Context, listID string, limit, max
 // interface commands consume (R11: commands never import appapi).
 func (w *Wiring) List() ListSource { return listAdapter{w: w} }
 
+// effectiveBackend resolves the configured fetch_backend, defaulting to mix.
+// Build validates the value, so the only empty case is a Wiring assembled
+// directly in tests. One definition keeps the three dispatchers from drifting.
+func (w *Wiring) effectiveBackend() string {
+	if w.FetchBackend == "" {
+		return "mix"
+	}
+	return w.FetchBackend
+}
+
 // statusAdapter bridges the primitive-parameter StatusSource to the hybrid dispatcher.
 type statusAdapter struct{ w *Wiring }
 
 func (a statusAdapter) Status(ctx context.Context, ref string) (nitter.Tweet, string, error) {
-	backend := a.w.FetchBackend
-	if backend == "" {
-		backend = "mix"
-	}
+	backend := a.w.effectiveBackend()
 
 	if backend == "mix" || backend == "fx" {
 		statusID, _, err := ParseStatusRef(ref)
 		if err != nil {
 			return nitter.Tweet{}, "", err
 		}
-		if a.w.Fx != nil {
-			tw, err := a.w.Fx.FetchStatus(ctx, statusID)
-			if err == nil && tw != nil {
-				return *tw, "FxTwitter", nil
+		if a.w.Fx == nil {
+			if backend == "fx" {
+				// Pure FxTwitter with no client wired: the same refusal
+				// timelineFx gives — never a Nitter fetch the setting forbade.
+				return nitter.Tweet{}, "", nitter.Errorf(nitter.KindLocalState, "client.Status", "no fxtwitter client wired")
 			}
+			return a.w.AppAPI.Status(ctx, ref)
+		}
+		tw, err := a.w.Fx.FetchStatus(ctx, statusID)
+		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nitter.Tweet{}, "", err
 			}
+			if backend == "fx" {
+				// Pure FxTwitter: no Nitter fallback. Falling through here would
+				// replace the real Fx error with the chooser's "no instances
+				// configured" and mask the cause.
+				return nitter.Tweet{}, "", err
+			}
+			return a.w.AppAPI.Status(ctx, ref)
 		}
-		return a.w.AppAPI.Status(ctx, ref)
+		// FetchStatus never returns a nil tweet with a nil error — an
+		// unidentifiable payload is KindNotFound, not an empty success — so
+		// reaching here means the tweet is present.
+		return *tw, "FxTwitter", nil
 	}
 
 	return a.w.AppAPI.Status(ctx, ref)
@@ -744,8 +754,10 @@ func Build(rootOpts *invocation.RootOptions, cfg settings.Settings, now func() t
 	}
 	switch fetchBackend {
 	case "mix", "nitter", "fx":
+		// "nitter" is no longer a config value: only --instance produces it,
+		// forcing the instance path for that one invocation.
 	default:
-		return nil, fmt.Errorf("invalid fetch_backend %q (allowed: mix, nitter, fx)", fetchBackend)
+		return nil, fmt.Errorf("invalid fetch_backend %q (allowed: mix, fx; --instance selects the instance path)", fetchBackend)
 	}
 
 	var fxOpts []fxtwitter.Option

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // UsageError marks argument/flag/input-contract failures (exit 2).
@@ -20,14 +19,16 @@ func Usagef(format string, args ...any) *UsageError {
 	return &UsageError{Err: fmt.Errorf(format, args...)}
 }
 
-// WrapFlagError lets root.SetFlagErrorFunc turn unknown-flag errors into
-// usage errors so they exit 2.
-func WrapFlagError(cmd *cobra.Command, err error) error {
-	var nef *pflag.NotExistError
-	if errors.As(err, &nef) {
-		return &UsageError{Err: err}
-	}
-	return err
+// WrapFlagError lets root.SetFlagErrorFunc turn flag-parsing errors into usage
+// errors so they exit 2. It is reached only when flag PARSING failed — an
+// unknown flag, an unparsable value ("--limit=abc"), or a missing argument —
+// and every one of those is an argument-contract failure by the exit-code
+// rules, so the wrapping is unconditional. A previous version wrapped only
+// *pflag.NotExistError, which left "--limit=abc" exiting 1 while
+// "--unknownflag" exited 2. Help and version never come through here (cobra
+// resolves them after a successful parse), so they keep exiting 0.
+func WrapFlagError(_ *cobra.Command, err error) error {
+	return &UsageError{Err: err}
 }
 
 func ExitCode(err error) int {

@@ -61,17 +61,40 @@ func newFakeFx(t *testing.T, ids ...string) (*fakeNitter, *[]string) {
 
 // fxBackendConfig is the fast config fixture pinned to the fx backend (the
 // [[instances]] entry keeps the nitter fallback wiring neutral; the fx
-// backend never consults it).
+// backend never consults it). The key must precede the [[instances]] header:
+// a scalar appended AFTER a table header belongs to that table, not to the
+// document, so the config would load as the default mix and these tests would
+// silently stop exercising the fx lane. TestFxBackendConfigLoadsAsFx pins it.
 func fxBackendConfig(fake *fakeNitter) string {
-	return strings.Replace(instanceConfig(fake), `fetch_backend = "nitter"`, `fetch_backend = "fx"`, 1)
+	return "fetch_backend = \"fx\"\n" + instanceConfig(fake)
+}
+
+// TestFxBackendConfigLoadsAsFx guards the fixture above: the fx lane tests are
+// only meaningful while this config really resolves to fetch_backend = fx.
+func TestFxBackendConfigLoadsAsFx(t *testing.T) {
+	home := tempHome(t)
+	fake, _ := newFakeFx(t, "101")
+	writeConfig(t, home, fxBackendConfig(fake))
+
+	cfg, err := client.LoadEffectiveSettings()
+	if err != nil {
+		t.Fatalf("LoadEffectiveSettings: %v", err)
+	}
+	if cfg.FetchBackend != "fx" {
+		t.Fatalf("FetchBackend = %q, want %q — the fixture must not lose the key to the [[instances]] table", cfg.FetchBackend, "fx")
+	}
+	if len(cfg.Instances) != 1 {
+		t.Fatalf("Instances = %+v, want the single fixture instance", cfg.Instances)
+	}
 }
 
 // TestWatchUserSourceFetchesTweetsFxBackend: watch's user source fetches the
 // same tweets as the user command under the fx backend — the known "watch
-// always 0 rows" regression. fetchSource passes limit 0 (= all) and the Fx
-// fast lane treats count <= 0 as ZERO tweets with a nil error, so the cycle
-// silently records an empty baseline. With the fix the fetch reaches the
-// statuses endpoint and --include-existing emits the rows.
+// always 0 rows" regression. The original fetchSource passed limit 0 for
+// "all" and the Fx fast lane treats count <= 0 as ZERO tweets with a nil
+// error, so the cycle silently recorded an empty baseline; the fix passes
+// allTweetsSentinel instead, so the fetch reaches the statuses endpoint and
+// --include-existing emits the rows.
 func TestWatchUserSourceFetchesTweetsFxBackend(t *testing.T) {
 	home := tempHome(t)
 	fake, _ := newFakeFx(t, "101", "102")
@@ -122,8 +145,9 @@ func TestWatchUserSourceFxNoSilentEmptyBaseline(t *testing.T) {
 }
 
 // TestWatchUserSourceFxSendsPositiveLimit: the user source's fetch must send
-// a positive count (limit 0 = all) — the regression sent limit=0 and the Fx
-// fast lane short-circuited on count <= 0 before any request.
+// a positive count (allTweetsSentinel stands for "all") — the regression sent
+// limit=0 and the Fx fast lane short-circuited on count <= 0 before any
+// request.
 func TestWatchUserSourceFxSendsPositiveLimit(t *testing.T) {
 	home := tempHome(t)
 	fake, requests := newFakeFx(t, "101")

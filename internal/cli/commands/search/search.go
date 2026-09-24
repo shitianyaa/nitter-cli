@@ -61,9 +61,9 @@ down while the next one is tried. The result pages follow their load-more
 cursor.
 
 --type specifies search target: "tweet" (default) or "user".
---limit caps the number of items (0 = all); without the flag the config's
-default_limit applies. --max-pages caps pagination (0 = default 5); without
-the flag the config's max_pages applies.
+--limit caps the number of items; without the flag the config's default_limit
+applies. --max-pages caps pagination; without the flag the config's max_pages
+applies. Both must be >= 1 when given: there is no "unlimited" value.
 
 --json prints a machine-readable document: one JSON object for a single
 item, an array otherwise (an empty result prints []). --ndjson instead
@@ -83,7 +83,7 @@ stderr in the default modes.`,
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
-		"Maximum items to fetch, 0 for all (default: config default_limit)")
+		"Maximum items to fetch (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
 		"Maximum result pages (default: config max_pages; built-in default 5)")
 	cmd.Flags().StringVar(&typeFlag, "type", "tweet",
@@ -117,11 +117,11 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 	if typeFlag != "tweet" && typeFlag != "user" {
 		return invocation.Usagef("search: invalid --type %q (allowed: tweet, user)", typeFlag)
 	}
-	if limitFlag < 0 {
-		return invocation.Usagef("search: --limit must be >= 0 (0 means all)")
+	if cmd.Flags().Changed("limit") && limitFlag < 1 {
+		return invocation.Usagef("search: --limit must be >= 1 (there is no unlimited value)")
 	}
-	if maxPagesFlag < 0 {
-		return invocation.Usagef("search: --max-pages must be >= 0")
+	if cmd.Flags().Changed("max-pages") && maxPagesFlag < 1 {
+		return invocation.Usagef("search: --max-pages must be >= 1 (there is no unlimited value)")
 	}
 	if err := filters.Validate(); err != nil {
 		return invocation.Usagef("search: %v", err)
