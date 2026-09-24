@@ -29,13 +29,14 @@ are governed by the installed binary's `nitter download --help`.
   status ID, or a status URL — `x.com`, `twitter.com` or any Nitter instance,
   shape `/<user>/status/<id>`; `/photo/N` and `/video/1` suffixes are
   accepted.
-- Multiple REFs run as one batch. With no positional REF and a non-TTY
-  stdin, the input is read from stdin and the first non-whitespace byte
-  decides the mode: `{` starts strict envelope mode (every non-empty line
-  must be a `nitter.pipeline/v1` tweet envelope and each record's `data.url`
-  is used as the REF — a malformed envelope is a usage error, exit 2, never
-  a skipped line); anything else is plain refs, one per non-empty line.
-  Giving refs both as arguments and on stdin is an ambiguity error (exit 2).
+- Multiple REFs run as one batch. Positional REFs always win: only with no
+  positional REF and a non-TTY stdin is the input read from stdin, and the
+  first non-whitespace byte decides the mode: `{` starts strict envelope mode
+  (every non-empty line must be a `nitter.pipeline/v1` tweet envelope and each
+  record's `data.url` is used as the REF — a malformed envelope is a usage
+  error, exit 2, never a skipped line); anything else is plain refs, one per
+  non-empty line. A positional REF never reads stdin, so the batch cannot
+  block on a pipe whose writer stays open.
 - The same filename can be planned twice in one batch (duplicate refs, or
   two refs resolving to one status): the second occurrence meets the file
   the first wrote, so the `--on-exists` mode decides — under `refuse` the
@@ -192,4 +193,4 @@ file. Plain ref files work too: `nitter download < refs.txt --ndjson`.
 | --- | --- |
 | 0 | Every ref resolved and every planned file downloaded (skips included); also when the consumer closed the stdout pipe early (EPIPE) |
 | 1 | At least one ref failed (error reports in-stream/stderr, remaining refs continue, `download completed with N of M refs failed` summary on stderr); a filter matching nothing is NOT a failure |
-| 2 | Usage error, no network: unknown `--kind`/`--quality`/`--strategy`/`--on-exists`, bad or missing refs, refs both as arguments and on stdin, malformed stdin envelopes, `--json --ndjson` together |
+| 2 | Usage error, no network: unknown `--kind`/`--quality`/`--strategy`/`--on-exists`, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together |

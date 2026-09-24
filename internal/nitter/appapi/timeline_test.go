@@ -524,6 +524,34 @@ func TestTimelineRSSCursorLoopIsBounded(t *testing.T) {
 	}
 }
 
+// A repeated HTML cursor ends the scan instead of spinning forever. The
+// unbounded budget (`--max-pages 0` -> -1, reachable from `user`) is what
+// makes the guard load-bearing: without it the same page is requested until
+// the context is cancelled.
+func TestTimelineHTMLCursorLoopIsBounded(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{"/NASA/rss", 500, "boom", nil},
+		timelineRoute{"/NASA", 200, htmlPage([]string{"201"}, "same"), nil},
+		timelineRoute{"/NASA?cursor=same", 200, htmlPage([]string{"202"}, "same"), nil},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Timeline(context.Background(), "NASA", appapi.PageOptions{})
+	if err != nil {
+		t.Fatalf("Timeline() error = %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("tweets = %d, want 2 (two pages, then the repeated cursor stops the scan)", len(tweets))
+	}
+	htmlFetches := 0
+	for _, r := range rec.requests() {
+		if strings.HasPrefix(r, "/NASA") && !strings.HasSuffix(r, "/rss") {
+			htmlFetches++
+		}
+	}
+	if htmlFetches != 2 {
+		t.Errorf("html fetches = %d, want exactly 2 (the loop guard must stop the repeated cursor)", htmlFetches)
+	}
+}
+
 // MaxPages bounds the scan.
 func TestTimelineRSSMaxPagesBoundsTheScan(t *testing.T) {
 	srv, rec := newTimelineFake(t,

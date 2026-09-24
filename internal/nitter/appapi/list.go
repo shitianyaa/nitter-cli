@@ -124,10 +124,18 @@ func (c *Client) listFromInstance(ctx context.Context, base, listID string, limi
 		return nil, err
 	}
 	pages := 1
+	// A repeated cursor ends the scan instead of re-requesting the same page
+	// until the page budget runs out — the guard the RSS scan and the HTML
+	// timeline path apply.
+	followed := make(map[string]bool)
 	for cursor != "" && (limit <= 0 || len(tweets) < limit) && pages < maxPages {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if followed[cursor] {
+			break
+		}
+		followed[cursor] = true
 		body, _, err := c.HTTP.Get(ctx, first+"?cursor="+url.QueryEscape(cursor), nil)
 		if err != nil {
 			return nil, err

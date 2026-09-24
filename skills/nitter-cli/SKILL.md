@@ -152,8 +152,11 @@ the user is fine sharing (see trap 16).
   envelopes whose `data.url` becomes the ref, so any piped data command
   (auto-NDJSON) and `watch --ndjson` feed it directly, no flags needed),
   `config set KEY` (the value, one line — this keeps
-  secrets such as a credential-bearing `proxy` URL out of argv). Passing the
-  value both as an argument and on stdin is an ambiguity error (exit 2).
+  secrets such as a credential-bearing `proxy` URL out of argv).
+  **Positional arguments win over stdin**: when a positional value is given
+  stdin is never read at all, so `nitter get <REF>` / `media <REF>` /
+  `download <REF>` cannot block on a pipe whose writer stays open. Pass the
+  input one way; nothing errors on having both.
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,
   `upstream_unavailable`, `challenge_required`, `not_found`,
   `malformed_upstream_response`, `local_state_error`, `invalid_argument`, or
@@ -210,6 +213,7 @@ nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, esc
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
 nitter search "digital art" --type user --limit 10      # search user profiles / illustrators by name/bio
 nitter search "moon landing" --limit 10                 # plain phrase
+nitter search "#AI" --sort top --limit 10 --json        # popular-results ordering instead of newest-first
 
 nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
 nitter get https://x.com/NASA/status/2102761519985332442 --json
@@ -408,9 +412,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     consumer can still pick another tier from `media` output.
 19. **`following` is FxTwitter-powered**: fetches accounts followed by `HANDLE`
     with avatar, bio, and follower/following counts. In non-TTY pipes it emits
-    `kind: "profile"` NDJSON envelopes; `--limit` caps the pages fetched (must
-    be >= 1 — there is no "all" spelling), and the lane returns at most one
-    upstream page regardless.
+    `kind: "profile"` NDJSON envelopes; `--limit` caps the number of profiles
+    returned (must be >= 1 — there is no "all" spelling). The lane fetches one
+    upstream page regardless of `--limit`, so the result can be shorter.
 20. **`comments` extracts conversation trees & hidden author links**: returns
     the root status, parent thread ancestors, and replies (sorted by `--sort likes`
     or `recency`). This is the primary mechanism for discovering author self-replies
@@ -454,6 +458,15 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     exit code: an empty result (exit 0) means the query matched nothing, while a
     `not_found` (exit 1) means the upstream failed — retry later instead of
     concluding the account does not exist.
+27. **`--sort` means different things on `search` and `comments`** — same flag
+    name, different domain: on `search` it picks the tweet-feed ordering
+    (`--sort latest|top`, default `latest`; `top` = popular results) and is
+    forwarded to both backends, so a mix-mode fallback keeps the requested
+    ordering; on `comments` it picks the reply ordering (`--sort likes|recency`,
+    default `likes`). Neither value set is valid for the other command — a
+    cross-domain value exits 2 (never a silent fallback to the default).
+    `search --sort` also has no meaning with `--type user` (exit 2), and an
+    unknown value is always a usage error.
 
 ## Media delivery for agents
 

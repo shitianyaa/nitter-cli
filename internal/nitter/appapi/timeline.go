@@ -65,6 +65,12 @@ type PageOptions struct {
 	// page adds nothing the source has not already seen. nil never stops
 	// early. The HTML path paginates with its own cursor and ignores it.
 	Stop func(page []nitter.Tweet) bool
+	// Sort selects the result ordering of a SEARCH fetch: "" and "latest"
+	// (case-insensitive) both mean the default newest-first feed ("f=tweets"
+	// on the wire), "top" asks for the popular-results feed ("f=top"). Any
+	// other value is rejected as KindInvalidArg — never silently degraded to
+	// the default. Search only; Timeline/List/MergedTimeline ignore it.
+	Sort string
 }
 
 // handleRe is the X handle contract, enforced before any network: 1-15
@@ -208,8 +214,9 @@ func (c *Client) timelineRSS(ctx context.Context, base, handle string, limit, ma
 // cursor exists, the limit is not met and the page budget lasts. Page URLs
 // re-encode the cursor extracted by the parser (it arrives URL-decoded).
 // maxPages < 0 removes the budget: pagination runs until the upstream stops
-// serving a cursor (upstream exhaustion; a runaway chain is bounded by the
-// caller's context cancellation, honored inside the loop).
+// serving a cursor (upstream exhaustion) or repeats a cursor already followed
+// (the same guard the RSS scan applies); a runaway chain is otherwise bounded
+// by the caller's context cancellation, honored inside the loop.
 func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, maxPages int) ([]nitter.Tweet, error) {
 	body, _, err := c.HTTP.Get(ctx, base+"/"+handle, nil)
 	if err != nil {
@@ -225,10 +232,18 @@ func (c *Client) timelineHTML(ctx context.Context, base, handle string, limit, m
 	tweets := page.Tweets
 	pages := 1
 	cursor := page.NextCursor
+	// A repeated cursor ends the scan instead of spinning forever: with the
+	// unbounded budget (`--max-pages 0` -> -1) a cycling instance would
+	// otherwise be asked for the same page until the context is cancelled.
+	followed := make(map[string]bool)
 	for cursor != "" && (limit <= 0 || len(tweets) < limit) && (maxPages < 0 || pages < maxPages) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if followed[cursor] {
+			break
+		}
+		followed[cursor] = true
 		body, _, err := c.HTTP.Get(ctx, base+"/"+handle+"?cursor="+url.QueryEscape(cursor), nil)
 		if err != nil {
 			return nil, err

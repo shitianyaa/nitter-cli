@@ -104,10 +104,11 @@ the default modes.`,
 	return cmd
 }
 
-// run executes one list fetch. Flag/config resolution order: an explicit
-// flag wins over the config value; a negative flag is a usage error while a
-// negative config value keeps its documented "0 semantics = all" pixiv
-// heritage (appapi treats limit <= 0 as unbounded).
+// run executes one list fetch. Flag/config resolution order: an explicit flag
+// wins over the config value. Both caps must be >= 1: a flag below 1 is a usage
+// error and a config below 1 is rejected at load, so the acquisition layer
+// never receives a non-positive limit or page budget. The flag defaults stay 0
+// ("not given"), which is why the checks are gated on Changed.
 func run(cmd *cobra.Command, s *invocation.Streams, listID string, limitFlag, maxPagesFlag int, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {

@@ -5,6 +5,14 @@
 
 ## Added
 
+- **`nitter search --sort latest|top`**: `search` gains a result-ordering flag — `latest` (default, the
+  newest-first feed, byte-identical to the pre-0.7.4 request) or `top` (the popular-results feed). The
+  ordering is handed to BOTH backends (Nitter's `f=` parameter and FxTwitter's `feed`) and carried on every
+  pagination page, so a mix-mode fallback never answers with a different ordering than the one requested.
+  The value is case- and whitespace-insensitive; any other value exits 2, and `--sort` with `--type user`
+  exits 2 as well (profile search has no ordering). Note that `comments --sort likes|recency` is a different
+  domain: neither value set is valid for the other command.
+
 ## Changed
 
 - **`--limit` and `--max-pages` have no "unlimited" value**: both are caps and must be `>= 1` when given; `0`
@@ -49,6 +57,18 @@
 - **`watch --max-pages 0` no longer silently overrides the configured `max_pages`**: it was accepted and made
   the cycle fall back to the built-in default of 5 pages, ignoring the config value entirely. It is now a
   usage error.
+- **A repeated cursor no longer burns the page budget**: pagination followed the upstream cursor chain without
+  remembering where it had been, so a chain that revisited a cursor (A → B → A) kept issuing requests until the
+  page budget ran out, and the result could carry the same page more than once. The Nitter HTML path, the
+  Nitter search/list paths and the FxTwitter lane now stop as soon as a cursor repeats; a stalled chain reports
+  no continuation cursor instead of a fabricated one.
+- **`get`, `media` and `download`: a positional reference now wins over stdin** — the commands read stdin
+  only when they receive no positional reference AND stdin is not a TTY. Previously they read stdin first and
+  rejected the input as ambiguous (`status reference given both as an argument and on stdin`, exit 2); on a
+  pipe whose writer stayed open that read blocked forever, so `nitter get <REF>` (or `media`/`download` with
+  positional refs) inside a pipeline hung instead of running. The ambiguity error and its exit-2 branch are
+  gone; passing the input one way is the rule, and having both is no longer an error. An explicitly
+  empty positional argument (`nitter get ""`) is a usage error (exit 2) and never falls back to stdin.
 - **`quotes` and `search --type user` no longer report an upstream failure as an empty result**: the FxTwitter
   quote and user-search routes share one upstream query that answers 404 intermittently (measured ≈85% of
   requests), and both commands turned that 404 into an empty success — a tweet with 44 quotes printed `[]` and
@@ -59,5 +79,10 @@
   full request URL — query string included — into transport and 404 errors, so a failed search printed the
   caller's own search terms, and it echoed the upstream `message` field. Errors now name the route only, as the
   `sdk` redaction contract requires.
+- **`user --help` no longer describes the RSS layer as single-page**: it claimed the RSS feed is one page and
+  that `--max-pages` only capped the HTML fallback. The feed is in fact read page by page along its `Min-Id`
+  cursor and each layer counts its own `--max-pages` budget, so the help text contradicted the implementation and every
+  document that describes the scan; a bounded fetch also stops before the next page once `--limit` is satisfied.
+  Help text only — no behavior change.
 
 ## Security

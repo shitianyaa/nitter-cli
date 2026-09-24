@@ -126,7 +126,9 @@ The Nitter RSS feed is read page by page along its `Min-Id` cursor, so a
 backlog spanning several feed pages is fetched instead of being cut off at the
 first one: `--limit N` keeps paging until N tweets or the `--max-pages` budget
 is reached (a feed that advertises no `Min-Id` — a plain RSS proxy — stays a
-single page).
+single page). The budget is **per layer**: the RSS scan and the HTML fallback
+each count their own pages, so a scan that spends its budget and still yields
+nothing leaves the fallback a fresh budget.
 
 - `--with-replies` includes the user's reply tweets.
 - `--no-reposts` drops pure retweets.
@@ -182,7 +184,9 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
   - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
   - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
 - `add`: adds handle to a circle (creates file/circle on demand).
-- `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
+- `run`: traverses and streams latest tweets for all creators in the circle.
+  - `--limit N` (default 20; must be >= 1): caps the number of tweets fetched per creator.
+  - `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
   - **Page budget**: `run` takes no `--max-pages` flag; each member's fetch uses the config `max_pages` (default 5). Raise it in the config if a member's timeline needs more pages (that also raises `watch`'s per-cycle budget).
   - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
@@ -232,8 +236,8 @@ Fetches real-time trending topics on Twitter/X via FxTwitter.
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+nitter search <QUERY> [--type tweet|user] [--sort latest|top] [--limit N] [--max-pages N] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Runs `QUERY` against the configured instances or FxTwitter.
@@ -249,6 +253,15 @@ at most 100 items. The instance path paginates as documented, and there search i
 a separate Nitter capability that a given instance may have disabled or serve
 slowly — probe it with `nitter instances test --full` before blaming the query.
 
+`--sort latest|top` (default `latest`) selects the result ordering and is
+carried by BOTH backends — Nitter's `f=` parameter (`tweets` for `latest`,
+`top` for `top`) and FxTwitter's `feed` — so a mix-mode fallback never
+answers with a different ordering than the one requested, and every
+pagination page keeps it. The value is case- and whitespace-insensitive; any
+other value exits 2 (never a silent fallback to the default). `--sort` is
+rejected together with `--type user` (exit 2) — profile search has no
+ordering.
+
 When `--type user`, searches for user profiles, artists, and creators matching the query:
 
 A query with no matches answers 200 with an empty list (exit 0); a 404 from the upstream user-search endpoint is a failure and is reported as `not_found` (exit 1), not as an empty result. Like every fetch failure it goes to stderr only — `--ndjson` emits no `kind: "error"` envelope, so check the exit code.
@@ -258,6 +271,10 @@ A query with no matches answers 200 with an empty list (exit 0); a 404 from the 
 
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
+
+```bash
+nitter search "#AI" --sort top --limit 10 --json   # popular results instead of newest-first
+```
 
 ## nitter list
 
@@ -286,9 +303,11 @@ Fetches one single status. In `mix` (default) the FxTwitter fast lane is tried f
 `REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
-and `/video/1` suffixes are accepted. With no argument and a non-TTY stdin the
-reference is read from one stdin line; giving it both ways is an ambiguity
-error (exit 2). There are no pagination flags. The quoted tweet, when present,
+and `/video/1` suffixes are accepted. A positional `REF` always wins; only
+with no argument AND a non-TTY stdin is the reference read from one stdin
+line. A positional `REF` never reads stdin, so `nitter get <REF>` cannot
+block on a pipe whose writer stays open. There are no pagination flags. The
+quoted tweet, when present,
 is summarized in the `quote` field (visible in `--json`/`--ndjson`); interaction
 counts are not reported — none are fabricated. NDJSON `meta.source` is
 `status:<numeric ID>`. When served by FxTwitter, `meta.instance` is recorded as `FxTwitter`.
@@ -311,9 +330,10 @@ Resolves each status REF into directly downloadable media links — video mp4
 variants, original images, GIFs. `REF` takes the same shapes as `nitter get`
 (bare numeric ID, or a status URL of x.com, twitter.com or any Nitter
 instance; `/photo/N` and `/video/1` suffixes accepted). Multiple REFs run as
-a batch; with no argument and a non-TTY stdin the references are read from
-stdin (one per non-empty line); giving refs both as arguments and on stdin is
-an ambiguity error (exit 2). The download itself is the caller's job — the
+a batch; positional REFs always win — only with no argument AND a non-TTY
+stdin are the references read from stdin (one per non-empty line). A
+positional REF never reads stdin, so a batch cannot block on a pipe whose
+writer stays open. The download itself is the caller's job — the
 command resolves links, it does not fetch media.
 
 **Strategies** (`--strategy`, default `auto`): `auto` tries the chain
@@ -370,8 +390,7 @@ failure gets an in-place error report (error envelope on the NDJSON stream,
 `error: <ref>: <message>` on stderr otherwise) while the other refs continue,
 and the run exits 1 with a `media completed with N of M refs failed` summary
 when at least one ref failed; usage problems (`--json` with `--ndjson`,
-invalid `--strategy` or `--quality`, bad/missing refs, refs given both as
-arguments and on stdin) exit 2.
+invalid `--strategy` or `--quality`, bad/missing refs) exit 2.
 
 ## nitter download
 
@@ -386,14 +405,14 @@ Resolves each status REF with the media command's strategies and downloads
 the planned media files to the output directory. `REF` takes the same shapes
 as `nitter get` and `nitter media` (bare numeric ID, or a status URL of
 x.com, twitter.com or any Nitter instance; `/photo/N` and `/video/1`
-suffixes accepted). Multiple REFs run as a batch; with no argument and a
-non-TTY stdin the input is read from stdin — when the first non-whitespace
-byte is `{`, every non-empty line must be a strict `nitter.pipeline/v1` tweet
-envelope and each record's `data.url` is used as the REF (the
-`nitter get --ndjson` and `nitter watch --ndjson` streams feed download
-directly; a malformed envelope is a usage error), otherwise every non-empty
-line is a plain REF. Giving refs both as arguments and on stdin is an
-ambiguity error (exit 2).
+suffixes accepted). Multiple REFs run as a batch. Positional REFs always win;
+only with no argument AND a non-TTY stdin is the input read from stdin — when
+the first non-whitespace byte is `{`, every non-empty line must be a strict
+`nitter.pipeline/v1` tweet envelope and each record's `data.url` is used as
+the REF (the `nitter get --ndjson` and `nitter watch --ndjson` streams feed
+download directly; a malformed envelope is a usage error), otherwise every
+non-empty line is a plain REF. A positional REF never reads stdin, so a batch
+cannot block on a pipe whose writer stays open.
 
 **Selection** (`--kind`, default: everything) follows the video-wins rule: a
 status carrying video or GIF downloads its ONE best video file — ranked by
@@ -499,8 +518,8 @@ the NDJSON stream, `error: <ref>: <message>` on stderr otherwise) while the
 other refs continue, and the run exits 1 with a
 `download completed with N of M refs failed` summary when at least one ref
 failed; usage problems (unknown `--kind`/`--quality`/`--strategy`/
-`--on-exists`, bad or missing refs, refs given both as arguments and on
-stdin, malformed stdin envelopes, `--json` with `--ndjson`) exit 2.
+`--on-exists`, bad or missing refs, malformed stdin envelopes, `--json` with
+`--ndjson`) exit 2.
 
 ## nitter instances test
 
@@ -688,6 +707,10 @@ Global `--proxy`/`--instance` apply as everywhere.
 - The first cycle of an uninitialized source only RECORDS state — no history is
   emitted (只记不推). `--include-existing` lifts that for the run and bypasses
   `--max-new` for that first fetch.
+- An uninitialized `user:` source initializes even when its first fetch comes
+  back empty, so the next cycle emits its new tweets; `tag:` and `list:` sources
+  stay uninitialized until a cycle that returns at least one tweet, so a
+  transient empty first response is never mistaken for "caught up".
 - Later cycles emit each source's new tweets, at most `--max-new` per source per
   cycle. By default (`--max-new-overflow drop`) **excess new tweets are marked
   seen immediately and never re-emitted**: after a downtime, a burst larger than

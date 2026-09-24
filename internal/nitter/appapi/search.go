@@ -5,7 +5,12 @@ package appapi
 // cursor), so the fetch pipeline is Timeline's HTML branch with a different
 // URL shape — no RSS layer is involved:
 //
-//	GET <base>/search?f=tweets&q=<url-escaped query>[&cursor=<escaped>]
+//	GET <base>/search?f=<mode>&q=<url-escaped query>[&cursor=<escaped>]
+//
+// <mode> comes from PageOptions.Sort: "top" selects the popular-results feed
+// (f=top), everything else — "" and "latest" — the default newest-first feed
+// (f=tweets). The mode is carried on every page request, so pagination never
+// drifts back to the default ordering.
 //
 // Query semantics are pass-through (the reference plugin's query_kind
 // semantics — "#" prefix = tag, "@"/"from:" = user search, else phrase —
@@ -35,11 +40,21 @@ const opSearch = "appapi.Search"
 
 // Search fetches one search result timeline. The query must be non-empty
 // after trimming (KindInvalidArg otherwise) — the check happens BEFORE any
-// rotation or network. The returned string is the base URL of the instance
+// rotation or network. opts.Sort selects the feed ("latest"/"" = newest
+// first, "top" = popular results) and is validated here as well, so a bad
+// value fails as KindInvalidArg instead of reaching an instance (and never
+// marks one failed). The returned string is the base URL of the instance
 // that produced the result ("" only on error).
 func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]nitter.Tweet, string, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, "", nitter.Errorf(nitter.KindInvalidArg, opSearch, "query must not be empty")
+	}
+	// Validate the sort BEFORE rotation: a bad value must not be reported as
+	// an instance failure (which would cool the instance down). The
+	// per-fetch call in searchFromInstance is the same pure check, kept as
+	// the backstop for direct callers.
+	if _, err := searchSortMode(opts.Sort); err != nil {
+		return nil, "", err
 	}
 	if c.HTTP == nil {
 		return nil, "", nitter.Errorf(nitter.KindLocalState, opSearch, "no transport wired into the appapi client")
@@ -79,7 +94,7 @@ func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]
 			return nil, "", nitter.Errorf(nitter.KindUnavailable, opSearch, "all instances failed")
 		}
 		tried[base] = true
-		tweets, err := c.searchFromInstance(ctx, base, query, opts.Limit, maxPages)
+		tweets, err := c.searchFromInstance(ctx, base, query, opts, maxPages)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				// The caller gave up: abort instead of rotating on.
@@ -95,12 +110,19 @@ func (c *Client) Search(ctx context.Context, query string, opts PageOptions) ([]
 }
 
 // searchFromInstance runs the paginated search fetch against one instance:
-// the first page <base>/search?f=tweets&q=<escaped query>, then the cursor
+// the first page <base>/search?f=<mode>&q=<escaped query>, then the cursor
 // pages (<…>&cursor=<escaped cursor>) while a cursor exists, the limit is
 // not met and the page budget lasts — the same bounds math as the HTML
-// timeline path.
-func (c *Client) searchFromInstance(ctx context.Context, base, query string, limit, maxPages int) ([]nitter.Tweet, error) {
-	first := base + "/search?f=tweets&q=" + url.QueryEscape(query)
+// timeline path. <mode> comes from opts.Sort and is re-validated here (the
+// pure searchSortMode check), so the fetch never degrades silently to a
+// different ordering.
+func (c *Client) searchFromInstance(ctx context.Context, base, query string, opts PageOptions, maxPages int) ([]nitter.Tweet, error) {
+	mode, err := searchSortMode(opts.Sort)
+	if err != nil {
+		return nil, err
+	}
+	limit := opts.Limit
+	first := base + "/search?f=" + mode + "&q=" + url.QueryEscape(query)
 	body, _, err := c.HTTP.Get(ctx, first, nil)
 	if err != nil {
 		return nil, err
@@ -110,10 +132,18 @@ func (c *Client) searchFromInstance(ctx context.Context, base, query string, lim
 		return nil, err
 	}
 	pages := 1
+	// A repeated cursor ends the scan instead of re-requesting the same page
+	// until the page budget runs out — the guard the RSS scan and the HTML
+	// timeline path apply.
+	followed := make(map[string]bool)
 	for cursor != "" && (limit <= 0 || len(tweets) < limit) && pages < maxPages {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if followed[cursor] {
+			break
+		}
+		followed[cursor] = true
 		body, _, err := c.HTTP.Get(ctx, first+"&cursor="+url.QueryEscape(cursor), nil)
 		if err != nil {
 			return nil, err
@@ -132,6 +162,22 @@ func (c *Client) searchFromInstance(ctx context.Context, base, query string, lim
 		tweets = tweets[:limit]
 	}
 	return tweets, nil
+}
+
+// searchSortMode maps PageOptions.Sort onto Nitter's `f=` parameter: "" and
+// "latest" (case-insensitive) are the default newest-first feed ("tweets"),
+// "top" is the popular-results feed. Every other value is KindInvalidArg
+// naming the offending value — the ordering is never silently changed to a
+// default.
+func searchSortMode(sort string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(sort)) {
+	case "", "latest":
+		return "tweets", nil
+	case "top":
+		return "top", nil
+	default:
+		return "", nitter.Errorf(nitter.KindInvalidArg, opSearch, "invalid sort %q; must be latest or top", sort)
+	}
 }
 
 // searchParsePage classifies and parses one search page: ClassifyPage first

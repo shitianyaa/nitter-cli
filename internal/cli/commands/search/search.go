@@ -30,12 +30,14 @@ import (
 // Exit codes (repo-wide semantics): success — including an empty result —
 // exits 0; acquisition failure (every instance failed) exits 1 with the
 // classified error message; usage problems (empty query, extra arguments,
-// negative flags, --json with --ndjson, invalid config values) exit 2.
+// negative flags, invalid --sort, --sort with --type user, --json with
+// --ndjson, invalid config values) exit 2.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
 		limitFlag    int
 		maxPagesFlag int
 		typeFlag     string
+		sortFlag     string
 		asJSON       bool
 		asNDJSON     bool
 		filters      tweetfilter.Filters
@@ -61,6 +63,11 @@ down while the next one is tried. The result pages follow their load-more
 cursor.
 
 --type specifies search target: "tweet" (default) or "user".
+--sort specifies the result ordering for tweet searches: "latest" (default,
+the newest-first feed) or "top" (the popular-results feed). It maps to the
+backends' own ordering parameter — Nitter's f= (tweets|top) and FxTwitter's
+feed — and is carried on every page, so pagination keeps the chosen order.
+--sort is rejected together with --type user (exit 2), which has no ordering.
 --limit caps the number of items; without the flag the config's default_limit
 applies. --max-pages caps pagination; without the flag the config's max_pages
 applies. Both must be >= 1 when given: there is no "unlimited" value.
@@ -79,7 +86,7 @@ stderr in the default modes.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(cmd, s, args[0], limitFlag, maxPagesFlag, typeFlag, asJSON, asNDJSON, filters)
+			return run(cmd, s, args[0], limitFlag, maxPagesFlag, typeFlag, sortFlag, asJSON, asNDJSON, filters)
 		},
 	}
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
@@ -88,6 +95,8 @@ stderr in the default modes.`,
 		"Maximum result pages (default: config max_pages; built-in default 5)")
 	cmd.Flags().StringVar(&typeFlag, "type", "tweet",
 		"Search target type: tweet or user (default: tweet)")
+	cmd.Flags().StringVar(&sortFlag, "sort", "latest",
+		"Result ordering for tweet searches: latest (default) or top (popular results); not valid with --type user")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print one JSON object for a single item, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
@@ -101,11 +110,12 @@ stderr in the default modes.`,
 	return cmd
 }
 
-// run executes one search. Flag/config resolution order: an explicit flag
-// wins over the config value; a negative flag is a usage error while a
-// negative config value keeps its documented "0 semantics = all" pixiv
-// heritage (appapi treats limit <= 0 as unbounded).
-func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, typeFlag string, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
+// run executes one search. Flag/config resolution order: an explicit flag wins
+// over the config value. Both caps must be >= 1: a flag below 1 is a usage
+// error and a config below 1 is rejected at load, so the acquisition layer
+// never receives a non-positive limit or page budget. The flag defaults stay 0
+// ("not given"), which is why the checks are gated on Changed.
+func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, maxPagesFlag int, typeFlag, sortFlag string, asJSON, asNDJSON bool, filters tweetfilter.Filters) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
 		return err
@@ -116,6 +126,19 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 	typeFlag = strings.ToLower(strings.TrimSpace(typeFlag))
 	if typeFlag != "tweet" && typeFlag != "user" {
 		return invocation.Usagef("search: invalid --type %q (allowed: tweet, user)", typeFlag)
+	}
+	// --sort is normalized the same way as --type: case and surrounding
+	// whitespace never change the accepted values, and an unknown value is a
+	// usage error instead of a silent fallback to "latest".
+	sortFlag = strings.ToLower(strings.TrimSpace(sortFlag))
+	if sortFlag != "latest" && sortFlag != "top" {
+		return invocation.Usagef("search: invalid --sort %q (allowed: latest, top)", sortFlag)
+	}
+	// The conflict is judged on the FLAG, not on the value: an explicit
+	// --sort (even --sort latest) has no meaning for --type user, which
+	// searches profiles rather than a tweet feed.
+	if cmd.Flags().Changed("sort") && typeFlag == "user" {
+		return invocation.Usagef("search: --sort cannot be used with --type user")
 	}
 	if cmd.Flags().Changed("limit") && limitFlag < 1 {
 		return invocation.Usagef("search: --limit must be >= 1 (there is no unlimited value)")
@@ -206,7 +229,7 @@ func run(cmd *cobra.Command, s *invocation.Streams, query string, limitFlag, max
 		}
 	}
 
-	tweets, instance, err := w.Search().Search(ctx, query, limit, maxPages)
+	tweets, instance, err := w.Search().Search(ctx, query, limit, maxPages, client.WithSearchSort(sortFlag))
 	if err != nil {
 		// Invalid-argument classifications (none expected past the local
 		// validation) map to usage errors; acquisition failures exit 1.

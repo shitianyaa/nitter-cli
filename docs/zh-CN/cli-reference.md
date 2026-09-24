@@ -108,7 +108,8 @@ nitter user <HANDLE> [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
 
 Nitter RSS 源会按其 `Min-Id` 游标逐页读取，因此积压跨越多页时不会被截断在
 第一页：`--limit N` 会一直翻页到凑满 N 条或耗尽 `--max-pages` 预算为止
-（不携带 `Min-Id` 的普通 RSS 代理仍是单页）。
+（不携带 `Min-Id` 的普通 RSS 代理仍是单页）。页数预算**按层各算一份**：RSS 扫描与
+HTML 回退各自计数，因此 RSS 花满预算却仍没有可用条目时，回退层另有一份完整预算。
 
 - `--with-replies` 包含用户自身发布的回复推文。
 - `--no-reposts` 丢弃纯转推。
@@ -164,7 +165,9 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
   - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
   - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
 - `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
-- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。`--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
+- `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
+  - `--limit N`（默认 20，必须 ≥ 1）：每个博主抓取的推文上限。
+  - `--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
   - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。
   - **页数预算**：`run` 没有 `--max-pages` flag；每个成员的抓取使用配置 `max_pages`（默认 5）。需要更深时请改配置（这同时会提高 `watch` 每轮的预算）。
   - **确定性顺序**：Fx 快车道下结果按推文 ID 降序（时间线序）排序后再按 `--limit` 截断，即使上游翻页组成在多次运行间波动，同输入也产生同输出序列。
@@ -214,8 +217,8 @@ nitter trends [--limit N] [--json|--ndjson]
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+nitter search <QUERY> [--type tweet|user] [--sort latest|top] [--limit N] [--max-pages N] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 对配置的实例或 FxTwitter 运行 `QUERY`。当 `--type tweet`（默认）时，查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
@@ -228,6 +231,12 @@ nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-repo
 一项独立能力，某个实例可能禁用或响应很慢——先用 `nitter instances test --full`
 探测，再怀疑查询串。
 
+`--sort latest|top`（默认 `latest`）选择结果排序，并同时下发给两个后端——Nitter 的
+`f=` 参数（`latest` 对应 `tweets`，`top` 对应 `top`）与 FxTwitter 的 `feed`——因此
+mix 模式降级时绝不会给出与请求不同的排序，翻页的每一页也保持该排序。取值对大小写
+和首尾空白不敏感；其他值退出 2（绝不静默回退到默认排序）。`--sort` 与 `--type user`
+同时给出退出 2——用户搜索没有排序概念。
+
 当 `--type user` 时，按关键词搜索推主、画师、KOL 账号：
 
 无匹配时上游返回 200 + 空列表（退出 0）；上游用户搜索接口返回 404 属故障，按 `not_found` 上报（退出 1），而不是当作空结果。与所有取数失败一样，它只写 stderr——`--ndjson` **不会**输出 `kind: "error"` 信封，请靠退出码判断。
@@ -237,6 +246,10 @@ nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-repo
 
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
+
+```bash
+nitter search "#AI" --sort top --limit 10 --json   # 按热门排序而非最新优先
+```
 
 ## nitter list
 
@@ -262,8 +275,9 @@ nitter get <REF> [--json|--ndjson]
 抓取单条推文。默认 `fetch_backend=mix` 下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例；`fx` 模式下快道是唯一允许的来源，错误按原样上报，不再有降级掩盖真因。
 `REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
-`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
-stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出是歧义错误（退出 2）。
+`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。位置参数 `REF`
+始终优先；仅在未提供位置参数且 stdin 非 TTY 时，才从 stdin 读一行作为引用。
+给出位置参数时绝不读取 stdin，因此 `nitter get <REF>` 不会卡在写端保持打开的管道上。
 没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/
 `--ndjson` 可见）；互动数不予报告——绝不虚构。NDJSON 的 `meta.source` 为
 `status:<数字 ID>`。当由 FxTwitter 提供时，NDJSON 的 `meta.instance` 标为 `FxTwitter`。
@@ -284,8 +298,9 @@ nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
 把每条 status REF 解析成可直接下载的媒体直链——视频 mp4 变体、图片原图、
 GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitter.com /
 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与 `/video/1` 后缀）。多个 REF
-按批次运行；不给位置参数且 stdin 非 TTY 时，从 stdin 读取引用（每行一个，
-空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
+按批次运行；位置参数始终优先——仅在未提供位置参数且 stdin 非 TTY 时，才从 stdin
+读取引用（每行一个，空行忽略）。给出位置参数时绝不读取 stdin，因此批次不会卡在
+写端保持打开的管道上。下载动作本身由
 调用方完成——本命令只解析直链，不抓取媒体。
 
 **策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → nitter → xdown 依次尝试，
@@ -331,7 +346,7 @@ https://x.com/NASA/status/2102761519985332442	fx	video	https://video.twimg.com/e
 （NDJSON 流上为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），
 其余 REF 继续运行；至少一个 REF 失败时以 `media completed with N of M refs
 failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--strategy`/
-`--quality` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出）退出 2。
+`--quality` 不合法、引用缺失或不合法）退出 2。
 
 ## nitter download
 
@@ -345,12 +360,12 @@ nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
 用 `media` 命令的策略链解析每条 status REF，并把计划好的媒体文件下载到输出
 目录。`REF` 的形态与 `nitter get`、`nitter media` 相同（纯数字 ID，或
 x.com / twitter.com / 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与
-`/video/1` 后缀）。多个 REF 按批次运行；不给位置参数且 stdin 非 TTY 时从
-stdin 读取输入——首个非空白字节为 `{` 时，每个非空行都必须是严格的
-`nitter.pipeline/v1` tweet 信封，且每条记录的 `data.url` 被用作 REF
-（`nitter get --ndjson` 与 `nitter watch --ndjson` 的流可以直接喂给
-download；信封不合法是用法错误），否则每个非空行就是一条普通 REF。位置参数
-与 stdin 同时给出是歧义错误（退出 2）。
+`/video/1` 后缀）。多个 REF 按批次运行。位置参数始终优先；仅在未提供位置参数
+且 stdin 非 TTY 时从 stdin 读取输入——首个非空白字节为 `{` 时，每个非空行都必须是严格的
+`nitter.pipeline/v1` tweet 信封，取每条记录的 `data.url` 作为 REF（`nitter get
+--ndjson` 与 `nitter watch --ndjson` 的流可直接喂给 download；信封格式错误是用法
+错误），否则每个非空行都是一个普通 REF。给出位置参数时绝不读取 stdin，因此批次
+不会卡在写端保持打开的管道上。
 
 **选择**（`--kind`，默认：全部）遵循 video-wins 规则：带视频或 GIF 的推文
 只下载唯一一个最佳视频文件——按码率（或 xdown 的 p 值）排序；实测 xdown
@@ -431,8 +446,8 @@ https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/21027615199
 为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），其余 REF
 继续运行；至少一个 REF 失败时以 `download completed with N of M refs
 failed` 摘要退出 1；用法问题（`--kind`/`--quality`/`--strategy`/
-`--on-exists` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出、stdin
-信封不合法、`--json` 与 `--ndjson` 同给）退出 2。
+`--on-exists` 不合法、引用缺失或不合法、stdin
+信封格式错误、`--json` 与 `--ndjson` 同给）退出 2。
 
 ## nitter instances test
 
@@ -528,7 +543,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   `fetch_backend` 取 `mix|fx`（`nitter` 已移除——实例路径改为用 `--instance` 在有实例路径的命令上逐次选择）；
   `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
   `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
-  读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。
+  读一行（敏感值不该进 argv）；TTY 下不给 VALUE 是用法错误。
   未知键被拒绝，并提示 `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
 - `config unset KEY` 删除该键，使其回落到环境变量/默认值。
 - `download_path`（默认 `./nitter-media`，相对当前工作目录）是 `nitter
@@ -597,6 +612,9 @@ Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源�
 
 - 未初始化源的第一轮只**记录**状态——不输出任何历史（只记不推）。
   `--include-existing` 对该次运行解除此限制，且该轮首抓不受 `--max-new` 限制。
+- 未初始化的 `user:` 源即使首抓为空也会完成初始化，下一轮即可输出其新推文；
+  `tag:` 与 `list:` 源要等某轮返回至少一条推文才初始化，因此偶发的空首响应
+  不会被误当成「已追平」。
 - 之后的每轮输出各源的新推文，每源每轮最多 `--max-new` 条。默认
   （`--max-new-overflow drop`）下**超出上限的新推文会被立即标记为已见、之后
   绝不补推**：停机恢复后，单源单轮突发超过上限的部分会被静默跳过——调度器
@@ -697,7 +715,7 @@ nitter update [--confirm] [--proxy URL]
 nitter update --check [--prerelease] [--json] [--proxy URL]
 ```
 
-报告二进制的更新方式。当存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
+检查 GitHub 上的最新发布版，存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
 `checksums.txt` 校验其 SHA-256，检查暂存二进制报告的版本，全部通过后才替换可执行文件。
 **任何失败都不会改动现有安装**——所有校验通过前不会碰目标文件。
 

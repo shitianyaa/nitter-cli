@@ -29,15 +29,16 @@ import (
 // REF is a bare numeric status ID or a status URL (x.com, twitter.com or any
 // Nitter instance, shape /<user>/status/<id>; the user segment is optional
 // on Nitter's /status/<id> route; /photo/N and /video/1 suffixes are
-// accepted). When no positional argument is given and stdin is not a TTY,
-// the reference is read from stdin (one line; a CR/LF-stripped, trimmed
-// line). Giving it both ways is an ambiguity error. There are no pagination
-// flags — a single status is fetched.
+// accepted). A positional REF always wins; only when none is given AND stdin
+// is not a TTY is the reference read from stdin (one line; a CR/LF-stripped,
+// trimmed line) — stdin is never touched while a positional REF is present,
+// so `nitter get <REF>` cannot block on a pipe whose writer stays open.
+// There are no pagination flags — a single status is fetched.
 //
 // Exit codes (repo-wide semantics): success exits 0; acquisition failure
 // (every instance failed) exits 1 with the classified error message; usage
-// problems (bad/missing ref, ref given both as argument and on stdin, extra
-// arguments, --json with --ndjson, invalid config values) exit 2.
+// problems (bad/missing ref, extra arguments, --json with --ndjson, invalid
+// config values) exit 2.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
 		asJSON   bool
@@ -53,9 +54,10 @@ func New(s *invocation.Streams) *cobra.Command {
 REF is a bare numeric status ID, or a status URL — x.com, twitter.com or
 any Nitter instance, with the shape <user>/status/<id>; the user segment is
 optional (Nitter also serves /status/<id> directly), and the /photo/N and
-/video/1 suffixes of status permalinks are accepted. With no argument and a
-non-TTY stdin the reference is read from stdin (one line). Giving it both
-as an argument and on stdin is an ambiguity error.
+/video/1 suffixes of status permalinks are accepted. A positional REF always
+wins; only with no argument AND a non-TTY stdin is the reference read from
+stdin (one line). A positional REF never reads stdin, so it cannot block on
+an open pipe.
 
 The page's quoted tweet, when present, is summarized (visible in --json
 /--ndjson output); interaction counts are not reported — the source
@@ -85,8 +87,11 @@ data, provenance in meta; meta.source is "status:" plus the numeric ID).
 }
 
 // run executes one single-status fetch. The ref comes from the positional
-// argument or — when none is given and stdin is not a TTY — from one stdin
-// line; giving it both ways is a usage error (mirroring javdb).
+// argument; only when none is given and stdin is not a TTY is it read from
+// one stdin line. A positional ref short-circuits the stdin branch entirely
+// — stdin is never read, so the command cannot hang on a pipe whose writer
+// stays open (the pre-0.7.4 code read stdin first and reported an ambiguity
+// error, which blocked forever on `nitter get <REF> |`-style pipelines).
 func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJSON bool) error {
 	mode, err := pipeline.ResolveOutputMode(asNDJSON, asJSON, s.OutIsTTY)
 	if err != nil {
@@ -96,13 +101,12 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, asJSON, asNDJ
 	if len(args) == 1 {
 		ref = args[0]
 	}
-	if s.In != nil && !s.InIsTTY {
-		// An empty line (e.g. `echo "" | nitter get 101`) carries no ref:
-		// only a non-empty line counts as "given on stdin".
+	if len(args) == 0 && s.In != nil && !s.InIsTTY {
+		// Only a non-empty stdin line counts as "given on stdin": an empty
+		// payload (e.g. `echo "" | nitter get`) carries no ref and falls
+		// through to the usage error below. An explicitly supplied empty
+		// argument is a positional argument too, so it never reaches here.
 		if line, ok := firstLine(s.In); ok && line != "" {
-			if ref != "" {
-				return invocation.Usagef("get: status reference given both as an argument and on stdin")
-			}
 			ref = line
 		}
 	}

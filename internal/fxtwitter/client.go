@@ -232,7 +232,11 @@ func (c *Client) FetchUserTimeline(
 
 	perPage := count
 	if skipPlainText {
-		perPage = count * 2
+		if count > 50 {
+			perPage = 100
+		} else {
+			perPage = count * 2
+		}
 		if perPage < 20 {
 			perPage = 20
 		}
@@ -245,8 +249,8 @@ func (c *Client) FetchUserTimeline(
 	}
 
 	pagesLimit := maxPages
-	if pagesLimit <= 0 {
-		pagesLimit = 3
+	if pagesLimit == 0 {
+		pagesLimit = 5
 	}
 
 	// capacityHint clamps the eager allocation: the count doubles as the
@@ -259,11 +263,15 @@ func (c *Client) FetchUserTimeline(
 	}
 	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
+	seenCursors := make(map[string]bool)
+	if currentCursor != "" {
+		seenCursors[currentCursor] = true
+	}
 	pagesFetched := 0
 	var lastCursor string
 	cursorStalled := false
 
-	for len(accumulated) < count && pagesFetched < pagesLimit {
+	for len(accumulated) < count && (pagesLimit < 0 || pagesFetched < pagesLimit) {
 		params := url.Values{}
 		params.Set("count", strconv.Itoa(perPage))
 		if currentCursor != "" {
@@ -287,9 +295,10 @@ func (c *Client) FetchUserTimeline(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor {
+		if lastCursor == "" || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
+		seenCursors[lastCursor] = true
 
 		for _, raw := range rawResults {
 			tw := raw.Resolve().ToSDK()
@@ -343,8 +352,8 @@ func (c *Client) FetchUserMedia(
 
 	endpoint := fmt.Sprintf("/2/profile/%s/media", cleanUser)
 	pagesLimit := maxPages
-	if pagesLimit <= 0 {
-		pagesLimit = 3
+	if pagesLimit == 0 {
+		pagesLimit = 5
 	}
 
 	perPage := count
@@ -365,11 +374,15 @@ func (c *Client) FetchUserMedia(
 	}
 	accumulated := make([]sdk.Tweet, 0, capacityHint)
 	currentCursor := cursor
+	seenCursors := make(map[string]bool)
+	if currentCursor != "" {
+		seenCursors[currentCursor] = true
+	}
 	pagesFetched := 0
 	var lastCursor string
 	cursorStalled := false
 
-	for len(accumulated) < count && pagesFetched < pagesLimit {
+	for len(accumulated) < count && (pagesLimit < 0 || pagesFetched < pagesLimit) {
 		params := url.Values{}
 		params.Set("count", strconv.Itoa(perPage))
 		if currentCursor != "" {
@@ -393,9 +406,13 @@ func (c *Client) FetchUserMedia(
 		}
 
 		lastCursor = resp.CursorValue()
-		if lastCursor == "" || lastCursor == currentCursor {
+		// currentCursor is always already in seenCursors (it is seeded before
+		// the loop and re-seeded from the previous page's cursor), so a
+		// self-repeat is covered here without a separate comparison.
+		if lastCursor == "" || seenCursors[lastCursor] {
 			cursorStalled = true
 		}
+		seenCursors[lastCursor] = true
 
 		for _, raw := range rawResults {
 			tw := raw.Resolve().ToSDK()
@@ -541,7 +558,11 @@ func (c *Client) FetchConversation(
 	return conv, nil
 }
 
-// SearchTweets queries FxTwitter search endpoint.
+// SearchTweets queries FxTwitter search endpoint. feed selects the result
+// ordering: "latest" (the default when empty) or "top" (popular results).
+// Both values are forwarded verbatim as the endpoint's `feed` parameter;
+// anything else is rejected as KindInvalidArg rather than being sent
+// upstream or silently swapped for a default.
 func (c *Client) SearchTweets(
 	ctx context.Context,
 	query string,
@@ -557,6 +578,11 @@ func (c *Client) SearchTweets(
 	feed = strings.ToLower(strings.TrimSpace(feed))
 	if feed == "" {
 		feed = "latest"
+	}
+	switch feed {
+	case "latest", "top":
+	default:
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opSearch, "invalid feed %q; must be latest or top", feed)
 	}
 
 	perPage := count

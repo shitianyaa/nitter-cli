@@ -34,8 +34,11 @@ their health. Command semantics are governed by the installed binary's
   configured set with that single URL for this invocation — it is a plain
   URL and carries **no** credentials, so a credentialed instance must be
   used through its config entry. `--proxy URL`
-  analogously overrides the proxy (flag > config `proxy` > environment
-  `HTTPS_PROXY`/`ALL_PROXY`; schemes `http`, `https`, `socks5`, `socks5h`).
+  analogously overrides the proxy (flag > config `proxy`; schemes `http`,
+  `https`, `socks5`, `socks5h`). The environment variables
+  `HTTPS_PROXY`/`ALL_PROXY` are **not** a fallback for instance traffic:
+  they apply to the FxTwitter fast lane and `update` only — proxy the nitter
+  transport with `--proxy` or the `proxy` config key.
 
 ## No instance yet?
 

@@ -899,3 +899,7 @@ func TestUserWithRepliesFlag(t *testing.T) {
 		t.Errorf("output = %q, want tweet 101", out)
 	}
 }
+
+// TestUserLimitZeroUnderFxBackend was removed with the "0 = unlimited" limit
+// semantics: --limit 0 is now a usage error on every backend (pinned by
+// TestUserRejectsNonPositiveCaps above).

@@ -100,11 +100,31 @@ type MergedTimelineSource interface {
 	MergedTimeline(ctx context.Context, handles []string, maxPages int, stop func(page []nitter.Tweet) bool) (map[string][]nitter.Tweet, string, error)
 }
 
+// SearchOptions configures search acquisition.
+type SearchOptions struct {
+	// Sort is the result ordering: "latest" (the default, also when empty)
+	// or "top" (popular results). It is forwarded to BOTH backends — the
+	// FxTwitter fast lane's `feed` and Nitter's `/search?f=` parameter — so
+	// mix mode never silently degrades one ordering into the other. Search
+	// only; SearchUsers has no ordering.
+	Sort string
+}
+
+// SearchOption sets an option on SearchOptions.
+type SearchOption func(*SearchOptions)
+
+// WithSearchSort selects the search result ordering: "latest" (default) or
+// "top" (popular results). The value is validated by the adapter; an unknown
+// value is a KindInvalidArg error rather than a silent fallback.
+func WithSearchSort(v string) SearchOption {
+	return func(o *SearchOptions) { o.Sort = v }
+}
+
 // SearchSource is the search acquisition capability a command consumes
 // (same provenance contract as TimelineSource). Backed by *appapi.Client
 // and *fxtwitter.Client through searchAdapter.
 type SearchSource interface {
-	Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error)
+	Search(ctx context.Context, query string, limit, maxPages int, opts ...SearchOption) ([]nitter.Tweet, string, error)
 	SearchUsers(ctx context.Context, query string, count int) ([]nitter.Profile, error)
 }
 
@@ -315,6 +335,9 @@ func (a timelineAdapter) timelineFx(ctx context.Context, handle string, limit, m
 		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Timeline", "no fxtwitter client wired")
 	}
 
+	// No limit translation here: 0 is not a spelling for "all" any more (it is
+	// a usage error at the flag layer, and the Fx client rejects a non-positive
+	// count outright). watch passes allTweetsSentinel when it wants everything.
 	var tweets []nitter.Tweet
 	var err error
 
@@ -387,41 +410,59 @@ func (w *Wiring) MergedTimeline() MergedTimelineSource { return mergedTimelineAd
 // searchAdapter bridges SearchSource to the hybrid dispatcher.
 type searchAdapter struct{ w *Wiring }
 
-func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error) {
+func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages int, opts ...SearchOption) ([]nitter.Tweet, string, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, "", nitter.Errorf(nitter.KindInvalidArg, "client.Search", "query cannot be empty")
+	}
+
+	var opt SearchOptions
+	for _, fn := range opts {
+		fn(&opt)
+	}
+	// Normalize + validate once, then hand the SAME ordering to every
+	// backend: FxTwitter gets it as `feed`, Nitter as PageOptions.Sort. An
+	// unknown value is rejected up front — a mix-mode fallback must never
+	// quietly answer with a different ordering than the one requested.
+	sort := strings.ToLower(strings.TrimSpace(opt.Sort))
+	if sort == "" {
+		sort = "latest"
+	}
+	switch sort {
+	case "latest", "top":
+	default:
+		return nil, "", nitter.Errorf(nitter.KindInvalidArg, "client.Search", "invalid sort %q; must be latest or top", opt.Sort)
 	}
 
 	backend := a.w.effectiveBackend()
 
 	switch backend {
 	case "nitter":
-		return a.searchNitter(ctx, query, limit, maxPages)
+		return a.searchNitter(ctx, query, limit, maxPages, sort)
 	case "fx":
-		return a.searchFx(ctx, query, limit)
+		return a.searchFx(ctx, query, limit, sort)
 	case "mix":
-		tweets, instance, err := a.searchFx(ctx, query, limit)
+		tweets, instance, err := a.searchFx(ctx, query, limit, sort)
 		if err == nil {
 			return tweets, instance, nil
 		}
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return a.searchNitter(ctx, query, limit, maxPages)
+		return a.searchNitter(ctx, query, limit, maxPages, sort)
 	default:
-		return a.searchNitter(ctx, query, limit, maxPages)
+		return a.searchNitter(ctx, query, limit, maxPages, sort)
 	}
 }
 
-func (a searchAdapter) searchNitter(ctx context.Context, query string, limit, maxPages int) ([]nitter.Tweet, string, error) {
-	return a.w.AppAPI.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages})
+func (a searchAdapter) searchNitter(ctx context.Context, query string, limit, maxPages int, sort string) ([]nitter.Tweet, string, error) {
+	return a.w.AppAPI.Search(ctx, query, appapi.PageOptions{Limit: limit, MaxPages: maxPages, Sort: sort})
 }
 
-func (a searchAdapter) searchFx(ctx context.Context, query string, limit int) ([]nitter.Tweet, string, error) {
+func (a searchAdapter) searchFx(ctx context.Context, query string, limit int, sort string) ([]nitter.Tweet, string, error) {
 	if a.w.Fx == nil {
 		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Search", "no fxtwitter client wired")
 	}
-	tweets, _, err := a.w.Fx.SearchTweets(ctx, query, limit, "", "latest")
+	tweets, _, err := a.w.Fx.SearchTweets(ctx, query, limit, "", sort)
 	if err != nil {
 		return nil, "", err
 	}

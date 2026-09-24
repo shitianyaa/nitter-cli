@@ -55,17 +55,18 @@ var validQualities = map[string]bool{
 // REF is a bare numeric status ID or a status URL (x.com, twitter.com or any
 // Nitter instance, shape /<user>/status/<id>; /photo/N and /video/1 suffixes
 // are accepted) — the same reference shapes `nitter get` takes. Multiple
-// REFs run as a batch. With no positional argument and a non-TTY stdin, the
-// references are read from stdin (one per non-empty line); giving refs both
-// ways is an ambiguity error.
+// REFs run as a batch. Positional REFs always win; only when none is given
+// AND stdin is not a TTY are the references read from stdin (one per
+// non-empty line) — stdin is never touched while positional REFs are
+// present, so a batch invocation cannot block on a pipe whose writer stays
+// open.
 //
 // Exit codes (repo-wide semantics): success exits 0; a per-REF resolution
 // failure gets an in-place error report (kind:"error" envelope on the NDJSON
 // stream, a stderr line otherwise) while the other refs continue, and the
 // command exits 1 with a "media completed with N of M refs failed" summary
 // when at least one ref failed; usage problems (invalid --strategy or
-// --quality, bad/missing refs, refs given both as arguments and on stdin,
-// --json with --ndjson) exit 2.
+// --quality, bad/missing refs, --json with --ndjson) exit 2.
 func New(s *invocation.Streams) *cobra.Command {
 	var (
 		strategy string
@@ -89,9 +90,10 @@ caller's job — the command resolves links, it does not fetch media.
 
 REF is a bare numeric status ID, or a status URL — x.com, twitter.com or any
 Nitter instance, shape <user>/status/<id> (/photo/N and /video/1 suffixes
-accepted). Multiple REFs run as a batch; with no argument and a non-TTY
-stdin the references are read from stdin (one per non-empty line). Giving
-refs both as arguments and on stdin is an ambiguity error.
+accepted). Multiple REFs run as a batch. Positional REFs always win; only
+when none is given AND stdin is not a TTY are the references read from stdin
+(one per non-empty line) — a positional REF never reads stdin, so a batch
+cannot block on an open pipe.
 
 Strategies (--strategy, default auto): auto tries fx → nitter → xdown in
 order and returns the first strategy that yields media
@@ -271,19 +273,18 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, strategy, qua
 	return nil
 }
 
-// collectRefs gathers the batch inputs: the positional arguments, or — when
-// none is given and stdin is not a TTY — every non-empty stdin line. Giving
-// refs both ways is an ambiguity error (mirroring `get`).
+// collectRefs gathers the batch inputs: the positional arguments when any
+// are given — stdin is never read then, so a positional batch cannot hang on
+// a pipe whose writer stays open — or, with no positional argument and a
+// non-TTY stdin, every non-empty stdin line. Neither source yields a ref is
+// a usage error.
 func collectRefs(s *invocation.Streams, args []string) ([]string, error) {
-	refs := append([]string(nil), args...)
+	if len(args) > 0 {
+		return append([]string(nil), args...), nil
+	}
+	var refs []string
 	if s.In != nil && !s.InIsTTY {
-		stdinRefs := nonEmptyLines(s.In)
-		if len(stdinRefs) > 0 {
-			if len(refs) > 0 {
-				return nil, invocation.Usagef("media: status references given both as arguments and on stdin")
-			}
-			refs = stdinRefs
-		}
+		refs = nonEmptyLines(s.In)
 	}
 	if len(refs) == 0 {
 		return nil, invocation.Usagef("usage: nitter media <REF>...")

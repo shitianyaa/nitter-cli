@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1326,5 +1328,212 @@ func TestSelfReferentialURLErrorTerminates(t *testing.T) {
 	}
 	if !strings.Contains(msg, "transport failure") {
 		t.Errorf("error = %q, want the static redaction text once the unwrap cap is hit", msg)
+	}
+}
+
+func TestFetchUserMediaCursorCycleGuard(t *testing.T) {
+	reqCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount++
+		w.Header().Set("Content-Type", "application/json")
+		nextCursor := "cur_A"
+		switch reqCount {
+		case 1:
+			nextCursor = "cur_B"
+		case 2:
+			nextCursor = "cur_A"
+		case 3:
+			nextCursor = "cur_B"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount), "text": "media tweet"},
+			},
+			"cursor": nextCursor,
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, cur, err := client.FetchUserMedia(context.Background(), "artist", 100, "", 5)
+	if err != nil {
+		t.Fatalf("FetchUserMedia failed: %v", err)
+	}
+	if reqCount != 3 {
+		t.Errorf("reqCount = %d, want the loop to stop on the revisited cursor (3 requests, not 5)", reqCount)
+	}
+	if len(tweets) != 3 {
+		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets))
+	}
+	// Companion assertion: a stalled chain reports no continuation. It does not
+	// discriminate between the guards (an immediate self-repeat also yields
+	// ""); reqCount and len(tweets) above are the discriminating assertions.
+	if cur != "" {
+		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur)
+	}
+}
+
+func TestSearchTweetsFeedParameter(t *testing.T) {
+	var mu sync.Mutex
+	var queries []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		queries = append(queries, r.URL.RawQuery)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"code":200,"results":[{"id":"7","url":"https://x.com/user/status/7","text":"hit","author":{"screen_name":"user"}}]}`)
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	seen := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), queries...)
+	}
+
+	for _, tc := range []struct{ feed, want string }{
+		{"latest", "feed=latest"},
+		{"", "feed=latest"},
+		{"TOP", "feed=top"},
+		{" top ", "feed=top"},
+	} {
+		mu.Lock()
+		queries = nil
+		mu.Unlock()
+
+		tweets, _, err := client.SearchTweets(ctx, "moon", 10, "", tc.feed)
+		if err != nil {
+			t.Fatalf("SearchTweets(feed=%q): %v", tc.feed, err)
+		}
+		if len(tweets) != 1 {
+			t.Fatalf("SearchTweets(feed=%q): got %d tweets, want 1", tc.feed, len(tweets))
+		}
+		got := seen()
+		if len(got) != 1 || !strings.Contains(got[0], tc.want) {
+			t.Errorf("SearchTweets(feed=%q): queries = %v, want %q", tc.feed, got, tc.want)
+		}
+	}
+
+	mu.Lock()
+	queries = nil
+	mu.Unlock()
+	_, _, err := client.SearchTweets(ctx, "moon", 10, "", "bogus")
+	if err == nil {
+		t.Fatal("SearchTweets(feed=bogus) = nil error, want invalid_argument")
+	}
+	var serr *sdk.Error
+	if !errors.As(err, &serr) || serr.Kind != sdk.KindInvalidArg {
+		t.Errorf("err = %v (%T), want KindInvalidArg", err, err)
+	}
+	if got := seen(); len(got) != 0 {
+		t.Errorf("queries = %v, want none (the feed is validated before any request)", got)
+	}
+}
+
+func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. Verify that pagesLimit defaults to 5 when maxPages <= 0
+	reqCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount), "text": "tweet"},
+			},
+			"cursor": fmt.Sprintf("cur_%d", reqCount),
+		})
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, _, err := client.FetchUserTimeline(ctx, "user", 100, "", 0, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline failed: %v", err)
+	}
+	if reqCount != 5 {
+		t.Errorf("reqCount = %d, want 5 pages by default", reqCount)
+	}
+	if len(tweets) != 5 {
+		t.Errorf("got %d tweets, want 5", len(tweets))
+	}
+
+	// 2. Verify the seenCursors guard breaks a multi-step cursor cycle: the
+	// chain B -> A -> B revisits cur_B from page 1, which is neither an empty
+	// cursor nor an immediate self-repeat, so only seenCursors can stop it
+	// (without that guard the loop would run to the 5-page budget).
+	reqCount2 := 0
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount2++
+		w.Header().Set("Content-Type", "application/json")
+		nextCursor := "cur_A"
+		switch reqCount2 {
+		case 1:
+			nextCursor = "cur_B"
+		case 2:
+			nextCursor = "cur_A"
+		case 3:
+			nextCursor = "cur_B"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount2), "text": "tweet"},
+			},
+			"cursor": nextCursor,
+		})
+	}))
+	defer srv2.Close()
+
+	client2 := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv2.URL), fxtwitter.WithHTTPClient(srv2.Client()))
+	tweets2, cur2, err := client2.FetchUserTimeline(ctx, "user", 100, "", 5, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline failed: %v", err)
+	}
+	if reqCount2 != 3 {
+		t.Errorf("reqCount2 = %d, want loop to stop after cyclic cursor (3 requests, not 5)", reqCount2)
+	}
+	if len(tweets2) != 3 {
+		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets2))
+	}
+	// Companion assertion: see the media cycle test — the discriminating ones
+	// are reqCount2 and len(tweets2) above.
+	if cur2 != "" {
+		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur2)
+	}
+
+	// 3. Verify unbounded pagination (maxPages < 0) is not clamped by default 5 pages
+	reqCount3 := 0
+	srv3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount3++
+		w.Header().Set("Content-Type", "application/json")
+		next := fmt.Sprintf("cur_%d", reqCount3)
+		if reqCount3 >= 7 {
+			next = ""
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200,
+			"tweets": []map[string]any{
+				{"id": fmt.Sprintf("%d", reqCount3), "text": "tweet"},
+			},
+			"cursor": next,
+		})
+	}))
+	defer srv3.Close()
+
+	client3 := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv3.URL), fxtwitter.WithHTTPClient(srv3.Client()))
+	tweets3, _, err := client3.FetchUserTimeline(ctx, "user", 100, "", -1, false, false)
+	if err != nil {
+		t.Fatalf("FetchUserTimeline unbounded failed: %v", err)
+	}
+	if reqCount3 != 7 || len(tweets3) != 7 {
+		t.Errorf("unbounded: reqCount = %d, tweets = %d, want 7 pages to completion", reqCount3, len(tweets3))
 	}
 }
