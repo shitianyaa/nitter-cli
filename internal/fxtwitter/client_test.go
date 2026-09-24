@@ -250,6 +250,9 @@ func TestFetchUserMediaCursorCycleGuard(t *testing.T) {
 	if len(tweets) != 3 {
 		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets))
 	}
+	// Companion assertion: a stalled chain reports no continuation. It does not
+	// discriminate between the guards (an immediate self-repeat also yields
+	// ""); reqCount and len(tweets) above are the discriminating assertions.
 	if cur != "" {
 		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur)
 	}
@@ -1181,6 +1184,8 @@ func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
 	if len(tweets2) != 3 {
 		t.Errorf("got %d tweets, want 3 (one per fetched page)", len(tweets2))
 	}
+	// Companion assertion: see the media cycle test — the discriminating ones
+	// are reqCount2 and len(tweets2) above.
 	if cur2 != "" {
 		t.Errorf("cursor = %q, want empty: a stalled chain has no continuation", cur2)
 	}
