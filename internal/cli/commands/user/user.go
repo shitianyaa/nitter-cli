@@ -61,10 +61,12 @@ Instances are tried in config order; an instance whose whole fetch fails
 cools down while the next one is tried.
 
 --limit caps the number of tweets; without the flag the config's default_limit
-applies. --max-pages caps HTML pagination; without the flag the config's
-max_pages (default 5) applies. Both are caps and must be >= 1 when given:
-there is no "unlimited" value, so ask for a bound instead. (The RSS feed is
-single-page, so the page cap never applies to it.)
+applies. --max-pages caps pagination on both layers: the RSS feed is read page
+by page along its Min-Id cursor, and the HTML fallback follows its load-more
+cursor; without the flag the config's max_pages (default 5) applies. Both are
+caps and must be >= 1 when given: there is no "unlimited" value, so ask for a
+bound instead. A fetch whose --limit is already satisfied stops before the next
+page, so a small --limit does not spend the page budget.
 
 --json prints a machine-readable document: one JSON object for a single
 tweet, an array otherwise (an empty timeline prints []). --ndjson instead
@@ -85,7 +87,7 @@ and the (empty) hint on stderr in the default modes.`,
 	cmd.Flags().IntVar(&limitFlag, "limit", 0,
 		"Maximum tweets to fetch (default: config default_limit)")
 	cmd.Flags().IntVar(&maxPagesFlag, "max-pages", 0,
-		"Maximum HTML pages when falling back (default: config max_pages; built-in default 5)")
+		"Maximum pages fetched per layer (default: config max_pages; built-in default 5)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Print one JSON object for a single tweet, an array otherwise")
 	cmd.Flags().BoolVar(&asNDJSON, "ndjson", false,
