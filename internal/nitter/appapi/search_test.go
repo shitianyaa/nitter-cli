@@ -2,10 +2,11 @@ package appapi_test
 
 // Search acquisition tests. The search endpoint shares the timeline pipeline
 // (ClassifyPage → ParseTimeline → cursor pagination) but hits
-// /search?f=tweets&q=<query> and never involves RSS. Query semantics are the
+// /search?f=<mode>&q=<query> and never involves RSS. Query semantics are the
 // pass-through contract: the CLI does not transform the query, appapi only
 // URL-escapes it (#tag, from:user and plain phrases all go over the wire
-// as-is).
+// as-is). PageOptions.Sort picks the feed — "" / "latest" → f=tweets,
+// "top" → f=top — and every other value is a KindInvalidArg.
 
 import (
 	"context"
@@ -102,6 +103,118 @@ func TestSearchLimitStopsPaginationEarly(t *testing.T) {
 	}
 	if got := rec.requests(); len(got) != 2 {
 		t.Errorf("requests = %v, want pagination to stop once Limit is met", got)
+	}
+}
+
+// searchTopTarget is the exact request URI of the first page of a TOP-sorted
+// search (PageOptions.Sort = "top" → f=top on the wire).
+func searchTopTarget(query string) string {
+	return "/search?f=top&q=" + url.QueryEscape(query)
+}
+
+// TestSearchSortTopRequestsTopFeed pins the --sort top wire shape: the feed
+// parameter becomes f=top instead of f=tweets, and the query escaping is
+// unchanged.
+func TestSearchSortTopRequestsTopFeed(t *testing.T) {
+	srv, rec := newTimelineFake(t,
+		timelineRoute{searchTopTarget("#artemis"), 200, htmlPage([]string{"301", "302"}, ""), nil},
+	)
+	tweets, instance, err := newTimelineClient(t, srv.URL).Search(context.Background(), "#artemis", appapi.PageOptions{Sort: "top"})
+	if err != nil {
+		t.Fatalf("Search(Sort: top): %v", err)
+	}
+	if instance != srv.URL {
+		t.Errorf("instance = %q, want the serving instance %q", instance, srv.URL)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("tweets = %d, want 2", len(tweets))
+	}
+	want := []string{"/search?f=top&q=%23artemis"}
+	if got := rec.requests(); !slices.Equal(got, want) {
+		t.Errorf("requests = %v, want the top-feed search fetch %v", got, want)
+	}
+}
+
+// TestSearchSortTopPaginationKeepsTopFeed pins that the chosen ordering
+// survives pagination: every cursor page repeats f=top rather than falling
+// back to the default feed.
+func TestSearchSortTopPaginationKeepsTopFeed(t *testing.T) {
+	q := searchTopTarget("moon")
+	srv, rec := newTimelineFake(t,
+		timelineRoute{q, 200, htmlPage([]string{"301"}, "c1"), nil},
+		timelineRoute{q + "&cursor=c1", 200, htmlPage([]string{"302"}, "c2"), nil},
+		timelineRoute{q + "&cursor=c2", 200, htmlPage([]string{"303"}, ""), nil},
+	)
+	tweets, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "moon", appapi.PageOptions{Sort: "top"})
+	if err != nil {
+		t.Fatalf("Search(Sort: top): %v", err)
+	}
+	if len(tweets) != 3 {
+		t.Fatalf("tweets = %d, want 3 (three pages)", len(tweets))
+	}
+	want := []string{
+		q,
+		q + "&cursor=c1",
+		q + "&cursor=c2",
+	}
+	if got := rec.requests(); !slices.Equal(got, want) {
+		t.Errorf("requests = %v, want every page to keep f=top (%v)", got, want)
+	}
+}
+
+// TestSearchSortLatestMatchesDefault pins the compatibility rule: an explicit
+// "latest" (in any case, with surrounding whitespace) is byte-identical to
+// the omitted Sort — f=tweets.
+func TestSearchSortLatestMatchesDefault(t *testing.T) {
+	for _, sort := range []string{"", "latest", "LATEST", " Latest "} {
+		srv, rec := newTimelineFake(t,
+			timelineRoute{searchRouteTarget("moon"), 200, htmlPage([]string{"301"}, ""), nil},
+		)
+		if _, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "moon", appapi.PageOptions{Sort: sort}); err != nil {
+			t.Fatalf("Search(Sort: %q): %v", sort, err)
+		}
+		want := []string{"/search?f=tweets&q=moon"}
+		if got := rec.requests(); !slices.Equal(got, want) {
+			t.Errorf("Sort %q: requests = %v, want %v", sort, got, want)
+		}
+	}
+}
+
+// TestSearchInvalidSortIsInvalidArgBeforeNetwork pins both halves of the
+// rejection: the value is a KindInvalidArg naming the offending value, and it
+// fails before any rotation or request — a zero-instance client would answer
+// "no instances configured", so KindInvalidArg proves the sort was checked
+// first (and no instance was marked failed).
+func TestSearchInvalidSortIsInvalidArgBeforeNetwork(t *testing.T) {
+	for _, sort := range []string{"bogus", "hot", "tweets", "Top-1"} {
+		t.Run(sort, func(t *testing.T) {
+			c := newTimelineClient(t) // no instances at all
+			tweets, instance, err := c.Search(context.Background(), "moon", appapi.PageOptions{Sort: sort})
+			if err == nil {
+				t.Fatalf("Search(Sort: %q) = (%v, %q), want an error", sort, tweets, instance)
+			}
+			var terr *nitter.Error
+			if !errors.As(err, &terr) {
+				t.Fatalf("Search(Sort: %q) error = %T (%v), want *nitter.Error", sort, err, err)
+			}
+			if terr.Kind != nitter.KindInvalidArg {
+				t.Errorf("Search(Sort: %q) Kind = %v, want %v", sort, terr.Kind, nitter.KindInvalidArg)
+			}
+			if !strings.Contains(err.Error(), "invalid sort") || !strings.Contains(err.Error(), "latest or top") {
+				t.Errorf("Search(Sort: %q) error = %q, want it to name the accepted values", sort, err.Error())
+			}
+		})
+	}
+
+	// The same rejection with an instance configured: nothing is fetched.
+	srv, rec := newTimelineFake(t,
+		timelineRoute{searchRouteTarget("moon"), 200, htmlPage([]string{"301"}, ""), nil},
+	)
+	if _, _, err := newTimelineClient(t, srv.URL).Search(context.Background(), "moon", appapi.PageOptions{Sort: "bogus"}); err == nil {
+		t.Fatal("Search(Sort: bogus) = nil error, want KindInvalidArg")
+	}
+	if got := rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (the sort is validated before any network)", got)
 	}
 }
 

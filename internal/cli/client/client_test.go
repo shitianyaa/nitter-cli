@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -806,6 +807,171 @@ func TestStatusDispatchAndCapabilityWiring(t *testing.T) {
 		}
 		if prof.Handle != "profuser" || prof.Name != "Profile User" {
 			t.Errorf("got prof=%+v", prof)
+		}
+	})
+}
+
+// TestSearchSortPropagatesToBothBackends pins the no-silent-degradation rule
+// of --sort: the SAME ordering reaches FxTwitter (as `feed`) and Nitter (as
+// `f=`), in every backend mode. A mix-mode fallback must answer with the
+// ordering that was asked for, never with the default one.
+func TestSearchSortPropagatesToBothBackends(t *testing.T) {
+	var mu sync.Mutex
+	var fxQueries, nitterTargets []string
+
+	fxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		fxQueries = append(fxQueries, r.URL.RawQuery)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"code":200,"results":[{"id":"222","url":"https://x.com/user/status/222","text":"search fx","author":{"screen_name":"user"}}]}`)
+	}))
+	defer fxSrv.Close()
+
+	nitterSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		nitterTargets = append(nitterTargets, r.URL.RequestURI())
+		mu.Unlock()
+		_, _ = io.WriteString(w, `<div class="timeline"><div class="timeline-item"><a class="tweet-link" href="/user/status/333"></a><div class="tweet-content">from nitter search</div></div></div>`)
+	}))
+	defer nitterSrv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = fxSrv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	snapshot := func() (fx []string, nitter []string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), fxQueries...), append([]string(nil), nitterTargets...)
+	}
+
+	t.Run("top reaches both backends", func(t *testing.T) {
+		mu.Lock()
+		fxQueries, nitterTargets = nil, nil
+		mu.Unlock()
+
+		// mix mode: Fx answers, and it must carry feed=top.
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if _, inst, err := w.Search().Search(context.Background(), "moon", 5, 5, client.WithSearchSort("top")); err != nil {
+			t.Fatalf("Search(mix, top): %v", err)
+		} else if inst != "FxTwitter" {
+			t.Errorf("instance = %q, want the Fx fast lane", inst)
+		}
+		fx, _ := snapshot()
+		if len(fx) != 1 || !strings.Contains(fx[0], "feed=top") {
+			t.Errorf("fx queries = %v, want exactly one carrying feed=top", fx)
+		}
+		if strings.Contains(fx[0], "feed=latest") {
+			t.Errorf("fx query = %q, want the requested ordering, not the default", fx[0])
+		}
+
+		// nitter mode: the same ordering becomes f=top.
+		mu.Lock()
+		fxQueries, nitterTargets = nil, nil
+		mu.Unlock()
+		cfg2 := fastCfg()
+		cfg2.FetchBackend = "nitter"
+		cfg2.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w2, err := client.Build(&invocation.RootOptions{}, cfg2, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if _, _, err := w2.Search().Search(context.Background(), "moon", 5, 5, client.WithSearchSort("top")); err != nil {
+			t.Fatalf("Search(nitter, top): %v", err)
+		}
+		_, nitter := snapshot()
+		if len(nitter) != 1 || nitter[0] != "/search?f=top&q=moon" {
+			t.Errorf("nitter targets = %v, want the f=top fetch", nitter)
+		}
+	})
+
+	t.Run("mix fallback keeps the requested ordering", func(t *testing.T) {
+		mu.Lock()
+		fxQueries, nitterTargets = nil, nil
+		mu.Unlock()
+
+		// fxSrv answers everything, so point the fast lane at a dead
+		// endpoint to force the Nitter fallback: the fallback must still be
+		// f=top, not the default feed.
+		fxtwitter.EndpointOverrides.BaseURL = "http://127.0.0.1:1"
+		t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = fxSrv.URL })
+
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if _, inst, err := w.Search().Search(context.Background(), "moon", 5, 5, client.WithSearchSort("top")); err != nil {
+			t.Fatalf("Search(mix fallback, top): %v", err)
+		} else if inst != nitterSrv.URL {
+			t.Errorf("instance = %q, want the Nitter fallback %q", inst, nitterSrv.URL)
+		}
+		_, nitter := snapshot()
+		if len(nitter) != 1 || nitter[0] != "/search?f=top&q=moon" {
+			t.Errorf("nitter targets = %v, want the fallback to keep f=top", nitter)
+		}
+	})
+
+	t.Run("default and latest keep the historical f=tweets/feed=latest", func(t *testing.T) {
+		for _, opts := range [][]client.SearchOption{
+			nil,
+			{client.WithSearchSort("latest")},
+			{client.WithSearchSort("")},
+		} {
+			mu.Lock()
+			fxQueries, nitterTargets = nil, nil
+			mu.Unlock()
+
+			cfg := fastCfg()
+			cfg.FetchBackend = "mix"
+			cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+			w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if _, _, err := w.Search().Search(context.Background(), "moon", 5, 5, opts...); err != nil {
+				t.Fatalf("Search(%v): %v", opts, err)
+			}
+			fx, _ := snapshot()
+			if len(fx) != 1 || !strings.Contains(fx[0], "feed=latest") {
+				t.Errorf("opts %v: fx queries = %v, want feed=latest", opts, fx)
+			}
+		}
+	})
+
+	t.Run("invalid sort is rejected before any backend", func(t *testing.T) {
+		mu.Lock()
+		fxQueries, nitterTargets = nil, nil
+		mu.Unlock()
+
+		cfg := fastCfg()
+		cfg.FetchBackend = "mix"
+		cfg.Instances = []settings.Instance{{URL: nitterSrv.URL}}
+		w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		_, _, err = w.Search().Search(context.Background(), "moon", 5, 5, client.WithSearchSort("bogus"))
+		if err == nil {
+			t.Fatal("Search(bogus sort) = nil error, want invalid_argument")
+		}
+		var terr *nitter.Error
+		if !errors.As(err, &terr) || terr.Kind != nitter.KindInvalidArg {
+			t.Errorf("err = %v (%T), want KindInvalidArg", err, err)
+		}
+		fx, nitter := snapshot()
+		if len(fx) != 0 || len(nitter) != 0 {
+			t.Errorf("requests = fx %v / nitter %v, want none", fx, nitter)
 		}
 	})
 }

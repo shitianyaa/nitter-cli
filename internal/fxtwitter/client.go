@@ -502,7 +502,11 @@ func (c *Client) FetchConversation(
 	return conv, nil
 }
 
-// SearchTweets queries FxTwitter search endpoint.
+// SearchTweets queries FxTwitter search endpoint. feed selects the result
+// ordering: "latest" (the default when empty) or "top" (popular results).
+// Both values are forwarded verbatim as the endpoint's `feed` parameter;
+// anything else is rejected as KindInvalidArg rather than being sent
+// upstream or silently swapped for a default.
 func (c *Client) SearchTweets(
 	ctx context.Context,
 	query string,
@@ -518,6 +522,11 @@ func (c *Client) SearchTweets(
 	feed = strings.ToLower(strings.TrimSpace(feed))
 	if feed == "" {
 		feed = "latest"
+	}
+	switch feed {
+	case "latest", "top":
+	default:
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opSearch, "invalid feed %q; must be latest or top", feed)
 	}
 
 	perPage := count

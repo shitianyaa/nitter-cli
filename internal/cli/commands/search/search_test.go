@@ -495,6 +495,137 @@ func TestSearchInvalidTypeIsUsageError(t *testing.T) {
 	}
 }
 
+// TestSearchSortTopRequestsTopFeed pins the --sort top wire shape: the
+// Nitter fetch switches from f=tweets to f=top, and the rest of the request
+// (escaping, pagination) is unchanged. The value is case- and
+// whitespace-insensitive, like every other enum flag.
+func TestSearchSortTopRequestsTopFeed(t *testing.T) {
+	for _, sort := range []string{"top", "TOP", " Top "} {
+		home := tempHome(t)
+		fake := newFake(t, map[string]answer{
+			"/search?f=top&q=%23artemis": {200, searchPage([]string{"301", "302"}, "")},
+		})
+		writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+		code, out, errOut := runCLI(t, "search", "#artemis", "--sort", sort)
+		if code != 0 {
+			t.Fatalf("--sort %q: exit = %d, want 0 (stderr %q)", sort, code, errOut)
+		}
+		envs := parseEnvelopes(t, out)
+		if len(envs) != 2 {
+			t.Fatalf("--sort %q: got %d envelopes, want one per tweet:\n%s", sort, len(envs), out)
+		}
+		if got := fake.rec.requests(); !slices.Equal(got, []string{"/search?f=top&q=%23artemis"}) {
+			t.Errorf("--sort %q: requests = %v, want the f=top search fetch", sort, got)
+		}
+	}
+}
+
+// TestSearchSortTopPaginationKeepsTopFeed: --sort top must survive the
+// load-more cursor — a cursor page that dropped back to f=tweets would mix
+// orderings inside one result set.
+func TestSearchSortTopPaginationKeepsTopFeed(t *testing.T) {
+	home := tempHome(t)
+	q := "/search?f=top&q=moon"
+	fake := newFake(t, map[string]answer{
+		q:                {200, searchPage([]string{"301"}, "c1")},
+		q + "&cursor=c1": {200, searchPage([]string{"302"}, "")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	code, out, errOut := runCLI(t, "search", "moon", "--sort", "top", "--limit", "0", "--max-pages", "3")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 2 {
+		t.Fatalf("got %d rows, want 2 (two pages):\n%s", n, out)
+	}
+	want := []string{q, q + "&cursor=c1"}
+	if got := fake.rec.requests(); !slices.Equal(got, want) {
+		t.Errorf("requests = %v, want every page to keep f=top (%v)", got, want)
+	}
+}
+
+// TestSearchSortDefaultIsByteIdenticalToToday pins the no-flag compatibility
+// rule: omitting --sort (and passing the default explicitly) both fetch
+// f=tweets — exactly the pre-0.7.4 request.
+func TestSearchSortDefaultIsByteIdenticalToToday(t *testing.T) {
+	for _, args := range [][]string{
+		{"search", "moon"},
+		{"search", "moon", "--sort", "latest"},
+	} {
+		home := tempHome(t)
+		fake := newFake(t, map[string]answer{
+			"/search?f=tweets&q=moon": {200, searchPage([]string{"301"}, "")},
+		})
+		writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+		code, out, errOut := runCLI(t, args...)
+		if code != 0 {
+			t.Fatalf("%v: exit = %d, want 0 (stderr %q)", args, code, errOut)
+		}
+		if len(parseEnvelopes(t, out)) != 1 {
+			t.Fatalf("%v: want the fetched tweet", args)
+		}
+		if got := fake.rec.requests(); !slices.Equal(got, []string{"/search?f=tweets&q=moon"}) {
+			t.Errorf("%v: requests = %v, want the historical f=tweets fetch", args, got)
+		}
+	}
+}
+
+// TestSearchInvalidSortIsUsageError: an unknown --sort exits 2 before any
+// network — never a silent fallback to the default ordering.
+func TestSearchInvalidSortIsUsageError(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	for _, sort := range []string{"bogus", "hot", "tweets", "top-1"} {
+		code, out, errOut := runCLI(t, "search", "moon", "--sort", sort)
+		if code != 2 {
+			t.Errorf("--sort %s: exit = %d, want 2 (stderr %q)", sort, code, errOut)
+		}
+		if out != "" {
+			t.Errorf("--sort %s: stdout = %q, want nothing", sort, out)
+		}
+		if !strings.Contains(errOut, "--sort") {
+			t.Errorf("--sort %s: stderr = %q, want it to name the flag", sort, errOut)
+		}
+	}
+	if got := fake.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+}
+
+// TestSearchSortWithTypeUserIsUsageError: --sort orders a tweet feed, so
+// combining it with --type user (a profile search) exits 2 — judged on the
+// flag being given, not on its value.
+func TestSearchSortWithTypeUserIsUsageError(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	for _, sort := range []string{"top", "latest"} {
+		code, out, errOut := runCLI(t, "search", "nasa", "--type", "user", "--sort", sort)
+		if code != 2 {
+			t.Errorf("--type user --sort %s: exit = %d, want 2 (stderr %q)", sort, code, errOut)
+		}
+		if out != "" {
+			t.Errorf("--type user --sort %s: stdout = %q, want nothing", sort, out)
+		}
+		if !strings.Contains(errOut, "--sort") || !strings.Contains(errOut, "--type user") {
+			t.Errorf("--type user --sort %s: stderr = %q, want it to name both flags", sort, errOut)
+		}
+	}
+	if got := fake.rec.requests(); len(got) != 0 {
+		t.Errorf("requests = %v, want none (validation precedes any network)", got)
+	}
+
+	// Without the explicit flag the same --type user invocation is fine
+	// (covered by TestSearchTypeUser); the conflict is the FLAG, not the
+	// default value.
+}
+
 func TestSearchTypeUser(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home, "fetch_backend = \"mix\"\n")

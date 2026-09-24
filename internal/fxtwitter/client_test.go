@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -992,5 +993,71 @@ func TestRealFxTwitterTweetCountKeys(t *testing.T) {
 	}
 	if following[0].TweetsCount != 8455 {
 		t.Errorf("following[0].TweetsCount = %d, want 8455 (from the \"statuses\" key)", following[0].TweetsCount)
+	}
+}
+
+// TestSearchTweetsFeedParameter pins the feed contract of the search
+// endpoint: "latest" (and the empty default) go out as feed=latest, "top" as
+// feed=top, and an unknown value is rejected as invalid_argument BEFORE any
+// request — never forwarded upstream and never silently swapped for a
+// default.
+func TestSearchTweetsFeedParameter(t *testing.T) {
+	var mu sync.Mutex
+	var queries []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		queries = append(queries, r.URL.RawQuery)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"code":200,"results":[{"id":"7","url":"https://x.com/user/status/7","text":"hit","author":{"screen_name":"user"}}]}`)
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	ctx := context.Background()
+
+	seen := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), queries...)
+	}
+
+	for _, tc := range []struct{ feed, want string }{
+		{"latest", "feed=latest"},
+		{"", "feed=latest"},
+		{"TOP", "feed=top"},
+		{" top ", "feed=top"},
+	} {
+		mu.Lock()
+		queries = nil
+		mu.Unlock()
+
+		tweets, _, err := client.SearchTweets(ctx, "moon", 10, "", tc.feed)
+		if err != nil {
+			t.Fatalf("SearchTweets(feed=%q): %v", tc.feed, err)
+		}
+		if len(tweets) != 1 {
+			t.Fatalf("SearchTweets(feed=%q): got %d tweets, want 1", tc.feed, len(tweets))
+		}
+		got := seen()
+		if len(got) != 1 || !strings.Contains(got[0], tc.want) {
+			t.Errorf("SearchTweets(feed=%q): queries = %v, want %q", tc.feed, got, tc.want)
+		}
+	}
+
+	mu.Lock()
+	queries = nil
+	mu.Unlock()
+	_, _, err := client.SearchTweets(ctx, "moon", 10, "", "bogus")
+	if err == nil {
+		t.Fatal("SearchTweets(feed=bogus) = nil error, want invalid_argument")
+	}
+	var serr *sdk.Error
+	if !errors.As(err, &serr) || serr.Kind != sdk.KindInvalidArg {
+		t.Errorf("err = %v (%T), want KindInvalidArg", err, err)
+	}
+	if got := seen(); len(got) != 0 {
+		t.Errorf("queries = %v, want none (the feed is validated before any request)", got)
 	}
 }

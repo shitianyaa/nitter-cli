@@ -58,6 +58,12 @@ type PageOptions struct {
 	// page adds nothing the source has not already seen. nil never stops
 	// early. The HTML path paginates with its own cursor and ignores it.
 	Stop func(page []nitter.Tweet) bool
+	// Sort selects the result ordering of a SEARCH fetch: "" and "latest"
+	// (case-insensitive) both mean the default newest-first feed ("f=tweets"
+	// on the wire), "top" asks for the popular-results feed ("f=top"). Any
+	// other value is rejected as KindInvalidArg — never silently degraded to
+	// the default. Search only; Timeline/List/MergedTimeline ignore it.
+	Sort string
 }
 
 // handleRe is the X handle contract, enforced before any network: 1-15
