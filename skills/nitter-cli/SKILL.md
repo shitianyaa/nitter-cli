@@ -330,9 +330,9 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
    Do not treat an empty `reposted_by` on RSS data as "not a retweet".
 9. **Empty JSON fields are contract, not bugs**: `published_at` is always UTC
    RFC3339; a tweet without media marshals `"media": null` (not `[]`);
-   `--max-pages 0` on `user` means UNBOUNDED (the HTML fallback paginates until
-   upstream exhaustion, and the RSS `Min-Id` scan follows the same rule) — on
-   `search`/`list` it still means the built-in default (5).
+   `--max-pages 0` on `user` means UNBOUNDED (the Fx fast lane and HTML fallback
+   paginate until upstream exhaustion, and the RSS `Min-Id` scan follows the same
+   rule) — on `search`/`list` it still means the built-in default (5).
 10. **New lists may look empty**: a freshly created list can be empty until the
     Nitter instance ingests it — indistinguishable from a truly empty list;
     neither is an error.

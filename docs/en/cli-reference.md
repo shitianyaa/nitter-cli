@@ -78,11 +78,11 @@ successful output; stderr is never JSON.
 - `--limit` caps the number of tweets (`0` = all); when omitted the config
   `default_limit` (default 20) applies. A negative flag value is a usage error.
 - `--max-pages` caps pagination; when omitted the config `max_pages` (default 5)
-  applies. On `user` an **explicit `--max-pages 0` removes the cap**: the HTML
-  fallback follows the load-more cursor chain until upstream exhaustion (the
-  context bounds a runaway run), and the RSS path follows the feed's `Min-Id`
-  cursor chain the same way. On `search`/`list` `0` keeps meaning "use the
-  default". A negative value is a usage error.
+  applies. On `user` an **explicit `--max-pages 0` removes the cap**: the
+  FxTwitter fast lane and the HTML fallback follow their cursor chains until
+  upstream exhaustion (the context bounds a runaway run), and the RSS path
+  follows the feed's `Min-Id` cursor chain the same way. On `search`/`list` `0`
+  keeps meaning "use the default". A negative value is a usage error.
 - Retries: `retry_attempts` (default 2) extra attempts with linear backoff
   `retry_delay` (default 1s); a 429 with a valid `Retry-After` waits once and
   retries once.
@@ -160,7 +160,9 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
   - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
   - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
 - `add`: adds handle to a circle (creates file/circle on demand).
-- `run`: traverses and streams latest tweets for all creators in the circle. `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
+- `run`: traverses and streams latest tweets for all creators in the circle.
+  - `--limit N` (default 20, `0` = all): caps the number of tweets fetched per creator.
+  - `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
   - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
   - **Filter marker**: when `--media-only` or `--media-type` is in effect, NDJSON envelopes carry `meta.filter` (`"media_only"` or the media-type value) so consumers can verify filtering; without a filter the key is absent.
