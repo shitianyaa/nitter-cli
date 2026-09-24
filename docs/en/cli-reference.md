@@ -705,6 +705,10 @@ Global `--proxy`/`--instance` apply as everywhere.
 - The first cycle of an uninitialized source only RECORDS state — no history is
   emitted (只记不推). `--include-existing` lifts that for the run and bypasses
   `--max-new` for that first fetch.
+- An uninitialized `user:` source initializes even when its first fetch comes
+  back empty, so the next cycle emits its new tweets; `tag:` and `list:` sources
+  stay uninitialized until a non-empty cycle, so a transient empty first
+  response is never mistaken for "caught up".
 - Later cycles emit each source's new tweets, at most `--max-new` per source per
   cycle. By default (`--max-new-overflow drop`) **excess new tweets are marked
   seen immediately and never re-emitted**: after a downtime, a burst larger than

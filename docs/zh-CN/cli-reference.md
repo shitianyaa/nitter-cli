@@ -542,7 +542,7 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   `fetch_backend` 取 `mix|fx`（`nitter` 已移除——实例路径改为用 `--instance` 在有实例路径的命令上逐次选择）；
   `log_level` 取 `debug|info`；`log_format` 取 `text|json`；`proxy`、
   `download_path` 与两个命名模板接受任意字符串）。不给 VALUE 时从管道 stdin
-  读一行（敏感值不该进 argv）；TTY 下既无 VALUE 也不可读 stdin 是用法错误。
+  读一行（敏感值不该进 argv）；TTY 下不给 VALUE 是用法错误。
   未知键被拒绝，并提示 `[[instances]]`/`[[watch.sources]]` 需直接编辑文件。
 - `config unset KEY` 删除该键，使其回落到环境变量/默认值。
 - `download_path`（默认 `./nitter-media`，相对当前工作目录）是 `nitter
@@ -611,6 +611,9 @@ Nitter 提供而非快车道。某批请求失败不会丢源：受影响的源�
 
 - 未初始化源的第一轮只**记录**状态——不输出任何历史（只记不推）。
   `--include-existing` 对该次运行解除此限制，且该轮首抓不受 `--max-new` 限制。
+- 未初始化的 `user:` 源即使首抓为空也会完成初始化，下一轮即可输出其新推文；
+  `tag:` 与 `list:` 源要等某轮非空才初始化，因此偶发的空首响应不会被误当成
+  「已追平」。
 - 之后的每轮输出各源的新推文，每源每轮最多 `--max-new` 条。默认
   （`--max-new-overflow drop`）下**超出上限的新推文会被立即标记为已见、之后
   绝不补推**：停机恢复后，单源单轮突发超过上限的部分会被静默跳过——调度器
@@ -711,7 +714,7 @@ nitter update [--confirm] [--proxy URL]
 nitter update --check [--prerelease] [--json] [--proxy URL]
 ```
 
-报告二进制的更新方式。当存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
+检查 GitHub 上的最新发布版，存在更新版本时会**提供安装**：安装路径只下载**本平台的归档**，用发布的
 `checksums.txt` 校验其 SHA-256，检查暂存二进制报告的版本，全部通过后才替换可执行文件。
 **任何失败都不会改动现有安装**——所有校验通过前不会碰目标文件。
 
