@@ -151,8 +151,11 @@ the user is fine sharing (see trap 16).
   envelopes whose `data.url` becomes the ref, so any piped data command
   (auto-NDJSON) and `watch --ndjson` feed it directly, no flags needed),
   `config set KEY` (the value, one line — this keeps
-  secrets such as a credential-bearing `proxy` URL out of argv). Passing the
-  value both as an argument and on stdin is an ambiguity error (exit 2).
+  secrets such as a credential-bearing `proxy` URL out of argv).
+  **Positional arguments win over stdin**: when a positional value is given
+  stdin is never read at all, so `nitter get <REF>` / `media <REF>` /
+  `download <REF>` cannot block on a pipe whose writer stays open. Pass the
+  input one way; nothing errors on having both.
 - In an error envelope, `code` is the SDK error kind (`rate_limited`,
   `upstream_unavailable`, `challenge_required`, `not_found`,
   `malformed_upstream_response`, `local_state_error`, `invalid_argument`, or
@@ -209,6 +212,7 @@ nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, esc
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
 nitter search "digital art" --type user --limit 10      # search user profiles / illustrators by name/bio
 nitter search "moon landing" --limit 10                 # plain phrase
+nitter search "#AI" --sort top --limit 10 --json        # popular-results ordering instead of newest-first
 
 nitter list 12345 --limit 10 --json                     # list timeline by numeric ID; new lists may look empty
 nitter get https://x.com/NASA/status/2102761519985332442 --json
@@ -441,6 +445,15 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     go straight to `profile <HANDLE>`; only fall back to `search --type user`
     when no handle can be established, and treat an empty search result as
     "unknown", not as proof the account does not exist.
+27. **`--sort` means different things on `search` and `comments`** — same flag
+    name, different domain: on `search` it picks the tweet-feed ordering
+    (`--sort latest|top`, default `latest`; `top` = popular results) and is
+    forwarded to both backends, so a mix-mode fallback keeps the requested
+    ordering; on `comments` it picks the reply ordering (`--sort likes|recency`,
+    default `likes`). Neither value set is valid for the other command — a
+    cross-domain value exits 2 (never a silent fallback to the default).
+    `search --sort` also has no meaning with `--type user` (exit 2), and an
+    unknown value is always a usage error.
 
 ## Media delivery for agents
 

@@ -30,7 +30,8 @@ API**（默认快车道——无需账号、无需凭证），并以**你自己�
   `password` 同时设置）。凭证只会附着在发往其所属实例的请求上——第三方
   端点永远看不到它们。
 - **公开推文检索**——`user`（RSS 优先，失败或空结果时回退 HTML 用户页）、
-  `search`、`list`，以及用 `get` 抓单条推文。`list` 严格隔离：所有 List
+  `search`（默认最新优先，`--sort top` 取热门结果）、`list`，以及用 `get` 抓单条推文。
+  `list` 严格隔离：所有 List
   抓取始终走你自己的实例（FxTwitter 没有 List 端点）。不内置实例、不登录、
   不绕过访问控制。
 - **社交图谱与发现**——`following` 查看某账号关注了谁，`profile` 输出博主
@@ -141,6 +142,9 @@ nitter circle run ai_researchers --limit 1            # 流式拉取私人圈子
 # 管道输出无需 flag——数据命令自动输出 NDJSON，流可直接喂给下载命令
 nitter search "#AI" --limit 20 | nitter download --output ./media
 
+# 按热门排序而非最新优先（两个后端都会拿到该排序）
+nitter search "#AI" --sort top --limit 10 --json
+
 # 以最低画质档下载视频
 nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 
@@ -165,6 +169,7 @@ nitter download https://x.com/NASA/status/2102761519985332442 --kind cover
 nitter user NASA --limit 10                      # TTY 下输出制表符行
 nitter user NASA --limit 10 --json               # 单对象 / 数组
 nitter user NASA --limit 10 --ndjson             # 每条推文一个 nitter.pipeline/v1 信封
+nitter search "#AI" --sort top --limit 10 --json # 按热门排序
 nitter search "#AI" --limit 20 | nitter download # 自动 NDJSON，无需 flag
 ```
 
@@ -271,6 +276,11 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
 `meta.instance` 记录抓取的来源：快车道应答时为 `"FxTwitter"`，否则是应答
 实例的 URL。`meta.source` 标注操作及其输入（`user:NASA`、`search:#AI`、
 `following:NASA`、`comments:<id>`、`quotes:<id>`、`trends`、`circle:<name>` 等）。
+
+**位置参数优先于标准输入。** `get`、`media`、`download` 仅在**未提供位置参数**
+且 stdin 非 TTY 时才读取 stdin；给出位置参数时绝不触碰 stdin，因此这些命令不会
+卡在写端保持打开的管道上。`config set KEY` 遵循同一规则读取值（无 VALUE 且
+stdin 非 TTY）。
 
 就地错误信封（当前由 `watch` 对每个失败源输出）：
 

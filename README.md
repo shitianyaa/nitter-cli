@@ -37,7 +37,8 @@ It is also a public Go SDK (`github.com/shitianyaa/nitter-cli/sdk`, package
   `password` set). Credentials can only ever ride requests addressed to their
   own instance — third-party endpoints never see them.
 - **Public-tweet retrieval** — `user` (RSS first, falling back to the HTML user
-  page when the feed fails or is empty), `search`, `list`, and single statuses
+  page when the feed fails or is empty), `search` (newest-first by default,
+  `--sort top` for the popular-results feed), `list`, and single statuses
   via `get`. `list` is strictly isolated:
   every list fetch always runs on your own instances (FxTwitter has no List
   endpoint). No bundled instances, no login, no bypassing of access controls.
@@ -162,6 +163,9 @@ nitter circle run ai_researchers --limit 1            # stream a curated creator
 # so the stream feeds the downloader directly
 nitter search "#AI" --limit 20 | nitter download --output ./media
 
+# Popular results instead of newest-first (both backends get the ordering)
+nitter search "#AI" --sort top --limit 10 --json
+
 # Download a video at the lowest quality tier
 nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 
@@ -187,6 +191,7 @@ for record streams — or just pipe: a non-TTY stdout is the NDJSON default.
 nitter user NASA --limit 10                      # tab-separated rows on a TTY
 nitter user NASA --limit 10 --json               # one object / an array
 nitter user NASA --limit 10 --ndjson             # one nitter.pipeline/v1 envelope per tweet
+nitter search "#AI" --sort top --limit 10 --json # popular-results ordering
 nitter search "#AI" --limit 20 | nitter download # auto-NDJSON, no flags needed
 ```
 
@@ -303,6 +308,12 @@ Example tweet envelope (illustrative; `data` is the `Tweet` model of the SDK):
 fast lane answered, otherwise the URL of the instance that did. `meta.source`
 names the operation and its input (`user:NASA`, `search:#AI`, `following:NASA`,
 `comments:<id>`, `quotes:<id>`, `trends`, `circle:<name>`, …).
+
+**Positional arguments win over stdin.** `get`, `media` and `download` read
+stdin only when they receive no positional reference *and* stdin is not a TTY;
+a positional reference never touches stdin, so those commands cannot block on
+a pipe whose writer stays open. `config set KEY` reads a value from stdin on
+the same rule (a missing VALUE and a non-TTY stdin).
 
 In-place error envelopes (currently emitted by `watch` per failed source):
 

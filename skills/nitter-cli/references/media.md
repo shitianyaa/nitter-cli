@@ -11,16 +11,17 @@ the installed binary's `nitter media --help`.
   status URL — `x.com`, `twitter.com` or any Nitter instance, shape
   `/<user>/status/<id>`; `/photo/N` and `/video/1` suffixes are accepted.
 - Multiple REFs run as one batch, streamed in ref order under `--ndjson`.
-  With no positional REF and a non-TTY stdin, refs are read from stdin, one
-  per non-empty line (`nitter media < refs.txt`). Passing refs both as
-  arguments and on stdin is an ambiguity error (exit 2).
+  Positional REFs always win: only with no positional REF and a non-TTY stdin
+  are refs read from stdin, one per non-empty line (`nitter media < refs.txt`).
+  A positional REF never reads stdin, so the command cannot block on a pipe
+  whose writer stays open.
 - A ref that fails — including a status with **no media**, classified
   `not_found` — produces an in-place error report (a `kind:"error"` envelope
   with `meta.input` = the raw ref, or a stderr line) and the remaining refs
   continue. Partial failure exits 1 with a
   `media completed with N of M refs failed` summary.
-- Bad input (unknown `--strategy`/`--quality`, a malformed ref, refs both
-  ways, `--json --ndjson`) exits 2 before any network request.
+- Bad input (unknown `--strategy`/`--quality`, a malformed ref,
+  `--json --ndjson`) exits 2 before any network request.
 
 ## Strategies (`--strategy`)
 
@@ -115,4 +116,4 @@ time). The plain-GET path below stays for callers who resolve-only.
 | --- | --- |
 | 0 | All refs resolved; also when the consumer closed the stdout pipe early (EPIPE) |
 | 1 | At least one ref failed (error reports in-stream/stderr, remaining refs continue, summary on stderr) |
-| 2 | Usage error, no network: unknown `--strategy`/`--quality`, malformed refs, refs both as arguments and on stdin, no refs, `--json --ndjson` together |
+| 2 | Usage error, no network: unknown `--strategy`/`--quality`, malformed refs, no refs, `--json --ndjson` together |

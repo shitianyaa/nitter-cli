@@ -196,14 +196,20 @@ nitter trends [--limit N] [--json|--ndjson]
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+nitter search <QUERY> [--type tweet|user] [--sort latest|top] [--limit N] [--max-pages N] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 对配置的实例或 FxTwitter 运行 `QUERY`。当 `--type tweet`（默认）时，查询串原样传给 Nitter（仅由 HTTP 层做一次 URL 转义），
 适用 Nitter 自身的查询语法：前导 `#` 搜话题标签，`from:user` 搜某用户的帖子，
 其余按普通短语搜索。纯空白查询退出 2。NDJSON 的 `meta.source` 为
 `search:<按原样输入的查询>`。
+
+`--sort latest|top`（默认 `latest`）选择结果排序，并同时下发给两个后端——Nitter 的
+`f=` 参数（`latest` 对应 `tweets`，`top` 对应 `top`）与 FxTwitter 的 `feed`——因此
+mix 模式降级时绝不会给出与请求不同的排序，翻页的每一页也保持该排序。取值对大小写
+和首尾空白不敏感；其他值退出 2（绝不静默回退到默认排序）。`--sort` 与 `--type user`
+同时给出退出 2——用户搜索没有排序概念。
 
 当 `--type user` 时，按关键词搜索推主、画师、KOL 账号：
 - TTY 渲染用户表格：`@<handle>  <name>  <followers>  <bio>`。
@@ -212,6 +218,10 @@ nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-repo
 
 字段过滤与 `user` 一致：`--no-reposts`、`--media-only`、
 `--media-type image|video|gif`（抓取之后、输出之前应用）。
+
+```bash
+nitter search "#AI" --sort top --limit 10 --json   # 按热门排序而非最新优先
+```
 
 ## nitter list
 
@@ -237,8 +247,9 @@ nitter get <REF> [--json|--ndjson]
 抓取单条推文。默认 `fetch_backend=mix` 与 `fx` 模式下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例。
 `REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
-`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。不给位置参数且
-stdin 非 TTY 时，从 stdin 读一行作为引用；两种方式同时给出是歧义错误（退出 2）。
+`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。位置参数 `REF`
+始终优先；仅在未提供位置参数且 stdin 非 TTY 时，才从 stdin 读一行作为引用。
+给出位置参数时绝不读取 stdin，因此 `nitter get <REF>` 不会卡在写端保持打开的管道上。
 没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/
 `--ndjson` 可见）；互动数不予报告——绝不虚构。NDJSON 的 `meta.source` 为
 `status:<数字 ID>`。当由 FxTwitter 提供时，NDJSON 的 `meta.instance` 标为 `FxTwitter`。
@@ -259,8 +270,9 @@ nitter media <REF>... [--strategy auto|fx|nitter|xdown] \
 把每条 status REF 解析成可直接下载的媒体直链——视频 mp4 变体、图片原图、
 GIF。`REF` 的形态与 `nitter get` 相同（纯数字 ID，或 x.com / twitter.com /
 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与 `/video/1` 后缀）。多个 REF
-按批次运行；不给位置参数且 stdin 非 TTY 时，从 stdin 读取引用（每行一个，
-空行忽略）；位置参数与 stdin 同时给出是歧义错误（退出 2）。下载动作本身由
+按批次运行；位置参数始终优先——仅在未提供位置参数且 stdin 非 TTY 时，才从 stdin
+读取引用（每行一个，空行忽略）。给出位置参数时绝不读取 stdin，因此批次不会卡在
+写端保持打开的管道上。下载动作本身由
 调用方完成——本命令只解析直链，不抓取媒体。
 
 **策略**（`--strategy`，默认 `auto`）：`auto` 按链路 fx → nitter → xdown 依次尝试，
@@ -306,7 +318,7 @@ https://x.com/NASA/status/2102761519985332442	fx	video	https://video.twimg.com/e
 （NDJSON 流上为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），
 其余 REF 继续运行；至少一个 REF 失败时以 `media completed with N of M refs
 failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--strategy`/
-`--quality` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出）退出 2。
+`--quality` 不合法、引用缺失或不合法）退出 2。
 
 ## nitter download
 
@@ -320,12 +332,12 @@ nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
 用 `media` 命令的策略链解析每条 status REF，并把计划好的媒体文件下载到输出
 目录。`REF` 的形态与 `nitter get`、`nitter media` 相同（纯数字 ID，或
 x.com / twitter.com / 任意 Nitter 实例的推文 URL；接受 `/photo/N` 与
-`/video/1` 后缀）。多个 REF 按批次运行；不给位置参数且 stdin 非 TTY 时从
-stdin 读取输入——首个非空白字节为 `{` 时，每个非空行都必须是严格的
-`nitter.pipeline/v1` tweet 信封，且每条记录的 `data.url` 被用作 REF
-（`nitter get --ndjson` 与 `nitter watch --ndjson` 的流可以直接喂给
-download；信封不合法是用法错误），否则每个非空行就是一条普通 REF。位置参数
-与 stdin 同时给出是歧义错误（退出 2）。
+`/video/1` 后缀）。多个 REF 按批次运行。位置参数始终优先；仅在未提供位置参数
+且 stdin 非 TTY 时从 stdin 读取输入——首个非空白字节为 `{` 时，每个非空行都必须是严格的
+`nitter.pipeline/v1` tweet 信封，取每条记录的 `data.url` 作为 REF（`nitter get
+--ndjson` 与 `nitter watch --ndjson` 的流可直接喂给 download；信封格式错误是用法
+错误），否则每个非空行都是一个普通 REF。给出位置参数时绝不读取 stdin，因此批次
+不会卡在写端保持打开的管道上。
 
 **选择**（`--kind`，默认：全部）遵循 video-wins 规则：带视频或 GIF 的推文
 只下载唯一一个最佳视频文件——按码率（或 xdown 的 p 值）排序；实测 xdown
@@ -406,8 +418,8 @@ https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/21027615199
 为 error 信封，其他模式为 stderr 的 `error: <ref>: <message>`），其余 REF
 继续运行；至少一个 REF 失败时以 `download completed with N of M refs
 failed` 摘要退出 1；用法问题（`--kind`/`--quality`/`--strategy`/
-`--on-exists` 不合法、引用缺失或不合法、位置参数与 stdin 同时给出、stdin
-信封不合法、`--json` 与 `--ndjson` 同给）退出 2。
+`--on-exists` 不合法、引用缺失或不合法、stdin
+信封格式错误、`--json` 与 `--ndjson` 同给）退出 2。
 
 ## nitter instances test
 

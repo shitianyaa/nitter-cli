@@ -207,8 +207,8 @@ Fetches real-time trending topics on Twitter/X via FxTwitter.
 ## nitter search
 
 ```bash
-nitter search <QUERY> [--type tweet|user] [--limit N] [--max-pages N] [--no-reposts] [--media-only] \
-  [--media-type image|video|gif] [--json|--ndjson]
+nitter search <QUERY> [--type tweet|user] [--sort latest|top] [--limit N] [--max-pages N] \
+  [--no-reposts] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
 Runs `QUERY` against the configured instances or FxTwitter.
@@ -218,6 +218,15 @@ syntax applies: a leading `#` searches a hashtag, `from:user` a user's posts,
 anything else is a plain phrase search. An empty (whitespace-only) query exits 2.
 NDJSON `meta.source` is `search:<query as typed>`.
 
+`--sort latest|top` (default `latest`) selects the result ordering and is
+carried by BOTH backends — Nitter's `f=` parameter (`tweets` for `latest`,
+`top` for `top`) and FxTwitter's `feed` — so a mix-mode fallback never
+answers with a different ordering than the one requested, and every
+pagination page keeps it. The value is case- and whitespace-insensitive; any
+other value exits 2 (never a silent fallback to the default). `--sort` is
+rejected together with `--type user` (exit 2) — profile search has no
+ordering.
+
 When `--type user`, searches for user profiles, artists, and creators matching the query:
 - Renders user table on TTY: `@<handle>  <name>  <followers>  <bio>`.
 - Emits `kind: "profile"` NDJSON envelopes in pipe mode.
@@ -225,6 +234,10 @@ When `--type user`, searches for user profiles, artists, and creators matching t
 
 The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 `--media-type image|video|gif` (applied after the fetch, before output).
+
+```bash
+nitter search "#AI" --sort top --limit 10 --json   # popular results instead of newest-first
+```
 
 ## nitter list
 
@@ -253,9 +266,11 @@ Fetches one single status. In `mix` (default) and `fx` modes, tries FxTwitter fa
 `REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
-and `/video/1` suffixes are accepted. With no argument and a non-TTY stdin the
-reference is read from one stdin line; giving it both ways is an ambiguity
-error (exit 2). There are no pagination flags. The quoted tweet, when present,
+and `/video/1` suffixes are accepted. A positional `REF` always wins; only
+with no argument AND a non-TTY stdin is the reference read from one stdin
+line. A positional `REF` never reads stdin, so `nitter get <REF>` cannot
+block on a pipe whose writer stays open. There are no pagination flags. The
+quoted tweet, when present,
 is summarized in the `quote` field (visible in `--json`/`--ndjson`); interaction
 counts are not reported — none are fabricated. NDJSON `meta.source` is
 `status:<numeric ID>`. When served by FxTwitter, `meta.instance` is recorded as `FxTwitter`.
@@ -278,9 +293,10 @@ Resolves each status REF into directly downloadable media links — video mp4
 variants, original images, GIFs. `REF` takes the same shapes as `nitter get`
 (bare numeric ID, or a status URL of x.com, twitter.com or any Nitter
 instance; `/photo/N` and `/video/1` suffixes accepted). Multiple REFs run as
-a batch; with no argument and a non-TTY stdin the references are read from
-stdin (one per non-empty line); giving refs both as arguments and on stdin is
-an ambiguity error (exit 2). The download itself is the caller's job — the
+a batch; positional REFs always win — only with no argument AND a non-TTY
+stdin are the references read from stdin (one per non-empty line). A
+positional REF never reads stdin, so a batch cannot block on a pipe whose
+writer stays open. The download itself is the caller's job — the
 command resolves links, it does not fetch media.
 
 **Strategies** (`--strategy`, default `auto`): `auto` tries the chain
@@ -337,8 +353,7 @@ failure gets an in-place error report (error envelope on the NDJSON stream,
 `error: <ref>: <message>` on stderr otherwise) while the other refs continue,
 and the run exits 1 with a `media completed with N of M refs failed` summary
 when at least one ref failed; usage problems (`--json` with `--ndjson`,
-invalid `--strategy` or `--quality`, bad/missing refs, refs given both as
-arguments and on stdin) exit 2.
+invalid `--strategy` or `--quality`, bad/missing refs) exit 2.
 
 ## nitter download
 
@@ -353,14 +368,14 @@ Resolves each status REF with the media command's strategies and downloads
 the planned media files to the output directory. `REF` takes the same shapes
 as `nitter get` and `nitter media` (bare numeric ID, or a status URL of
 x.com, twitter.com or any Nitter instance; `/photo/N` and `/video/1`
-suffixes accepted). Multiple REFs run as a batch; with no argument and a
-non-TTY stdin the input is read from stdin — when the first non-whitespace
-byte is `{`, every non-empty line must be a strict `nitter.pipeline/v1` tweet
-envelope and each record's `data.url` is used as the REF (the
-`nitter get --ndjson` and `nitter watch --ndjson` streams feed download
-directly; a malformed envelope is a usage error), otherwise every non-empty
-line is a plain REF. Giving refs both as arguments and on stdin is an
-ambiguity error (exit 2).
+suffixes accepted). Multiple REFs run as a batch. Positional REFs always win;
+only with no argument AND a non-TTY stdin is the input read from stdin — when
+the first non-whitespace byte is `{`, every non-empty line must be a strict
+`nitter.pipeline/v1` tweet envelope and each record's `data.url` is used as
+the REF (the `nitter get --ndjson` and `nitter watch --ndjson` streams feed
+download directly; a malformed envelope is a usage error), otherwise every
+non-empty line is a plain REF. A positional REF never reads stdin, so a batch
+cannot block on a pipe whose writer stays open.
 
 **Selection** (`--kind`, default: everything) follows the video-wins rule: a
 status carrying video or GIF downloads its ONE best video file — ranked by
@@ -466,8 +481,8 @@ the NDJSON stream, `error: <ref>: <message>` on stderr otherwise) while the
 other refs continue, and the run exits 1 with a
 `download completed with N of M refs failed` summary when at least one ref
 failed; usage problems (unknown `--kind`/`--quality`/`--strategy`/
-`--on-exists`, bad or missing refs, refs given both as arguments and on
-stdin, malformed stdin envelopes, `--json` with `--ndjson`) exit 2.
+`--on-exists`, bad or missing refs, malformed stdin envelopes, `--json` with
+`--ndjson`) exit 2.
 
 ## nitter instances test
 

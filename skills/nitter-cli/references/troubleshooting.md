@@ -21,6 +21,8 @@ successful output; **stderr is never JSON**.
 | `... local_state_error: write temp file: ...` on `download` | 1 | The **local** write of the downloaded file failed (full disk, permissions, read-only target directory) — not an instance or network problem | Free space, or point `--output`/`download_path` at a writable directory. Retrying against the instance cannot help; every other local filesystem failure on this path reports the same kind |
 | RSS probes `ok` but `search` empty or `fail(...)` | 0/1 | Search is a separate Nitter capability, disabled or slow on this instance | Run `nitter instances test --full`; use an instance with search enabled |
 | `search "#AI"` returns nothing though the tag exists | 0 | Two candidates: instance search disabled, or the query was pre-escaped | Prefer the raw form (`nitter search "#AI"`); the pre-escaped `%23` form double-escapes and must not be used anywhere (`watch tag:` sources included) |
+| `search: invalid --sort "..." (allowed: latest, top)` | 2 | Unknown result-ordering value | Use `latest` (default, newest-first) or `top` (popular results); both are case-insensitive. `comments --sort likes|recency` is a DIFFERENT domain — those values are not valid here |
+| `search: --sort cannot be used with --type user` | 2 | `--sort` orders a tweet feed; `--type user` searches profiles | Drop `--sort` (or `--type user`); profile search has no ordering, and the conflict is judged on the flag being given |
 | `watch: no sources given and no [[watch.sources]] configured` | 2 | Neither argv sources nor config sources | Pass sources (`user:NASA tag:#AI list:12345`) or add `[[watch.sources]]` |
 | `watch: --json requires --once; ...` | 2 | `--json` passed to the resident watch loop (no `--once`) | The loop is a stream, not one document: use `--ndjson`, or add `--once` to get the `{"tweets","errors"}` document of that single cycle |
 | `--json and --ndjson are mutually exclusive` | 2 | Both flags on one command | Pick one; `--json` for single-document extraction, `--ndjson` for streams |
@@ -29,7 +31,6 @@ successful output; **stderr is never JSON**.
 | `not found: <key>` on `seen clear` | 0 | Cleared a source that had no state | Idempotent success; nothing to do |
 | `user: "..." is not a valid handle (1-15 letters, digits or underscores, without the @)` | 2 | Bad handle shape | Strip the `@`, check for illegal characters |
 | `list: "..." is not a valid list ID (non-empty, no whitespace, ?, # or /)` | 2 | Bad list ID | Use the numeric ID (or a ref the instance accepts) |
-| `get: status reference given both as an argument and on stdin` | 2 | Ambiguous ref input | Pass the ref one way only |
 | `appapi.ParseStatusRef: invalid_argument: not a status reference ...` | 2 | Unparseable `get` ref | Use a bare numeric ID or a `<user>/status/<id>` URL (`/photo/N`, `/video/1` suffixes allowed) |
 | `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The thirteen scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML (creator circles live in `circles.toml`) |
 | `config set <key>: "..." is not an integer / not a duration / is invalid` | 2 | Value failed schema validation | Follow the documented shapes: ints >= 0, durations >= 0 (`500ms`, `2s`), `log_level` debug|info, `log_format` text|json |
