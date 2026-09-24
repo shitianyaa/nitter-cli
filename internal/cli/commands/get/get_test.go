@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
 	"github.com/shitianyaa/nitter-cli/internal/fxtwitter"
@@ -332,39 +333,60 @@ func TestGetStdinRef(t *testing.T) {
 	}
 }
 
-func TestGetRefBothArgAndStdinIsUsageError(t *testing.T) {
-	home := tempHome(t)
-	fake := newFake(t, map[string]answer{})
-	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
-
-	code, out, _ := runCLIStdin(t, "999\n", "get", "101")
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2", code)
-	}
-	if out != "" {
-		t.Errorf("stdout = %q, want nothing", out)
-	}
-	if got := fake.rec.requests(); len(got) != 0 {
-		t.Errorf("requests = %v, want none (ambiguity is rejected before any network)", got)
-	}
-}
-
-// TestGetEmptyStdinLineWithArgUsesArg: an empty stdin line carries no ref —
-// it must not trigger the ambiguity error when an argument is given.
-func TestGetEmptyStdinLineWithArgUsesArg(t *testing.T) {
+// TestGetArgTakesPrecedenceOverStdin: a positional REF wins outright — the
+// stdin payload is ignored (not read, not validated), so the run fetches the
+// argument's status.
+func TestGetArgTakesPrecedenceOverStdin(t *testing.T) {
 	home := tempHome(t)
 	fake := newFake(t, map[string]answer{
 		"/i/status/101": {200, statusPage("nasa", "101")},
 	})
 	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
 
-	code, out, errOut := runCLIStdin(t, "\n", "get", "101")
+	code, out, errOut := runCLIStdin(t, "999\n", "get", "101")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
 	envs := parseEnvelopes(t, out)
 	if len(envs) != 1 || dataOf(t, envs[0])["id"] != "101" {
-		t.Fatalf("envelopes = %v, want the fetched tweet", envs)
+		t.Fatalf("envelopes = %v, want the argument's tweet 101", envs)
+	}
+	if got := fake.rec.requests(); len(got) != 1 || !strings.HasSuffix(got[0], "/status/101") {
+		t.Errorf("requests = %v, want only the argument's status fetch", got)
+	}
+}
+
+// TestGetArgDoesNotBlockOnOpenStdin is the pipe-hang regression: a
+// positional REF must short-circuit stdin entirely. io.Pipe's read end blocks
+// until the write end produces data or closes, so the pre-0.7.4 code (which
+// read stdin first) hung forever here — exactly the `nitter get <REF>` inside
+// a pipeline whose writer stays open.
+func TestGetArgDoesNotBlockOnOpenStdin(t *testing.T) {
+	home := tempHome(t)
+	fake := newFake(t, map[string]answer{
+		"/i/status/101": {200, statusPage("nasa", "101")},
+	})
+	writeConfig(t, home, fastTOML+"[[instances]]\nurl = \""+fake.addr+"\"\n")
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+
+	done := make(chan int, 1)
+	go func() {
+		var out, errOut strings.Builder
+		done <- cli.Run([]string{"get", "101"}, pr, &out, &errOut)
+	}()
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("get with a positional REF blocked on stdin: the never-closed pipe reader was read")
 	}
 }
 

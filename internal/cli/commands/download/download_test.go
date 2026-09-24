@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/download"
@@ -817,16 +819,82 @@ func TestDownloadUsageErrorsExit2BeforeNetwork(t *testing.T) {
 			t.Errorf("%v: stdout = %q, want nothing", args, out)
 		}
 	}
-	// Refs given both as arguments and on stdin is an ambiguity error.
-	code, out, _ := runCLIStdin(t, tweetEnvelope(ref100)+"\n", "download", id100, "--output", outDir)
-	if code != 2 {
-		t.Errorf("refs both ways: exit = %d, want 2", code)
-	}
-	if out != "" {
-		t.Errorf("refs both ways: stdout = %q, want nothing", out)
-	}
 	if got := fake.requests(); len(got) != 0 {
 		t.Errorf("requests = %v, want none (usage errors precede any network)", got)
+	}
+}
+
+// TestDownloadArgTakesPrecedenceOverStdin: positional REFs win outright — the
+// stdin payload is ignored (not read, not parsed), so only the argument's
+// status is downloaded. The stdin line here is a valid tweet envelope for a
+// DIFFERENT status, which must leave no trace.
+func TestDownloadArgTakesPrecedenceOverStdin(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: "video"},
+	})
+	writeConfig(t, home, instanceConfig(fake.addr))
+	outDir := t.TempDir()
+
+	other := "https://x.com/nasa/status/2070000000000000999"
+	code, out, errOut := runCLIStdin(t, tweetEnvelope(other)+"\n", "download", ref100, "--strategy", "nitter", "--output", outDir, "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	var obj struct {
+		Ref  string `json:"ref"`
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatalf("--json is not one object: %v\n%s", err, out)
+	}
+	if obj.Ref != ref100 || obj.Path != filepath.Join(outDir, id100+"-1.mp4") {
+		t.Errorf("record = %+v, want the argument's file", obj)
+	}
+	if got := fake.requests(); len(got) != 2 || !strings.HasSuffix(got[0], "/nasa/status/"+id100) {
+		t.Errorf("requests = %v, want only the argument's resolve + download", got)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "2070000000000000999-1.mp4")); err == nil {
+		t.Error("the stdin ref was downloaded; positional REFs must win outright")
+	}
+}
+
+// TestDownloadArgDoesNotBlockOnOpenStdin is the pipe-hang regression: with a
+// positional REF the command must never read stdin. io.Pipe's read end blocks
+// until its write end produces data or closes, so a stdin-first
+// implementation hangs here forever.
+func TestDownloadArgDoesNotBlockOnOpenStdin(t *testing.T) {
+	home := tempHome(t)
+	fake := newFakeBackend(t, map[string]answer{
+		"/nasa/status/" + id100: {status: 200, body: nitterVideoPage(id100)},
+		"/video/exv.mp4":        {status: 200, body: "video"},
+	})
+	writeConfig(t, home, instanceConfig(fake.addr))
+	outDir := t.TempDir()
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+
+	done := make(chan int, 1)
+	go func() {
+		var out, errOut strings.Builder
+		done <- cli.Run([]string{"download", ref100, "--strategy", "nitter", "--output", outDir}, pr, &out, &errOut)
+	}()
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("download with a positional REF blocked on stdin: the never-closed pipe reader was read")
+	}
+	if _, err := os.Stat(filepath.Join(outDir, id100+"-1.mp4")); err != nil {
+		t.Errorf("the argument's file was not downloaded: %v", err)
 	}
 }
 

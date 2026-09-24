@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shitianyaa/nitter-cli/internal/cli"
 	"github.com/shitianyaa/nitter-cli/internal/media"
@@ -584,21 +585,64 @@ func TestMediaStdinRef(t *testing.T) {
 	}
 }
 
-func TestMediaRefBothArgAndStdinIsUsageError(t *testing.T) {
+// TestMediaArgTakesPrecedenceOverStdin: positional REFs win outright — the
+// stdin payload is ignored (not read, not validated), so the batch resolves
+// the arguments only.
+func TestMediaArgTakesPrecedenceOverStdin(t *testing.T) {
 	home := tempHome(t)
-	fake := newFakeBackend(t, map[string]answer{})
+	answers := map[string]answer{}
+	fake := newFakeBackend(t, answers)
 	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
 	writeConfig(t, home, fastTOML)
+	answers[fxRoute100] = answer{status: 200, body: fxVideo("https://video.twimg.com")}
 
-	code, out, _ := runCLIStdin(t, ref100+"\n", "media", id100)
-	if code != 2 {
-		t.Fatalf("exit = %d, want 2", code)
+	code, out, errOut := runCLIStdin(t, "https://x.com/nasa/status/999\n", "media", ref100, "--strategy", "fx", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut)
 	}
-	if out != "" {
-		t.Errorf("stdout = %q, want nothing", out)
+	var obj nitter.MediaResolution
+	if err := json.Unmarshal([]byte(out), &obj); err != nil {
+		t.Fatalf("output is not one JSON object: %v\n%s", err, out)
 	}
-	if got := fake.requests(); len(got) != 0 {
-		t.Errorf("requests = %v, want none (ambiguity is rejected before any network)", got)
+	if obj.Ref != ref100 {
+		t.Errorf("resolution ref = %q, want the argument ref %q", obj.Ref, ref100)
+	}
+	if got := fake.requests(); !slices.Equal(got, []string{fxRoute100}) {
+		t.Errorf("requests = %v, want only the argument's fx fetch", got)
+	}
+}
+
+// TestMediaArgDoesNotBlockOnOpenStdin is the pipe-hang regression: with a
+// positional REF the command must never read stdin. io.Pipe's read end blocks
+// until its write end produces data or closes, so a stdin-first implementation
+// hangs here forever.
+func TestMediaArgDoesNotBlockOnOpenStdin(t *testing.T) {
+	home := tempHome(t)
+	answers := map[string]answer{}
+	fake := newFakeBackend(t, answers)
+	overrideEndpoints(t, fake.addr+"/fx", fake.addr)
+	writeConfig(t, home, fastTOML)
+	answers[fxRoute100] = answer{status: 200, body: fxVideo("https://video.twimg.com")}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+
+	done := make(chan int, 1)
+	go func() {
+		var out, errOut strings.Builder
+		done <- cli.Run([]string{"media", ref100, "--strategy", "fx", "--json"}, pr, &out, &errOut)
+	}()
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("media with a positional REF blocked on stdin: the never-closed pipe reader was read")
 	}
 }
 

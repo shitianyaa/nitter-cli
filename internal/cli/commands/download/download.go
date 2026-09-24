@@ -111,11 +111,12 @@ type capabilities struct {
 // REF is a bare numeric status ID or a status URL (x.com, twitter.com or any
 // Nitter instance, shape /<user>/status/<id>; /photo/N and /video/1 suffixes
 // are accepted) — the same reference shapes `nitter get` and `nitter media`
-// take. Multiple REFs run as a batch. With no positional argument and a
-// non-TTY stdin, the input is read from stdin: envelope mode when the first
-// non-whitespace byte is "{" (strict nitter.pipeline/v1 tweet envelopes,
-// each record's data.url used as the REF), plain refs one per line otherwise.
-// Giving refs both as arguments and on stdin is an ambiguity error.
+// take. Multiple REFs run as a batch. Positional REFs always win; only when
+// none is given AND stdin is not a TTY is the input read from stdin:
+// envelope mode when the first non-whitespace byte is "{" (strict
+// nitter.pipeline/v1 tweet envelopes, each record's data.url used as the
+// REF), plain refs one per line otherwise. Stdin is never touched while
+// positional REFs are present, so a batch cannot block on an open pipe.
 func New(s *invocation.Streams) *cobra.Command {
 	opts := &options{}
 	cmd := &cobra.Command{
@@ -133,13 +134,14 @@ status. Under --on-exists skip the row reads "<path> (skipped)".
 REF is a bare numeric status ID, or a status URL — x.com, twitter.com or any
 Nitter instance, shape <user>/status/<id> (/photo/N and /video/1 suffixes
 accepted) — the same reference shapes ` + "`nitter get`" + ` and ` + "`nitter media`" + ` take.
-Multiple REFs run as a batch; with no argument and a non-TTY stdin the input
-is read from stdin: when the first non-whitespace byte is "{" every
+Multiple REFs run as a batch. Positional REFs always win; only with no
+argument AND a non-TTY stdin is the input read from stdin: when the first
+non-whitespace byte is "{" every
 non-empty line must be a strict nitter.pipeline/v1 envelope of kind tweet
 and each record's data.url is used as the REF (the ` + "`nitter get --ndjson`" + `
 and ` + "`nitter watch --ndjson`" + ` streams feed download directly; a malformed
 envelope is a usage error), otherwise every non-empty line is a plain REF.
-Giving refs both as arguments and on stdin is an ambiguity error.
+A positional REF never reads stdin, so it cannot block on an open pipe.
 
 Selection (--kind, default: everything) follows the video-wins rule: a
 status carrying video or GIF downloads its ONE best video file — ranked by
@@ -221,8 +223,7 @@ kind:"error" envelope on the NDJSON stream, a stderr line otherwise) while
 the other refs continue, and the command exits 1 with a "download completed
 with N of M refs failed" summary when at least one ref failed; usage
 problems (unknown --kind/--quality/--strategy/--on-exists, bad or missing
-refs, refs given both as arguments and on stdin, malformed stdin envelopes,
---json with --ndjson) exit 2.`,
+refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, s, args, opts)
@@ -471,29 +472,31 @@ func runBatch(s *invocation.Streams, mode pipeline.Mode, pairs []statusRef, opts
 	return nil
 }
 
-// collectRefs gathers the batch inputs: the positional arguments, or — when
-// none is given and stdin is not a TTY — the stdin stream. A stdin payload
-// whose first non-whitespace byte is "{" switches to envelope mode (strict
+// collectRefs gathers the batch inputs: the positional arguments when any
+// are given — stdin is never read then, so a positional batch cannot hang on
+// a pipe whose writer stays open — or, with no positional argument and a
+// non-TTY stdin, the stdin stream. A stdin payload whose first
+// non-whitespace byte is "{" switches to envelope mode (strict
 // nitter.pipeline/v1 tweet envelopes; each record's data.url becomes the
 // ref, a malformed envelope is a usage error); anything else is plain refs,
-// one per non-empty line. Giving refs both as arguments and on a non-empty
-// stdin is an ambiguity error.
+// one per non-empty line. Neither source yields a ref is a usage error.
 func collectRefs(s *invocation.Streams, args []string) ([]string, error) {
-	refs := append([]string(nil), args...)
+	if len(args) > 0 {
+		return append([]string(nil), args...), nil
+	}
+	var refs []string
 	if s.In != nil && !s.InIsTTY {
 		data, err := io.ReadAll(s.In)
 		if err != nil {
 			return nil, fmt.Errorf("read stdin: %w", err)
 		}
-		trimmed := bytes.TrimLeft(data, " \t\r\n")
-		if len(trimmed) == 0 {
-			// Empty stdin: fall through to the no-refs usage error (or the
-			// argument refs, which are fine).
-		} else if len(refs) > 0 {
-			return nil, invocation.Usagef("download: status references given both as arguments and on stdin")
-		} else if trimmed[0] == '{' {
+		trimmed := bytes.TrimLeft(data, " 	\r\n")
+		switch {
+		case len(trimmed) == 0:
+			// Empty stdin: fall through to the no-refs usage error.
+		case trimmed[0] == '{':
 			return parseEnvelopeRefs(data)
-		} else {
+		default:
 			refs = nonEmptyLines(bytes.NewReader(data))
 		}
 	}
