@@ -28,6 +28,7 @@
 - **验证命令声明**（可选）：PR 正文的验证步骤里可声明恰好一个 ```commands fenced block，作为 CI 代跑的默认验证命令；命令必须落在 `tools/verification/command-whitelist.txt` 白名单内，不会执行 shell。
 - **`/test` 评论验证门**（`pr-verification.yml`）：在 PR 里评论 `/test`（首个非空行、精确匹配）触发；触发者须是 PR 作者或有写权限。评论生命周期用 reaction 表达：👀 受理 → 🎉 通过 / 👎 失败，结果沉淀在一条带状态 JSON 的常驻评论里。执行身份绑定 `PR + HEAD SHA + 命令哈希`，重复触发去重、新提交自动取代旧 run。trusted runner 从 main tip checkout 工具链到 `_trusted/`，PR 代码只被构建成二进制执行，且全程不接触仓库 secrets；评论中的 commands block 会完全覆盖 PR 声明，声明无效一律 fail closed。单条命令默认 10 分钟超时。
 - **triage**：`pr-triage.yml` 按路径打 `area: *` 标签并指派维护者；外部 PR 由 `auto-assign.yml` 自动请求 review。
+- **发布信任链**（`release.yml`）：tag 必须解析到默认分支祖先链上的 commit（`tools/release verify-source`），双语 changelog 缺失即失败；构建后须经 `release-approval` environment 人工审批，发布 job 运行在独立的 `release` environment，产物保持 draft，公开由维护者手动完成。
 
 ## 架构边界（不可违反）
 

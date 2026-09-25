@@ -125,18 +125,24 @@ CONTRIBUTING.zh-CN.md        # 贡献入口（简体中文）
 
 ## 发布流程（骨架）
 
-发布自动化由 `.github/workflows/release.yml` 承担：
+发布自动化由 `.github/workflows/release.yml` 承担，信任链移植自
+FlanChanXwO/javdb-cli（MIT）：
 
-1. **tag 触发**：软校验目标 `changelog/vX.Y.Z/` 双语条目齐全（缺失时仅发出
-   warning，不阻断构建）。
+1. **tag 触发**（或 `workflow_dispatch` + `inputs.release_tag` 恢复）：
+   硬校验 SemVer 与 `changelog/vX.Y.Z/` 双语条目齐全（缺失即失败，不予豁免），
+   并跑 `tools/release verify-source`——tag 必须解析到默认分支祖先链上的 commit，
+   从其他历史打的 tag 无法驱动发布。
 2. **构建矩阵**：6 平台（macos-15-intel / macos-15 / ubuntu-24.04 /
    ubuntu-24.04-arm / windows-2025 / windows-11-arm），`CGO_ENABLED=0`，
    产物为 tar.gz（unix）/ zip（windows）压缩包，附 `VERSION` linker 注入与
    合并后的 `checksums.txt`。
-3. **GitHub Release 草稿**：workflow 以 `--generate-notes` 创建草稿并上传
-   全部压缩包与 `checksums.txt`；发布前由维护者把 `changelog/vX.Y.Z/` 的
-   双语说明填入草稿正文。
-4. 发布前人工核对：`nitter --version` 输出新版本号；skill
+3. **审批门**：`approve_release` job 挂 `release-approval` environment，
+   构建产物必须等维护者在 GitHub 上显式批准才会进入发布步骤。
+4. **GitHub Release 草稿**：发布 job 在独立的 `release` environment 中执行，
+   以 `--generate-notes` 创建草稿并上传全部压缩包与 `checksums.txt`；草稿
+   保持在 draft 状态，公开发布始终是维护者的手动、版本特定动作。发布前把
+   `changelog/vX.Y.Z/` 的双语说明填入草稿正文。
+5. 发布前人工核对：`nitter --version` 输出新版本号；skill
    `skills/nitter-cli/SKILL.md` 的 `version` 字段与 release 版本对齐。
 
 ## 质量门清单（交付前）
