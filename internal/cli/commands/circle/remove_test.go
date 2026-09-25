@@ -109,10 +109,16 @@ func TestCircleRemoveRejectsWrongArgCount(t *testing.T) {
 // TestCircleAddFetchesProfileFacts: after a successful roster write, add
 // best-effort fetches the new member's profile facts and merges them into the
 // sidecar — the machine fields only (handle/name/bio/followers_count), exactly
-// as circle refresh does.
+// as circle refresh does. A pre-seeded judgement (role/note/noted_at) must
+// survive the merge untouched: the auto-fetch never clobbers it.
 func TestCircleAddFetchesProfileFacts(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	dir := filepath.Join(home, ".nitter-cli")
+	seed := "[profiles.nasa]\nhandle = 'nasa'\nrole = 'creator'\nnote = 'hand recorded'\nnoted_at = '2026-01-01T00:00:00Z'\n"
+	if err := os.WriteFile(filepath.Join(dir, "profiles.toml"), []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed sidecar: %v", err)
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/2/profile/NASA" {
 			http.NotFound(w, r)
@@ -129,7 +135,7 @@ func TestCircleAddFetchesProfileFacts(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d (stderr %q)", code, errOut)
 	}
-	profiles, err := settings.LoadProfiles(filepath.Join(home, ".nitter-cli", "profiles.toml"))
+	profiles, err := settings.LoadProfiles(filepath.Join(dir, "profiles.toml"))
 	if err != nil {
 		t.Fatalf("load profiles.toml: %v", err)
 	}
@@ -139,6 +145,9 @@ func TestCircleAddFetchesProfileFacts(t *testing.T) {
 	}
 	if p.Name != "NASA" || p.Bio != "space" || p.FollowersCount != 70000000 {
 		t.Fatalf("profile facts not merged: %+v", p)
+	}
+	if p.Role != "creator" || p.Note != "hand recorded" || p.NotedAt != "2026-01-01T00:00:00Z" {
+		t.Fatalf("judgement clobbered by the add-time fetch: %+v", p)
 	}
 }
 
