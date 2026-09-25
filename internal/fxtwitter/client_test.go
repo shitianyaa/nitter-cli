@@ -1254,7 +1254,12 @@ func TestErrorsDoNotLeakQueryStringOrBody(t *testing.T) {
 	_, _, searchErr := client.SearchTweets(ctx, token, 10, "", "latest")
 	_, usersErr := client.SearchUsers(ctx, token, 10)
 	_, _, quotesErr := client.FetchQuotes(ctx, "4242", 10, "")
-	for name, err := range map[string]error{"search": searchErr, "users": usersErr, "quotes": quotesErr} {
+	// A slice, not a map: the failure report must be deterministic.
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{{"search", searchErr}, {"users", usersErr}, {"quotes", quotesErr}} {
+		name, err := tc.name, tc.err
 		if err == nil {
 			t.Fatalf("%s: expected an error", name)
 		}
