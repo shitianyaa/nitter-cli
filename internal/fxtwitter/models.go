@@ -415,6 +415,7 @@ type RawFollowingResponse struct {
 	Users     []*RawAuthor `json:"users"`
 	Results   []*RawAuthor `json:"results"`
 	Following []*RawAuthor `json:"following"`
+	Followers []*RawAuthor `json:"followers"`
 	Profiles  []*RawAuthor `json:"profiles"`
 	Cursor    *RawCursor   `json:"cursor"`
 }
@@ -429,6 +430,9 @@ func (r *RawFollowingResponse) UserList() []*RawAuthor {
 	}
 	if len(r.Following) > 0 {
 		return r.Following
+	}
+	if len(r.Followers) > 0 {
+		return r.Followers
 	}
 	return r.Profiles
 }
@@ -624,4 +628,25 @@ func (r *RawUsersResponse) UserList() []*RawAuthor {
 		return r.Results
 	}
 	return r.Profiles
+}
+
+// RawThreadResponse represents the response from /2/thread/:id.
+type RawThreadResponse struct {
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Thread  []RawTweetItem `json:"thread"`
+}
+
+// RawTypeaheadResponse represents the response from /2/typeahead.
+type RawTypeaheadResponse struct {
+	Code       int          `json:"code"`
+	Message    string       `json:"message"`
+	NumResults int          `json:"num_results"`
+	Users      []*RawAuthor `json:"users"`
+}
+
+// UserList returns the suggested users; num_results is informational only
+// and the actual slice wins (verified upstream: the two may disagree).
+func (r *RawTypeaheadResponse) UserList() []*RawAuthor {
+	return r.Users
 }
