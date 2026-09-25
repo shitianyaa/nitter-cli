@@ -664,10 +664,12 @@ func TestEmptyInputsValidation(t *testing.T) {
 		t.Errorf("expected KindInvalidArg for zero media count, got tw=%v cur=%q err=%v", tw, cur, err)
 	}
 
-	// Empty query in search returns empty without error
+	// Empty query in search is a loud invalid argument now, same as every other
+	// entry point: the old silent empty success hid caller bugs (updated with
+	// the SearchTweets empty-query guard, which replaced the silent contract).
 	tw, cur, err = client.SearchTweets(ctx, "   ", 10, "", "latest")
-	if err != nil || len(tw) != 0 || cur != "" {
-		t.Errorf("expected empty return on blank query, got tw=%v cur=%q err=%v", tw, cur, err)
+	if !errors.As(err, &terr) || terr.Kind != sdk.KindInvalidArg {
+		t.Errorf("expected KindInvalidArg for blank search query, got tw=%v cur=%q err=%v", tw, cur, err)
 	}
 
 	// Empty handle in profile returns KindInvalidArg
@@ -1535,5 +1537,73 @@ func TestFetchUserTimelineDefaultPagesAndLoopGuard(t *testing.T) {
 	}
 	if reqCount3 != 7 || len(tweets3) != 7 {
 		t.Errorf("unbounded: reqCount = %d, tweets = %d, want 7 pages to completion", reqCount3, len(tweets3))
+	}
+}
+
+func TestSearchTweetsRejectsEmptyQuery(t *testing.T) {
+	client := fxtwitter.NewClient()
+	_, _, err := client.SearchTweets(context.Background(), "   ", 10, "", "latest")
+	if err == nil {
+		t.Fatal("an empty query must be a loud invalid argument, not an empty success")
+	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("want KindInvalidArg, got %v", err)
+	}
+}
+
+func TestSearchTweetsRejectsNonPositiveCount(t *testing.T) {
+	client := fxtwitter.NewClient()
+	for _, count := range []int{0, -5} {
+		_, _, err := client.SearchTweets(context.Background(), "moon", count, "", "latest")
+		if err == nil {
+			t.Fatalf("count %d must be rejected, not defaulted to the upstream page size", count)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("count %d: want KindInvalidArg, got %v", count, err)
+		}
+	}
+}
+
+func TestSearchUsersRejectsNonPositiveCount(t *testing.T) {
+	client := fxtwitter.NewClient()
+	for _, count := range []int{0, -5} {
+		_, err := client.SearchUsers(context.Background(), "NASA", count)
+		if err == nil {
+			t.Fatalf("count %d must be rejected, not defaulted to the upstream page size", count)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("count %d: want KindInvalidArg, got %v", count, err)
+		}
+	}
+}
+
+func TestFetchUserFollowingRejectsNonPositiveLimit(t *testing.T) {
+	client := fxtwitter.NewClient()
+	for _, limit := range []int{0, -5} {
+		_, _, err := client.FetchUserFollowing(context.Background(), "NASA", limit, "")
+		if err == nil {
+			t.Fatalf("limit %d must be rejected, not sent upstream as an unbounded request", limit)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("limit %d: want KindInvalidArg, got %v", limit, err)
+		}
+	}
+}
+
+func TestFetchQuotesRejectsNonPositiveCount(t *testing.T) {
+	client := fxtwitter.NewClient()
+	for _, count := range []int{0, -5} {
+		_, _, err := client.FetchQuotes(context.Background(), "123", count, "")
+		if err == nil {
+			t.Fatalf("count %d must be rejected, not sent upstream without a page cap", count)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("count %d: want KindInvalidArg, got %v", count, err)
+		}
 	}
 }
