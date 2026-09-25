@@ -53,6 +53,7 @@ func New(s *invocation.Streams) *cobra.Command {
 	cmd.AddCommand(newRefreshCmd(s))
 	cmd.AddCommand(newSuggestCmd(s))
 	cmd.AddCommand(newAddCmd(s))
+	cmd.AddCommand(newRemoveCmd(s))
 	cmd.AddCommand(newRunCmd(s))
 	return cmd
 }
@@ -246,7 +247,8 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				return err
 			}
 
-			circle, ok := settings.FindCircle(circles, name)
+			matchedKey, circle, ok := settings.FindCircleKey(circles, name)
+			inserted := false
 			if !ok {
 				circle = settings.Circle{
 					Key:   name,
@@ -254,6 +256,7 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 					Users: []string{cleanHandle},
 				}
 				circles[name] = circle
+				inserted = true
 			} else {
 				exists := false
 				for _, u := range circle.Users {
@@ -264,7 +267,8 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				}
 				if !exists {
 					circle.Users = append(circle.Users, cleanHandle)
-					circles[circle.Key] = circle
+					circles[matchedKey] = circle
+					inserted = true
 				}
 			}
 
@@ -272,7 +276,125 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				return err
 			}
 
+			// Best-effort profile fetch, gated on an actual insertion: a
+			// duplicate add is a roster no-op and must not touch the network.
+			// The roster write already succeeded, so a failed fetch must not
+			// fail the command — a warning keeps the old behavior (facts
+			// arrive with circle refresh) visible.
+			if inserted {
+				fetchProfileFacts(s, p.ProfilesFile, cleanHandle)
+			}
+
 			fmt.Fprintf(s.Out, "added @%s to circle %s\n", cleanHandle, name)
+			return nil
+		},
+	}
+	return cmd
+}
+
+// fetchProfileFacts best-effort fetches a newly added member's profile facts
+// and merges them into the sidecar. Every failure here is only a warning on
+// stderr: the roster write has already succeeded, so the command stays exit 0.
+// Like circle refresh, only the machine fields (Handle/Name/Bio/
+// FollowersCount) are written via settings.MergeProfileFacts — the judgement
+// fields (role/note/noted_at) are never touched here.
+func fetchProfileFacts(s *invocation.Streams, profilesFile, handle string) {
+	fetchCtx := s.CTX
+	if fetchCtx == nil {
+		fetchCtx = context.Background()
+	}
+	cfg, err := client.LoadEffectiveSettings()
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: load settings: %v\n", err)
+		return
+	}
+	w, err := client.Build(s.RootOptions, cfg, time.Now)
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: build client: %v\n", err)
+		return
+	}
+	prof, err := w.Profile().Profile(fetchCtx, handle)
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: fetch profile facts: %v\n", err)
+		return
+	}
+	profiles, err := settings.LoadProfiles(profilesFile)
+	if err != nil {
+		// A sidecar we cannot read must never be rewritten from an empty map —
+		// that would drop every other member's judgement. Warn and leave it.
+		fmt.Fprintf(s.Err, "warning: circle add: load profile sidecar: %v\n", err)
+		return
+	}
+	profiles = settings.MergeProfileFacts(profiles, handle, settings.Profile{
+		Handle:         prof.Handle,
+		Name:           prof.Name,
+		Bio:            prof.Bio,
+		FollowersCount: prof.FollowersCount,
+	}, time.Now())
+	if err := settings.SaveProfiles(profilesFile, profiles); err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: save profile facts: %v\n", err)
+	}
+}
+
+// newRemoveCmd builds `nitter circle remove <NAME> <HANDLE>`: it edits ONLY
+// the circle's users array in circles.toml. The profile sidecar
+// (~/.nitter-cli/profiles.toml, role/note judgement included) is never read
+// nor written here. A non-member handle is idempotent: an explicit notice on
+// stderr, exit 0 — the notice is the honesty, never silence.
+func newRemoveCmd(s *invocation.Streams) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:           "remove <NAME> <HANDLE>",
+		Short:         "Remove a user handle from a circle (the profile sidecar is untouched)",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 2 {
+				return invocation.Usagef("usage: nitter circle remove <NAME> <HANDLE>")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			cleanHandle := strings.TrimPrefix(strings.TrimSpace(args[1]), "@")
+			if name == "" {
+				return invocation.Usagef("circle: circle name cannot be empty")
+			}
+			if !handleRe.MatchString(cleanHandle) {
+				return invocation.Usagef("circle: %q is not a valid handle (1-15 letters, digits or underscores, without the @)", args[1])
+			}
+
+			p, err := paths.New()
+			if err != nil {
+				return err
+			}
+			circles, err := settings.LoadCircles(p.CirclesFile)
+			if err != nil {
+				return err
+			}
+			matchedKey, circle, ok := settings.FindCircleKey(circles, name)
+			if !ok {
+				return fmt.Errorf("circle %q not found", name)
+			}
+
+			kept := circle.Users[:0:0]
+			removed := false
+			for _, u := range circle.Users {
+				if strings.EqualFold(u, cleanHandle) {
+					removed = true
+					continue
+				}
+				kept = append(kept, u)
+			}
+			if !removed {
+				fmt.Fprintf(s.Err, "circle remove: @%s is not a member of %s; nothing changed\n", cleanHandle, matchedKey)
+				return nil
+			}
+			circle.Users = kept
+			circles[matchedKey] = circle
+			if err := settings.SaveCircles(p.CirclesFile, circles); err != nil {
+				return err
+			}
+			fmt.Fprintf(s.Out, "removed @%s from circle %s\n", cleanHandle, matchedKey)
 			return nil
 		},
 	}

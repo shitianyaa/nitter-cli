@@ -33,6 +33,7 @@ func countingFxServer(t *testing.T) (*httptest.Server, *int) {
 func TestCircleShowIsLocalAndJoinsSidecar(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "cached")
 	runCLI(t, "circle", "add", "dev", "uncached")
 
@@ -86,6 +87,7 @@ func TestCircleShowIsLocalAndJoinsSidecar(t *testing.T) {
 func TestCircleShowJSONShape(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "cached")
 	runCLI(t, "circle", "add", "dev", "uncached")
 
@@ -132,6 +134,7 @@ func TestCircleShowJSONShape(t *testing.T) {
 func TestCircleShowMinFollowersFiltersCache(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "big")
 	runCLI(t, "circle", "add", "dev", "small")
 	runCLI(t, "circle", "add", "dev", "uncached")
@@ -179,6 +182,7 @@ func TestCircleShowMinFollowersFiltersCache(t *testing.T) {
 func TestCircleShowShowsRecordedRoleWithoutCache(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "judged")
 
 	dir := filepath.Join(home, ".nitter-cli")
@@ -220,6 +224,7 @@ func TestCircleShowShowsRecordedRoleWithoutCache(t *testing.T) {
 func TestCircleShowCorruptSidecarExits1(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "cached")
 
 	dir := filepath.Join(home, ".nitter-cli")
@@ -244,6 +249,7 @@ func TestCircleShowCorruptSidecarExits1(t *testing.T) {
 func TestCircleShowZeroFollowersCountsAsCached(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "zero")
 
 	dir := filepath.Join(home, ".nitter-cli")

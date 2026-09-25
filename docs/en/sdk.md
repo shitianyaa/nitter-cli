@@ -91,6 +91,35 @@ cooling, `Pick` fails with `KindUnavailable` ("all instances cooling down");
 with no instances, `KindUnavailable` ("no instances configured"). There is no
 success weighting: the config order is the policy.
 
+## The FxTwitter fast lane fetchers
+
+The FxTwitter fast lane that backs the fx-only commands (`followers`, `thread`,
+`typeahead`, `comments`, `following`, `profile`, `quotes`, `trends`, …) is
+implemented by the internal FxTwitter client (`internal/fxtwitter`), not by the
+public `nitter` package — it is not importable outside this module. The same
+batch that added the `followers`, `thread` and `typeahead` commands extended
+that client with three fetchers; their signatures and semantics, for reference
+when reading the CLI's behavior (the models are the public `nitter` types):
+
+```go
+FetchFollowers(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error)
+FetchThread(ctx context.Context, statusID string) ([]nitter.Tweet, error)
+FetchTypeahead(ctx context.Context, query string, count int) ([]nitter.Profile, error)
+```
+
+- `FetchFollowers` returns the accounts following `handle` (the follower
+  list), capped at `limit` (must be >= 1; a non-positive limit is
+  `KindInvalidArg`), plus the upstream continuation cursor.
+- `FetchThread` returns the self-thread containing `statusID`, root post
+  first; a status that is not part of a thread surfaces the upstream 404 as
+  `KindNotFound`.
+- `FetchTypeahead` queries the user-completion endpoint — a suggestion lookup,
+  not search: no operators, a small upstream cap and no pagination; `count`
+  caps the result (must be >= 1).
+
+The error kinds, the redaction contract and the data models are the same as
+everywhere else in this document.
+
 ## Data models
 
 All structs below are the NDJSON data contract; their JSON keys are frozen

@@ -12,7 +12,7 @@
 | 选项 | 含义 |
 | --- | --- |
 | `--proxy URL` | 本次调用的代理（`http`、`https`、`socks5`、`socks5h`）。优先级：flag > 配置 `proxy`。两者都为空时，环境变量 `HTTPS_PROXY`/`ALL_PROXY` 对 FxTwitter 快车道与 `update` 生效，但**不**作用于 nitter 传输——要给实例流量走代理请用 `--proxy` 或配置 `proxy`。 |
-| `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**，并把本次调用钉在实例路径上（跳过 Fx 快车道）——这是验证单个实例的手段。它只对**有实例路径的命令**生效（`user`、`search`、`get`、`list`）；六个 fx-only 能力（`comments`、`following`、`profile`、`quotes`、`trends`、`search --type user`）会忽略它。该覆盖**不携带 basic-auth 凭据**，因此需要认证的实例会返回 401。它不是日常开关：路由由 `fetch_backend` 决定，它只覆盖本次调用的实例集。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
+| `--instance URL` | 本次调用的 Nitter 实例地址。它会**用这一个 URL 替换整个已配置的实例集**，并把本次调用钉在实例路径上（跳过 Fx 快车道）——这是验证单个实例的手段。它只对**有实例路径的命令**生效（`user`、`search`、`get`、`list`）；九个 fx-only 能力（`followers`、`thread`、`typeahead`、`comments`、`following`、`profile`、`quotes`、`trends`、`search --type user`）会忽略它。该覆盖**不携带 basic-auth 凭据**，因此需要认证的实例会返回 401。它不是日常开关：路由由 `fetch_backend` 决定，它只覆盖本次调用的实例集。代理协议或实例 URL 不合法会在任何动作开始前以用法错误退出（退出码 2）。 |
 
 `nitter --version` 输出 `nitter version <版本号>`；裸调用 `nitter` 显示帮助。
 未知子命令退出 1（不是 2）。
@@ -24,9 +24,11 @@
 - `user`、`search`、`get` 优先尝试 **`api.fxtwitter.com`**（第三方公共服务）：
   handle、查询串或状态 ID 会发往该服务，**不携带你的任何凭证**；失败时回退到
   你自己的实例。
-- `comments`、`following`、`profile`、`quotes`、`trends`、`search --type user`
-  与 `circle refresh` 没有 Nitter 等价端点，因此无论 `fetch_backend` 怎么设，
-  都会访问 `api.fxtwitter.com`。
+- `followers`、`thread`、`typeahead`、`comments`、`following`、`profile`、
+  `quotes`、`trends`、`search --type user` 与 `circle refresh` 没有 Nitter 等价
+  端点，因此无论 `fetch_backend` 怎么设，都会访问 `api.fxtwitter.com`。
+  `circle add` 现在也会把新增成员的 handle 发往 `api.fxtwitter.com`（尽力而为的
+  档案事实拉取；该步失败只是 stderr 警告）。
 - `list` 始终运行在你自己的实例上（FxTwitter 没有 List 端点）。
 
 `fx` 去掉回退（只走快车道，失败即报错）；`--instance URL` 把某一次调用钉在单个
@@ -127,6 +129,22 @@ nitter following <HANDLE> [--limit N] [--json|--ndjson]
 - 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封。
 - `--json` 输出完整 `Profile` 数组。
 
+## nitter followers
+
+```bash
+nitter followers <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+通过 FxTwitter 接口拉取关注 `HANDLE` 的账号列表（粉丝列表，`following` 的镜像能力）。
+- TTY 默认渲染排版表格：`@<handle>  <name>  <followers>  <bio>`。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封（`meta.source` 为 `followers:<按原样输入的 handle>`，`meta.instance` 为 `FxTwitter`）。
+- `--json` 输出 `Profile` 对象数组（空结果为 `[]`）。
+- `--limit` 限制拉取的档案条数（默认 20，必须 ≥ 1——没有「不限制」取值）。
+
+该能力无论 `fetch_backend` 怎么设都恒走 FxTwitter 快车道；`--instance` 不适用。
+`HANDLE` 为 1–15 个字母、数字或下划线，不带 `@`——形状不对（或出现多余参数）会在
+任何网络动作前退出 2；取数失败以分类后的错误消息退出 1。
+
 ## nitter comments
 
 ```bash
@@ -137,6 +155,24 @@ nitter comments <STATUS_ID_OR_URL> [--sort likes|recency] [--limit N] [--json|--
 - 典型场景：提取博主首条自评隐藏链接/网盘、追更 1/N 连环长推/漫画串。
 - `--sort`：可选 `likes`（默认高赞排序）或 `recency`（最新回复排序）。
 
+## nitter thread
+
+```bash
+nitter thread <TWEET_ID> [--json|--ndjson]
+```
+
+拉取包含 `TWEET_ID` 的完整自帖串，从主楼开始每条状态一行：
+`<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <单行文本>`。
+
+`TWEET_ID` 必须是纯数字 status ID（1–20 位数字）；URL 等其他引用形态归 `get`
+命令——非数字 ID（或出现多余参数）会在任何网络动作前退出 2。不属于任何串的
+推文按 `not_found` 应答，并以分类后的错误消息退出 1。该能力无论
+`fetch_backend` 怎么设都恒走 FxTwitter 快车道；`--instance` 不适用。
+
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "tweet"`）单行 NDJSON 信封（status ID 作为 `id`，`meta.source` 为 `thread:<id>`，`meta.instance` 为 `FxTwitter`）。
+- `--json` 输出推文对象数组（空结果为 `[]`）。
+- 空串是成功（退出 0）：NDJSON 模式下 stdout 不打印任何内容，默认模式下在 stderr 打印 `(empty)` 提示。
+
 ## nitter circle
 
 ```bash
@@ -145,6 +181,7 @@ nitter circle show <NAME> [--json] [--min-followers N]
 nitter circle refresh <NAME>
 nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
+nitter circle remove <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -154,7 +191,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
   - **`--min-followers N`**：只保留**缓存**粉丝数 ≥ N 的成员。无缓存的成员没有已验证数字，会被该过滤排除，但仍计入 stderr 提示。`N < 0` 是 usage error（退出 2）。
   - 无缓存的成员保留行内 `-` 占位，同时在 stderr 输出 `note: <N> member(s) have no cached profile; run 'nitter circle refresh <NAME>'`（无论是否被 `--min-followers` 过滤掉）。先跑一次 `refresh` 填充缓存。
   - `--json` 按名单顺序输出 `{handle, name, bio, followers_count, fetched_at, role, note}` 对象数组；与 human 行一致，`bio` 会展平为单行并截断到 120 字节。`fetched_at` 为空串表示从未拉取；数据新鲜度由消费方自行派生（`noted_at` 与派生的 age 刻意不投影）。
-- `refresh`：拉取每个成员的 profile 并把结果合并进侧写文件 `~/.nitter-cli/profiles.toml`。它是该文件**唯一**的联网写入路径，也是唯一为圈子拉取 profile 的命令。
+- `refresh`：拉取每个成员的 profile 并把结果合并进侧写文件 `~/.nitter-cli/profiles.toml`。它是该文件**唯一的批量**刷新者，也是唯一为整个圈子拉取 profile 的命令（`circle add` 会在添加时做一次 best-effort 的单成员拉取——见下；`circle remove` 从不读写该文件）。
   - 只写事实字段（`name`、`bio`、`followers_count`、`fetched_at`），**绝不触碰** `role`、`note`、`noted_at`——记在这些字段里的判断在每次刷新中都会存活。
   - 单个成员拉取失败时 stderr 一行 `warning:` 并继续，其已有条目保留原事实（不以空值覆盖，也不会为它新建条目）。全部成员失败退出 1；圈子不存在退出 1；空圈子输出 `(empty)`、退出 0 且不创建文件。
   - 成功时输出 `refreshed N/M members in circle <key>`。从不 prune：已不在圈子中的 handle 其侧写条目原样保留。
@@ -164,7 +201,8 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
   - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。
   - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
   - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
-- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。
+- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。名册写入成功后，它会尽力拉取新成员的档案事实：handle 会被发送到 `api.fxtwitter.com`（该拉取忽略 `--instance`，始终走 FxTwitter 快车道，即使本次调用已被 `--instance` 钉在实例上），只有事实字段（`name`、`bio`、`followers_count`、`fetched_at`）会合并进侧写文件——判断字段（`role`/`note`/`noted_at`）绝不被触碰。该路径上的任何失败都只是 stderr 一行 `warning:`：名册写入有效、命令仍退出 0，事实随下一次 `circle refresh` 到位。
+- `remove`：从圈子移除博主，**只**编辑 `circles.toml` 中该圈子的 users 数组。档案侧写 `~/.nitter-cli/profiles.toml`——含已记录的 `role`/`note`——从不被读取或写入，因此移除成员会保留其缓存档案。移除是幂等的：移除非成员 handle 时在 stderr 打印 `circle remove: @<handle> is not a member of <key>; nothing changed` 并退出 0（提示就是诚实，绝不静默）。成功时打印 `removed @<handle> from circle <key>`；圈子不存在退出 1，handle 形状不合法退出 2。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
   - `--limit N`（默认 20，必须 ≥ 1）：每个博主抓取的推文上限。
   - `--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
@@ -250,6 +288,25 @@ mix 模式降级时绝不会给出与请求不同的排序，翻页的每一页�
 ```bash
 nitter search "#AI" --sort top --limit 10 --json   # 按热门排序而非最新优先
 ```
+
+## nitter typeahead
+
+```bash
+nitter typeahead <QUERY> [--limit N] [--json|--ndjson]
+```
+
+经 user-completion 端点补全与 `QUERY` 匹配的 X 账号，每个档案一行：
+`@<handle>  <name>  <followers>  <bio>`。
+
+这是补全查询，不是搜索（completion, NOT search）：无查询算子，上游最多应答约
+10–20 个账号，且不可翻页。真正的查询请用 `search`。纯空白查询会在任何网络
+动作前退出 2。
+
+该能力无论 `fetch_backend` 怎么设都恒走 FxTwitter 快车道；`--instance` 不适用。
+
+- `--limit` 限制打印的档案条数（默认 20，必须 ≥ 1——上游可能给得更少）。
+- 管道模式（`!isatty`）自动输出 `nitter.pipeline/v1`（`kind: "profile"`）单行 NDJSON 信封（`meta.source` 为 `typeahead:<按原样输入的查询>`，`meta.instance` 为 `FxTwitter`）。
+- `--json` 输出 `Profile` 对象数组（空结果为 `[]`）。
 
 ## nitter list
 

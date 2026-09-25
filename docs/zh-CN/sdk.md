@@ -81,6 +81,30 @@ SDK 的窄 HTTP 边界：恰好是抓取所需，别无其他。真实传输层�
 失败；一个实例都没有时为 `KindUnavailable`（"no instances configured"）。没有
 成功率加权：配置顺序就是策略。
 
+## FxTwitter 快车道取数函数
+
+支撑各 fx-only 命令（`followers`、`thread`、`typeahead`、`comments`、
+`following`、`profile`、`quotes`、`trends` 等）的 FxTwitter 快车道由内部的
+FxTwitter 客户端（`internal/fxtwitter`）实现，而非公开的 `nitter` 包——模块外
+不可导入。与 `followers`、`thread`、`typeahead` 三条命令同一批改动为该客户端
+补了三个取数函数；其签名与语义如下，供阅读 CLI 行为时参照（模型均为公开的
+`nitter` 类型）：
+
+```go
+FetchFollowers(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error)
+FetchThread(ctx context.Context, statusID string) ([]nitter.Tweet, error)
+FetchTypeahead(ctx context.Context, query string, count int) ([]nitter.Profile, error)
+```
+
+- `FetchFollowers` 返回关注 `handle` 的账号列表（粉丝列表），按 `limit`
+  截断（必须 >= 1；非正数返回 `KindInvalidArg`），并携带上游续页游标。
+- `FetchThread` 返回包含 `statusID` 的自帖串，主楼在前；不属于任何串的推文把
+  上游 404 按 `KindNotFound` 上报。
+- `FetchTypeahead` 查询 user-completion 端点——是建议查询，不是搜索：无算子、
+  上游上限很小且不可翻页；`count` 截断结果（必须 >= 1）。
+
+错误 kind、脱敏契约与数据模型与本文档其余部分一致。
+
 ## 数据模型
 
 以下结构体都是 NDJSON 数据契约；JSON 键冻结（只增不改），每个字段无条件

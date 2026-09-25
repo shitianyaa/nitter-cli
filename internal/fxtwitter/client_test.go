@@ -1607,3 +1607,172 @@ func TestFetchQuotesRejectsNonPositiveCount(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchFollowersHappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/profile/NASA/followers" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("count") != "20" {
+			t.Errorf("count = %q, want 20", r.URL.Query().Get("count"))
+		}
+		_, _ = w.Write([]byte(`{"code":200,"followers":[{"screen_name":"a","name":"A","followers":10},{"screen_name":"b","name":"B","followers":20},{"screen_name":"c","name":"C","followers":30}]}`))
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	profiles, next, err := client.FetchFollowers(context.Background(), "NASA", 20, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(profiles) != 3 || profiles[0].Handle != "a" || next != "" {
+		t.Fatalf("profiles=%+v next=%q", profiles, next)
+	}
+}
+
+func TestFetchFollowersRejectsBadArgs(t *testing.T) {
+	client := fxtwitter.NewClient()
+	_, _, err := client.FetchFollowers(context.Background(), " ", 20, "")
+	if err == nil {
+		t.Fatal("empty handle must be rejected")
+	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty handle: want KindInvalidArg, got %v", err)
+	}
+	for _, limit := range []int{0, -5} {
+		_, _, err := client.FetchFollowers(context.Background(), "NASA", limit, "")
+		if err == nil {
+			t.Fatalf("limit %d must be rejected", limit)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("limit %d: want KindInvalidArg, got %v", limit, err)
+		}
+	}
+}
+
+func TestFetchFollowersNotFoundSurfaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":404,"message":"not found"}`))
+	}))
+	defer srv.Close()
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	if _, _, err := client.FetchFollowers(context.Background(), "ghost", 20, ""); !fxtwitter.IsNotFound(err) {
+		t.Fatalf("want KindNotFound, got %v", err)
+	}
+}
+
+// TestFetchThreadHappyPath: the fixture keys mirror the ACTUAL RawTweetItem
+// json tags in models.go (RawTweet embeds the author block under "author";
+// there is no "user" key on this lane).
+func TestFetchThreadHappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/thread/101" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":200,"thread":[{"id_str":"101","author":{"screen_name":"nasa"},"text":"root"},{"id_str":"102","author":{"screen_name":"nasa"},"text":"part two"}]}`))
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, err := client.FetchThread(context.Background(), "101")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tweets) != 2 || tweets[0].Text != "root" || tweets[1].Text != "part two" {
+		t.Fatalf("tweets=%+v", tweets)
+	}
+}
+
+func TestFetchThreadEmptyArrayIsLegalEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"thread":[]}`))
+	}))
+	defer srv.Close()
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	tweets, err := client.FetchThread(context.Background(), "101")
+	if err != nil || len(tweets) != 0 {
+		t.Fatalf("empty thread array must be (empty, nil), got (%d, %v)", len(tweets), err)
+	}
+}
+
+func TestFetchThreadGuards(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":404,"message":"not found"}`))
+	}))
+	defer srv.Close()
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+
+	_, err := client.FetchThread(context.Background(), " ")
+	if err == nil {
+		t.Fatal("empty statusID must be rejected")
+	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty statusID: want KindInvalidArg, got %v", err)
+	}
+	if _, err := client.FetchThread(context.Background(), "404"); !fxtwitter.IsNotFound(err) {
+		t.Fatalf("want KindNotFound, got %v", err)
+	}
+}
+
+func TestFetchTypeaheadHappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/typeahead" {
+			http.NotFound(w, r)
+			return
+		}
+		q := r.URL.Query()
+		if q.Get("q") != "nas" || q.Get("result_type") != "users" || q.Get("src") != "search" {
+			t.Errorf("params = %v", q)
+		}
+		_, _ = w.Write([]byte(`{"code":200,"num_results":2,"users":[{"screen_name":"nasa","name":"NASA"},{"screen_name":"nasa_jpl","name":"NASA JPL"}]}`))
+	}))
+	defer srv.Close()
+
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	profiles, err := client.FetchTypeahead(context.Background(), "nas", 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(profiles) != 2 || profiles[0].Handle != "nasa" {
+		t.Fatalf("profiles=%+v", profiles)
+	}
+}
+
+func TestFetchTypeaheadTruncatesToLocalLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"num_results":3,"users":[{"screen_name":"a"},{"screen_name":"b"},{"screen_name":"c"}]}`))
+	}))
+	defer srv.Close()
+	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
+	profiles, err := client.FetchTypeahead(context.Background(), "q", 2)
+	if err != nil || len(profiles) != 2 {
+		t.Fatalf("want 2 profiles (local truncation), got (%d, %v)", len(profiles), err)
+	}
+}
+
+func TestFetchTypeaheadGuards(t *testing.T) {
+	client := fxtwitter.NewClient()
+	_, err := client.FetchTypeahead(context.Background(), "   ", 20)
+	if err == nil {
+		t.Fatal("empty query must be rejected")
+	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty query: want KindInvalidArg, got %v", err)
+	}
+	_, err = client.FetchTypeahead(context.Background(), "nas", 0)
+	if err == nil {
+		t.Fatal("count 0 must be rejected")
+	}
+	var countErr *sdk.Error
+	if !errors.As(err, &countErr) || countErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("count 0: want KindInvalidArg, got %v", err)
+	}
+}

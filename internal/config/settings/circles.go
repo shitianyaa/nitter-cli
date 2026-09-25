@@ -96,32 +96,41 @@ func SaveCircles(path string, circles map[string]Circle) error {
 
 // FindCircle looks up a circle by key or name (case-insensitive fallback).
 func FindCircle(circles map[string]Circle, name string) (Circle, bool) {
+	_, c, ok := FindCircleKey(circles, name)
+	return c, ok
+}
+
+// FindCircleKey is FindCircle with the matched map key. A circle's struct Key
+// can diverge from the section key it is stored under — the inner key field
+// wins over the section name on load — so write-backs must target the
+// matched map key, never c.Key.
+func FindCircleKey(circles map[string]Circle, name string) (string, Circle, bool) {
 	clean := strings.TrimSpace(name)
 	if clean == "" {
-		return Circle{}, false
+		return "", Circle{}, false
 	}
 	// 1. Exact key match
 	if c, ok := circles[clean]; ok {
-		return c, true
+		return clean, c, true
 	}
 	// 2. Exact Name match
-	for _, c := range circles {
+	for k, c := range circles {
 		if c.Name == clean {
-			return c, true
+			return k, c, true
 		}
 	}
 	// 3. Case-insensitive key match
 	lower := strings.ToLower(clean)
 	for k, c := range circles {
 		if strings.ToLower(k) == lower {
-			return c, true
+			return k, c, true
 		}
 	}
 	// 4. Case-insensitive Name match
-	for _, c := range circles {
+	for k, c := range circles {
 		if strings.ToLower(c.Name) == lower {
-			return c, true
+			return k, c, true
 		}
 	}
-	return Circle{}, false
+	return "", Circle{}, false
 }

@@ -51,9 +51,23 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
+// deadFxBaseURL points the fx backend at an unreachable local port for the
+// whole test. `circle add` now best-effort fetches the added member's profile
+// after the roster write; tests that do not exercise that fetch wire this so
+// the attempt fails instantly and deterministically instead of reaching the
+// live FxTwitter API. Tests that DO exercise fetches call
+// SetFxBaseURLForTesting(srv.URL) afterwards, which overrides this and
+// restores it on cleanup.
+func deadFxBaseURL(t *testing.T) {
+	t.Helper()
+	cleanup := client.SetFxBaseURLForTesting("http://127.0.0.1:1")
+	t.Cleanup(cleanup)
+}
+
 func TestCircle_AddListShow(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 
 	// 1. Initial list when no circles exist
 	t.Run("list empty text", func(t *testing.T) {
@@ -224,6 +238,7 @@ func TestCircle_AddListShow(t *testing.T) {
 func TestCircle_Run(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 
 	// Add users to circle
 	runCLI(t, "circle", "add", "space", "NASA")
@@ -384,6 +399,7 @@ func TestCircle_Run(t *testing.T) {
 func TestCircle_RunDeterministicOrder(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 
 	runCLI(t, "circle", "add", "ord", "nasa")
 
@@ -454,6 +470,7 @@ func TestCircle_RunMetaFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := tempHome(t)
 			writeConfig(t, home)
+			deadFxBaseURL(t)
 			runCLI(t, "circle", "add", "mf", "nasa")
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -522,6 +539,7 @@ func fxMediaTweet(id, text string) map[string]any {
 func TestCircle_RunMediaType(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 
 	runCLI(t, "circle", "add", "media", "nasa")
 

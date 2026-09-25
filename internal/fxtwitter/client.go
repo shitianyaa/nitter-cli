@@ -33,6 +33,10 @@ const (
 	opQuotes        = "fxtwitter.FetchQuotes"
 	opTrends        = "fxtwitter.FetchTrends"
 	opSearchUsers   = "fxtwitter.SearchUsers"
+
+	opFollowers = "fxtwitter.FetchFollowers"
+	opThread    = "fxtwitter.FetchThread"
+	opTypeahead = "fxtwitter.FetchTypeahead"
 )
 
 // EndpointOverrides allows overriding default endpoints in tests.
@@ -520,6 +524,130 @@ func (c *Client) FetchUserFollowing(
 		profiles = profiles[:limit]
 	}
 	return profiles, nextCursor, nil
+}
+
+// FetchFollowers retrieves the accounts following a user (the follower list).
+func (c *Client) FetchFollowers(
+	ctx context.Context,
+	handle string,
+	limit int,
+	cursor string,
+) ([]sdk.Profile, string, error) {
+	cleanUser := strings.TrimPrefix(strings.TrimSpace(handle), "@")
+	if cleanUser == "" {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opFollowers, "handle cannot be empty")
+	}
+	// limit <= 0 is a caller bug: the CLI resolves every limit to a positive
+	// cap before calling (same contract as FetchUserFollowing).
+	if limit <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opFollowers, "limit must be >= 1, got %d", limit)
+	}
+
+	endpoint := fmt.Sprintf("/2/profile/%s/followers", cleanUser)
+	params := url.Values{}
+	params.Set("limit", strconv.Itoa(limit))
+	params.Set("count", strconv.Itoa(limit))
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, err := c.doGet(ctx, opFollowers, endpoint, params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var resp RawFollowingResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, "", sdk.Errorf(sdk.KindMalformed, opFollowers, "decode response: %w", err)
+	}
+
+	users := resp.UserList()
+	profiles := make([]sdk.Profile, 0, len(users))
+	for _, u := range users {
+		if p := u.ToSDKProfile(); p != nil {
+			profiles = append(profiles, *p)
+		}
+	}
+
+	nextCursor := resp.CursorValue()
+	if nextCursor == cursor {
+		nextCursor = ""
+	}
+
+	if len(profiles) > limit {
+		profiles = profiles[:limit]
+	}
+	return profiles, nextCursor, nil
+}
+
+// FetchThread retrieves the self-thread containing the given status, root first.
+func (c *Client) FetchThread(ctx context.Context, statusID string) ([]sdk.Tweet, error) {
+	cleanID := strings.TrimSpace(statusID)
+	if cleanID == "" {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opThread, "statusID cannot be empty")
+	}
+
+	endpoint := fmt.Sprintf("/2/thread/%s", cleanID)
+	body, err := c.doGet(ctx, opThread, endpoint, url.Values{})
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RawThreadResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, sdk.Errorf(sdk.KindMalformed, opThread, "decode response: %w", err)
+	}
+
+	tweets := make([]sdk.Tweet, 0, len(resp.Thread))
+	for i := range resp.Thread {
+		tw := resp.Thread[i].Resolve().ToSDK()
+		if tw == nil {
+			continue
+		}
+		tweets = append(tweets, *tw)
+	}
+	return tweets, nil
+}
+
+// FetchTypeahead queries the user-completion endpoint. It is a suggestion
+// lookup, not search: no operators, a small upstream cap and no pagination.
+func (c *Client) FetchTypeahead(ctx context.Context, query string, count int) ([]sdk.Profile, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opTypeahead, "query cannot be empty")
+	}
+	// count <= 0 is a caller bug: the CLI resolves every limit to a positive
+	// cap before calling (same contract as FetchUserTimeline).
+	if count <= 0 {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opTypeahead, "count must be >= 1, got %d", count)
+	}
+
+	params := url.Values{}
+	params.Set("q", q)
+	params.Set("result_type", "users")
+	params.Set("src", "search")
+
+	body, err := c.doGet(ctx, opTypeahead, "/2/typeahead", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp RawTypeaheadResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, sdk.Errorf(sdk.KindMalformed, opTypeahead, "decode response: %w", err)
+	}
+
+	users := resp.UserList()
+	profiles := make([]sdk.Profile, 0, len(users))
+	for _, u := range users {
+		if p := u.ToSDKProfile(); p != nil {
+			profiles = append(profiles, *p)
+		}
+	}
+	if len(profiles) > count {
+		profiles = profiles[:count]
+	}
+	return profiles, nil
 }
 
 // FetchConversation retrieves the status, parent thread, and replies for a status ID.

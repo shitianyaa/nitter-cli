@@ -11,7 +11,8 @@
 API**（默认快车道——无需账号、无需凭证），并以**你自己部署的 Nitter 实例**作为
 私有回退、List 数据通路，以及（逐次调用、经 `--instance URL`）时间线与单条状态
 的实例路径。它抓取用户时间线、搜索结果、List 时间线、单条推文、对话评论区、
-关注列表、博主名片、引用推文与实时热搜，支持带持久化去重状态的持续监视与媒体
+自帖串、关注与粉丝列表、博主名片、账号名补全、引用推文与实时热搜，支持带持久化
+去重状态的持续监视与媒体
 下载——一个为 agent 与调度器（cron、systemd timer、Hermes）打造的灵活 CLI，
 以 NDJSON 消费。
 
@@ -33,8 +34,9 @@ API**（默认快车道——无需账号、无需凭证），并以**你自己�
   路由：`mix`（默认）优先尝试 FxTwitter 公共 API（无需账号、无需凭证），失败时
   回退到你自建的实例；`fx` 固定快车道。想让**某一次**调用只走自建实例，用
   `--instance URL`（测试手段，不是模式；仅 `user`/`search`/`get`/`list`）。
-  `list` 始终需要 Nitter；`comments`/`profile`/`following`/`quotes`/`trends` 与
-  `circle refresh` 则始终走 `api.fxtwitter.com`（无 Nitter 对应端点）。
+  `list` 始终需要 Nitter；`followers`/`thread`/`typeahead`/`comments`/`profile`/
+  `following`/`quotes`/`trends` 与 `circle refresh` 则始终走 `api.fxtwitter.com`
+  （无 Nitter 对应端点）。
 - **灵活的实例策略**——指向任何一个你自主控制的 Nitter 实例：配置轮换集
   （`[[instances]]`，严格按配置顺序轮换，失败实例进入冷却），单次用
   `--instance` 覆盖，并可用主机级 basic auth 认证（`username` **和**
@@ -45,13 +47,16 @@ API**（默认快车道——无需账号、无需凭证），并以**你自己�
   `list` 严格隔离：所有 List
   抓取始终走你自己的实例（FxTwitter 没有 List 端点）。不内置实例、不登录、
   不绕过访问控制。
-- **社交图谱与发现**——`following` 查看某账号关注了谁，`profile` 输出博主
-  名片，`search --type user` 按名字搜创作者/画师，`trends` 看 X 当下在聊
+- **社交图谱与发现**——`following` 查看某账号关注了谁、`followers` 查看谁关注了它，
+  `profile` 输出博主
+  名片，`typeahead` 按前缀补全账号（是补全，不是搜索），`search --type user`
+  按名字搜创作者/画师，`trends` 看 X 当下在聊
   什么，`quotes` 挖掘某条推文的引用二创——全部无需凭证。
 - **对话与回复树**——`comments` 拉取某条推文的对话链与评论区（可按高赞或
-  最新排序），是找到博主自评隐藏链接、追更连环长推的最快路径。
+  最新排序），`thread` 从主楼开始完整输出一条推文所在的自帖串——是找到博主
+  自评隐藏链接、追更连环长推的最快路径。
 - **创作者圈子**——`nitter circle` 在 `~/.nitter-cli/circles.toml` 维护主题
-  花名册（`list` / `show` / `refresh` / `suggest` / `add` / `run`）：`suggest` 从某博主的
+  花名册（`list` / `show` / `refresh` / `suggest` / `add` / `remove` / `run`）：`suggest` 从某博主的
   关注列表与转推原作者中挖出新候选成员，再按需发现与管道流式拉取，与调度
   型的 `watch` 订阅各司其职。
 - **可组合的管道**——stdout 是管道时，数据命令自动输出 `nitter.pipeline/v1`
@@ -118,7 +123,8 @@ sh scripts/build.sh          # 生成 ./nitter
 ## 60 秒快速上手
 
 nitter-cli 不内置实例，默认的 `mix` 模式开箱即用：`user`、`search`、`get`、
-`comments`、`following`、`profile`、`quotes`、`trends` 与 `search --type user`
+`comments`、`following`、`followers`、`thread`、`typeahead`、`profile`、
+`quotes`、`trends` 与 `search --type user`
 都会直接走 FxTwitter 的公共端点。配置一个你自控的 Nitter 实例可用于：`list`，
 以及 Fx 不可用时的回退。还没有实例？用 Docker 自建
 一个——参见[上游 wiki](https://github.com/zedeus/nitter/wiki) 或社区
@@ -145,8 +151,11 @@ nitter user NASA --limit 10 --json
 # 发现类能力——无需任何实例或账号
 nitter trends --limit 10 --json                   # X 当下在聊什么
 nitter following NASA --limit 10                  # 某账号关注了谁
+nitter followers NASA --limit 10                  # 谁关注了某账号
 nitter profile NASA                               # 博主名片卡
+nitter typeahead nas                              # 按前缀补全账号（是补全，不是搜索）
 nitter comments 2100031016471818431 --limit 10    # 回复树（博主自评的隐藏链接就在这）
+nitter thread <STATUS_ID> --json                  # 从主楼开始完整输出推文所在的自帖串
 nitter quotes <STATUS_ID> --media-only | nitter download   # 引用推文衍生素材批量下载
 nitter circle run ai_researchers --limit 1            # 流式拉取私人圈子花名册
 

@@ -19,6 +19,7 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/comments"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/config"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/download"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/followers"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/following"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/get"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/instances"
@@ -28,7 +29,9 @@ import (
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/quotes"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/search"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/seen"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/thread"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/trends"
+	"github.com/shitianyaa/nitter-cli/internal/cli/commands/typeahead"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/update"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/user"
 	"github.com/shitianyaa/nitter-cli/internal/cli/commands/watch"
@@ -113,7 +116,10 @@ func New(s *Streams) *cobra.Command {
 	root.AddCommand(watch.New(s))
 	root.AddCommand(seen.New(s))
 	root.AddCommand(update.New(s))
+	root.AddCommand(followers.New(s))
 	root.AddCommand(following.New(s))
+	root.AddCommand(thread.New(s))
+	root.AddCommand(typeahead.New(s))
 	root.AddCommand(comments.New(s))
 	root.AddCommand(circle.New(s))
 	root.AddCommand(trends.New(s))
