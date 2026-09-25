@@ -201,7 +201,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
   - `--min-followers N`（默认 0）：只筛末尾 `top matches` 小结段，不影响主表与 `--json` 输出。
   - 种子必须存在（先做一次 `profile` 探测，种子不存在退出 1）。单路失败时 stderr 警告并降级，另一路继续产出候选；两路全失败退出 1。仅来自转推的候选若 profile 拉取失败，stderr 警告并跳过。
   - 人类输出：统计行、排序主表（`@<handle>\t<粉丝数>\t<bio 单行>\t<来源>`，来源为 `following`、`retweet` 或 `both`），末尾 `top matches (>= N followers)` 小结。`--json` 输出 `{handle, followers_count, bio, source}` 对象数组。`suggest` 从不写圈子文件——用 `circle add` 落库你选中的 handle。
-- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。名册写入成功后，它会尽力拉取新成员的档案事实：handle 会被发送到 `api.fxtwitter.com`，只有事实字段（`name`、`bio`、`followers_count`、`fetched_at`）会合并进侧写文件——判断字段（`role`/`note`/`noted_at`）绝不被触碰。该路径上的任何失败都只是 stderr 一行 `warning:`：名册写入有效、命令仍退出 0，事实随下一次 `circle refresh` 到位。
+- `add`：向圈子添加博主（支持自动创建圈子并原子存盘）。名册写入成功后，它会尽力拉取新成员的档案事实：handle 会被发送到 `api.fxtwitter.com`（该拉取忽略 `--instance`，始终走 FxTwitter 快车道，即使本次调用已被 `--instance` 钉在实例上），只有事实字段（`name`、`bio`、`followers_count`、`fetched_at`）会合并进侧写文件——判断字段（`role`/`note`/`noted_at`）绝不被触碰。该路径上的任何失败都只是 stderr 一行 `warning:`：名册写入有效、命令仍退出 0，事实随下一次 `circle refresh` 到位。
 - `remove`：从圈子移除博主，**只**编辑 `circles.toml` 中该圈子的 users 数组。档案侧写 `~/.nitter-cli/profiles.toml`——含已记录的 `role`/`note`——从不被读取或写入，因此移除成员会保留其缓存档案。移除是幂等的：移除非成员 handle 时在 stderr 打印 `circle remove: @<handle> is not a member of <key>; nothing changed` 并退出 0（提示就是诚实，绝不静默）。成功时打印 `removed @<handle> from circle <key>`；圈子不存在退出 1，handle 形状不合法退出 2。
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
   - `--limit N`（默认 20，必须 ≥ 1）：每个博主抓取的推文上限。

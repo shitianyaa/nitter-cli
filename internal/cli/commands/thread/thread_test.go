@@ -56,7 +56,7 @@ func TestThreadHappyPathTable(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"code":200,"thread":[{"id_str":"101","user":{"screen_name":"n"},"text":"root"},{"id_str":"102","user":{"screen_name":"n"},"text":"two"}]}`))
+		_, _ = w.Write([]byte(`{"code":200,"thread":[{"id_str":"101","author":{"screen_name":"n"},"text":"root"},{"id_str":"102","author":{"screen_name":"n"},"text":"two"}]}`))
 	}))
 	defer srv.Close()
 	fxtwitter.EndpointOverrides.BaseURL = srv.URL
