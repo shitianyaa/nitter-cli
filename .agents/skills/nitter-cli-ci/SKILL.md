@@ -1,6 +1,6 @@
 ---
 name: nitter-cli-ci
-description: Diagnose, verify, and monitor nitter-cli GitHub Actions runs and local CI gates (Quality gate with Unix race + Windows parity, offline e2e, release matrix). Use when checks fail or hang, a PR needs readiness verification, or a run needs root-cause analysis.
+description: Diagnose, verify, and monitor nitter-cli GitHub Actions runs and local CI gates (scope classification, Quality gate with Unix race + Windows parity, PR metadata gates, offline e2e, release matrix). Use when checks fail or hang, a PR needs readiness verification, or a run needs root-cause analysis.
 ---
 
 # nitter-cli CI 与 workflow
@@ -50,15 +50,24 @@ description: Diagnose, verify, and monitor nitter-cli GitHub Actions runs and lo
 
 当前 workflow 职责对应关系：
 
-- `ci.yml` → `quality`（gofmt / vet / test / race / build / offline e2e）+ `windows`（test + build 的平台一致性）。
+- `ci.yml` → `scope`（变更范围分类：分类器从 base 提交运行，PR 无法改写评判自己的规则）+ `Quality gate`（gofmt / vet / test / race / build / offline e2e）+ `Windows parity`（test + build 的平台一致性）。纯文档改动（见 `.github/ci-change-scope.gitignore`）时后两个 job 以 skipped 结束，但 check 名仍存在，分支保护保持稳定。
+- `pr-metadata.yml` → 校验 PR 模板三段与清单勾选，发布 `PR template gate` / `PR commands gate` 两个稳定 status；维护"正文失效 7 天自动关闭"的 age state。
+- `pr-triage.yml` / `auto-assign.yml` → 路径打标、指派维护者、外部 PR 自动请求 review。
+- `pr-invalid-close.yml` → 每日 cron 关闭正文长期无效且未修改的 PR。
 - `release.yml` → tag 触发的 SemVer 校验、双语 changelog 软检查、6 平台构建与草稿 Release。
+
+本地分类器自检（改动范围规则时）：
+
+```bash
+bash scripts/classify-change-scope.sh --base <base-sha> --head <head-sha>
+```
 
 ## 按故障类型诊断
 
 - **测试/构建失败**：读取完整失败 step，使用同一 ref/SHA 在本地重现；检查 gofmt 对齐、平台差异（路径分隔符、`USERPROFILE` vs `HOME`、文件权限、CRLF）与依赖。修复代码需要用户明确请求，CI skill 默认只诊断。
 - **e2e 契约失败**：核对是真实契约破坏还是脚本假设变化；exit 1 才是失败，exit 2 是仅 skip 的软通过。
-- **docs-only 与跳过**：`ci.yml` 用 `paths-ignore` 排除纯文档改动（`docs/**`、`**/*.md`、`skills/**`、`changelog/**`）；被跳过的 check 不等于通过。
-- **缺失、skipped 或 pending check**：区分有意的路径跳过、job 未创建、权限不足和真正卡住；不得把 pending 当成功。
+- **docs-only 与跳过**：`ci.yml` 由 `scripts/classify-change-scope.sh` 依据 `.github/ci-change-scope.gitignore` 分类；docs-only 时 `Quality gate` / `Windows parity` 整体 skipped，job 被有意跳过不等于通过。分类器失败（scope job 红）会让两个门禁 job 显式失败，不会静默放行。
+- **缺失、skipped 或 pending check**：区分有意的范围跳过、job 未创建、权限不足和真正卡住；不得把 pending 当成功。
 - **基础设施/瞬态失败**：只有日志证据支持 runner、网络或 GitHub API 异常时才建议 rerun；若同一失败重复出现，停止重跑并报告共同根因。
 - **release 失败**：保持 immutable tag 与同一 source commit；不要从默认分支补文件或混用不同 run 的 artifact。
 

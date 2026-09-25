@@ -1,0 +1,48 @@
+# Path labels consumed by .github/workflows/pr-triage.yml.
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "AGENTS.md"
+          - "CONTRIBUTING*.md"
+          - "README*.md"
+          - ".agents/skills/**"
+          - "docs/**"
+          - "skills/**"
+          - "changelog/**"
+
+"area: cli":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "cmd/**"
+          - "internal/cli/**"
+
+"area: sdk":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "sdk/**"
+
+"area: sources":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "internal/fxtwitter/**"
+          - "internal/nitter/**"
+          - "internal/media/**"
+
+"area: tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*_test.go"
+          - "e2e/**"
+
+"area: github-actions":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "tools/**"
+          - "scripts/**"
+
+"release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "changelog/**"
+          - ".github/workflows/release.yml"

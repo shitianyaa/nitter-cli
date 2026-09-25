@@ -30,7 +30,7 @@ description: Prepare, create, update, and monitor nitter-cli pull requests using
 
    确认当前不是 detached HEAD，并确认 base 分支（本仓库为 `main`）。
 2. 按 `docs/maintainers/agents/review-checklist.md` 检查架构边界、公开契约、文档路由与产品 skill。需要代码审查时运行 `nitter-cli-review`；发现问题先报告，不把修复混进单纯的 PR 准备。
-3. PR 正文保留模板的三个部分：`变更点`、`验证步骤`、`检查清单`。
+3. PR 正文保留模板的三个部分：`变更点`、`验证步骤`、`检查清单`；`pr-metadata.yml` 会以 `PR template gate` / `PR commands gate` 两个 status 强制校验，清单有未勾选项即失败。
 4. Verification 只记录实际运行过的完整命令和结果。按范围选择：
 
    - 文档或 agent-only：`git diff --check`；
@@ -39,6 +39,7 @@ description: Prepare, create, update, and monitor nitter-cli pull requests using
    - 共享、取数、媒体解析、CLI、SDK：补跑 `go test -race ./... -count=1`。
 
    未运行真实 FxTwitter 或自建实例检查时，说明原因和剩余风险。
+5. 需要让 CI 代跑可复现的验证命令时，在验证步骤里声明恰好一个 ```commands fenced block；命令须在 `tools/verification/command-whitelist.txt` 白名单内（`nitter` 的 `config`/`watch`/`seen`/`update` 与 `--instance`/`--proxy` 被策略拒绝），不会执行 shell。声明无效会让 `PR commands gate` 失败。
 
 ## 创建或更新 PR
 
