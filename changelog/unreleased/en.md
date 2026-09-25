@@ -52,7 +52,8 @@
   the FxTwitter attempt failed and the instance path had nothing to answer with (no instances
   configured, or all cooling down), the error the user saw was only the chooser's answer. The
   chooser error now carries the fast lane's cause, e.g. `chooser: upstream_unavailable: no
-  instances configured (fx attempt: fxtwitter.SearchTweets: not_found: resource not found (404))`.
+  instances configured (fx attempt: fxtwitter.SearchTweets: not_found: resource not found
+  (404): /2/search)`.
   A real instance failure is reported unchanged, and `fetch_backend = fx` (which never falls back)
   is unaffected.
 

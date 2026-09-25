@@ -44,7 +44,7 @@
 - **`mix` 不再用 `no instances configured` 覆盖快车道的失败原因**：当 FxTwitter 尝试失败、而实例路径又
   无从应答（未配置实例，或全部在冷却中）时，用户看到的错误只剩选择器的答复。现在选择器错误会携带快车道
   的真因，例如 `chooser: upstream_unavailable: no instances configured (fx attempt:
-  fxtwitter.SearchTweets: not_found: resource not found (404))`。真实的实例失败仍按原样上报；
+  fxtwitter.SearchTweets: not_found: resource not found (404): /2/search)`。真实的实例失败仍按原样上报；
   `fetch_backend = fx`（从不回退）不受影响。
 
 ## 安全
