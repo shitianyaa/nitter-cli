@@ -13,7 +13,8 @@ description: Maintain nitter-cli bilingual changelog entries and run the release
 - 检查、审计、preview 和 review 默认只读。
 - 写入 `changelog/`、创建或推送 tag、创建或编辑 Release、修改已有 Release body 前，要取得用户对该动作的明确授权。
 - 发布授权必须明确给出版本与 tag 范围；版本建议不等于授权。
-- `.github/workflows/release.yml` 只由 `push.tags: v*` 触发。不要手工 dispatch release workflow，不要移动旧 tag，也不要用默认分支内容覆盖不可变 tag。
+- `.github/workflows/release.yml` 由 `push.tags: v*` 触发；`workflow_dispatch` 只用于对已授权的既有 tag 做恢复（`inputs.release_tag`，tag 必须在默认分支祖先链上）。不要移动旧 tag，也不要用默认分支内容覆盖不可变 tag。
+- 构建矩阵通过后，`approve_release` 会停在 `release-approval` environment 等维护者批准；批准是发布授权的一部分，agent 不得代替。
 
 ## Changelog 结构
 

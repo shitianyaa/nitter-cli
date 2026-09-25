@@ -1,45 +1,87 @@
-# Release skeleton: tag-triggered build matrix + draft GitHub Release.
+# Release: tag-triggered build matrix + draft GitHub Release, behind a
+# release-source trust chain and a human approval gate.
 #
-# Scope (MVP): checksums.txt only. An Ed25519-signed manifest is a listed
-# post-MVP enhancement. The bilingual changelog check below is a soft
-# warning — the full audit belongs to the release-prep PR.
+# Trust model (ported from FlanChanXwO/javdb-cli, MIT): the tag must resolve to
+# a commit that is an ancestor of the protected default branch, so a tag cut
+# from any other history cannot drive a release; the final publication job runs
+# only after an explicit approval on the release-approval environment, and the
+# secrets-bearing publication runs in the isolated release environment. The
+# draft Release stays a draft, so publishing it to the public remains a manual,
+# version-specific act.
 #
-# Runner matrix choices (2026-09): javdb's ubuntu-22.04 / ubuntu-22.04-arm
-# enter deprecation on 2026-09-17, so the Linux pair is ubuntu-24.04 /
-# ubuntu-24.04-arm. macos-15-intel (Intel bridge, available until ~2027-08)
-# + macos-15 (ARM) cover macOS; windows-2025 + windows-11-arm cover Windows
-# (windows-11-arm is free for public repos).
+# Runner matrix choices (2026-09): ubuntu-24.04 / ubuntu-24.04-arm,
+# macos-15-intel + macos-15 (ARM), windows-2025 + windows-11-arm (free for
+# public repos).
 #
-# Action pins: major-version tags; full commit-SHA pinning is release
-# hardening (release-prep PR).
+# Action pins: commit SHAs (same policy as ci.yml).
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable stable SemVer tag to publish
+        required: true
+        type: string
 
-permissions:
-  contents: read
+# Tag push and manual recovery both pick the release tag here; every later
+# job binds checkout, version and Release to this value.
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
+permissions: {}
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - name: validate SemVer tag (vMAJOR.MINOR.PATCH[-prerelease][+build])
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Validate the SemVer tag (vMAJOR.MINOR.PATCH[-prerelease][+build])
         run: |
-          if ! echo "${GITHUB_REF_NAME}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
-            echo "::error::tag ${GITHUB_REF_NAME} is not strict SemVer with a v prefix"
+          if ! echo "${RELEASE_TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag ${RELEASE_TAG} is not strict SemVer with a v prefix"
             exit 1
           fi
-      - name: bilingual changelog present (soft check)
+
+      - name: Require the tag commit on the default release branch
+        id: trust
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          if [ ! -f "changelog/v${version}/en.md" ] || [ ! -f "changelog/v${version}/zh-CN.md" ]; then
-            echo "::warning::changelog/v${version}/{en.md,zh-CN.md} missing — move the bilingual notes out of changelog/unreleased before publishing"
-          fi
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          go run ./tools/release verify-source --tag "$RELEASE_TAG" --default-branch "$DEFAULT_BRANCH" --github-output "$GITHUB_OUTPUT"
+
+      - name: Require bilingual changelog notes for the release
+        run: |
+          version="${RELEASE_TAG#v}"
+          missing=0
+          for lang in en zh-CN; do
+            if [ ! -s "changelog/v${version}/${lang}.md" ]; then
+              echo "::error::changelog/v${version}/${lang}.md is missing or empty — move the bilingual notes out of changelog/unreleased before tagging"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
   build:
+    name: Build ${{ matrix.target }}
     needs: validate
     strategy:
       fail-fast: false
@@ -52,19 +94,22 @@ jobs:
           - { os: windows-2025, target: windows-amd64, archive: zip }
           - { os: windows-11-arm, target: windows-arm64, archive: zip }
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
       - name: go test
         run: go test ./... -count=1
       - name: build
         shell: bash
-        env:
-          VERSION: ${{ github.ref_name }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           commit="$(git rev-parse --short HEAD)"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           case "${{ matrix.os }}" in
@@ -80,7 +125,7 @@ jobs:
       - name: package (tar.gz on unix, zip on windows) + sha256
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           target="${{ matrix.target }}"
           cd "dist/${target}"
           if [ "${{ matrix.archive }}" = "zip" ]; then
@@ -95,20 +140,33 @@ jobs:
             sha256sum "nitter-${version}-${target}.tar.gz" > "checksums-${target}.txt"
           fi
       - name: upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ matrix.target }}
           path: |
             dist/nitter-*
             dist/checksums-*.txt
 
-  release:
+  approve_release:
+    name: Approve final release publication
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    environment: release-approval
+    permissions: {}
+    steps:
+      - name: Record final release approval
+        shell: bash
+        run: 'true'
+
+  release:
+    name: Prepare the draft GitHub Release
+    needs: [build, approve_release]
+    runs-on: ubuntu-24.04
+    environment: release
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
@@ -125,8 +183,8 @@ jobs:
           # GH_REPO gives it the owner/name context directly.
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "${RELEASE_TAG}" \
             --draft \
-            --title "nitter-cli ${GITHUB_REF_NAME}" \
+            --title "nitter-cli ${RELEASE_TAG}" \
             --generate-notes \
             dist/nitter-* dist/checksums.txt
