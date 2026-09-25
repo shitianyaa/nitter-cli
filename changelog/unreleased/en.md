@@ -40,7 +40,7 @@
   reject an empty query/handle and a non-positive count/limit with `invalid_argument` instead of
   silently defaulting to the upstream page size, dropping the limit parameter, or returning an
   empty success. The CLI has never been able to reach these paths (it rejects `--limit < 1` with
-  exit 2 first), so this aligns the SDK contract without a user-visible behavior change.
+  exit 2 first), so this aligns the lane contract without a user-visible behavior change.
 
 ## Deprecated
 

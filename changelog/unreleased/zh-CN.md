@@ -33,7 +33,7 @@
 - **其余四个 FxTwitter 车道函数现在与时间线函数对执行同一套参数契约**：`SearchTweets`、`SearchUsers`、
   `FetchUserFollowing` 与 `FetchQuotes` 现在会对空 query/handle 与非正数 count/limit 返回
   `invalid_argument`，而不是静默回退到上游页大小、丢弃 limit 参数或返回空成功。CLI 从未触达过这些路径
-  （它会先以退出 2 拒绝 `--limit < 1`），因此这只是对齐 SDK 契约，没有用户可见的行为变化。
+  （它会先以退出 2 拒绝 `--limit < 1`），因此这只是对齐车道契约，没有用户可见的行为变化。
 
 ## 弃用
 
