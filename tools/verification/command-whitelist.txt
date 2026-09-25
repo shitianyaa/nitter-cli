@@ -1,0 +1,31 @@
+# Trusted verification commands for the /test gate. Syntax:
+#   name *          allow any argv (subject to repository-CLI validation)
+#   name @          allow workspace-local file operands (cat)
+#   name !sub       deny a subcommand path
+#   name +sub       allow only a subcommand path
+# Repository CLI: traffic redirects (--instance/--proxy) are always rejected
+# and file-writing flags are path-checked by tools/internal/verificationpolicy.
+# Ported from FlanChanXwO/javdb-cli (MIT License, Copyright (c) 2026 FlanChanXwO).
+
+# Repository CLI
+nitter *
+nitter !config
+nitter !watch
+nitter !seen
+nitter !update
+
+# Portable sources
+cat @
+echo *
+printf *
+
+# Stream helpers
+jq *
+grep *
+head *
+tail *
+wc *
+sort *
+uniq *
+cut *
+tr *

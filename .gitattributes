@@ -7,3 +7,4 @@
 *.toml text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
+ci-change-scope.gitignore text eol=lf

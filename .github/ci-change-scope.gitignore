@@ -1,0 +1,41 @@
+# Scoped Git-ignore syntax consumed by scripts/classify-change-scope.sh.
+# Plain patterns are documentation-only, ?patterns require Quality only,
+# and !patterns require Quality + Platform + Container.
+/README.md
+/README.zh-CN.md
+/AGENTS.md
+/CLAUDE.md
+/CONTRIBUTING.md
+/CONTRIBUTING.zh-CN.md
+/.gitignore
+/.gitattributes
+/.pre-commit-config.yaml
+/.github/ISSUE_TEMPLATE/**
+/docs/**
+/changelog/**
+/skills/**
+/.agents/skills/**
+
+?/.github/PULL_REQUEST_TEMPLATE.md
+?/.github/ci-change-scope.gitignore
+?/.github/labeler.yml
+?/.github/workflows/ci.yml
+?/.github/workflows/pr-invalid-close.yml
+?/.github/workflows/pr-metadata.yml
+?/.github/workflows/pr-verification.yml
+?/.github/workflows/pr-triage.yml
+?/.github/workflows/auto-assign.yml
+?/scripts/classify-change-scope.sh
+?/tools/internal/verificationpolicy/**
+?/tools/prmeta/**
+?/tools/verification/**
+?/tools/release/**
+
+!/LICENSE
+!/go.mod
+!/go.sum
+!/cmd/**
+!/internal/**
+!/sdk/**
+!/e2e/**
+!/scripts/build.sh

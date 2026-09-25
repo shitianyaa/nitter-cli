@@ -19,6 +19,15 @@
   一律停下问用户。
 - **Git**：不用 `git add -A`；`git add --renormalize .` 是批量操作，不能当定向 add 用。
 
+## 门禁与 PR 流程
+
+门禁体系移植自 FlanChanXwO/javdb-cli（MIT）。main 分支不跑任何 push 触发的 workflow——所有变更经 PR 进入并过门。
+
+- **变更范围分类**：`.github/workflows/ci.yml` 先跑 `scripts/classify-change-scope.sh`，按 `.github/ci-change-scope.gitignore` 分档：纯文档改动（docs、changelog、skills、README 等）跳过 runner 重的检查；workflow/工具自身改动只跑质量门；代码改动跑质量门 + Windows parity。分类器从 base 提交 checkout 运行，PR 无法改写评判自己的规则。
+- **PR 元数据门**（`pr-metadata.yml`）：PR 正文必须保留模板三段（变更点 / 验证步骤 / 检查清单）且清单全部勾选，检查结果以 `PR template gate` 与 `PR commands gate` 两个稳定 status 发布。正文失效 7 天未改的 PR 会被 `pr-invalid-close.yml` 自动关闭。
+- **验证命令声明**（可选）：PR 正文的验证步骤里可声明恰好一个 ```commands fenced block，作为 CI 代跑的默认验证命令；命令必须落在 `tools/verification/command-whitelist.txt` 白名单内，不会执行 shell。
+- **triage**：`pr-triage.yml` 按路径打 `area: *` 标签并指派维护者；外部 PR 由 `auto-assign.yml` 自动请求 review。
+
 ## 架构边界（不可违反）
 
 - `cmd/nitter` 只委托；`internal/cli/root.go` 拥有命令树、流与组装；子命令包不导入 `internal/cli`。

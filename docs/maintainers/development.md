@@ -28,18 +28,28 @@ sh scripts/build.sh    # 产出 ./nitter（VERSION=可覆盖，默认 dev）
 
 ### CI 触发范围（不必为纯文档改动担心）
 
-`ci.yml` 的 `push`（限 `main`）与 `pull_request` 都带同一组 `paths-ignore`：
-`docs/**`、`**/*.md`、`skills/**`、`changelog/**`。因此**纯文档 push 不会触发
-CI**，无需额外加 `[skip ci]`。三点容易误会：
+`ci.yml` 只在 `pull_request`（限 `main`）与手动 dispatch 时运行；`main` 本身没有任何
+push 触发的 workflow——所有变更经 PR 进入并过门。具体跑哪些检查由
+`scripts/classify-change-scope.sh` 依据 `.github/ci-change-scope.gitignore` 对
+**聚合 diff** 分档决定：
 
-- GitHub 按**整次 push/PR 的聚合 diff** 判断，而不是按单个 commit。一个 PR 里
-  只要混进一个非忽略文件（哪怕某个 commit 本身是纯文档），就会跑。
-- `.gitignore`、`.gitattributes`、`.github/**`、`scripts/**`、`LICENSE` 等不属于
-  上述忽略范围，仍会触发完整门禁。这是刻意的：EOL 与 ignore 规则的错误会真实
+- **纯文档改动**（`docs/**`、`changelog/**`、`skills/**`、`.agents/skills/**`、
+  `README*`/`AGENTS.md`/`CONTRIBUTING*`、`.gitignore`、`.gitattributes`、
+  `.pre-commit-config.yaml`）：`Quality gate` 与 `Windows parity` 整体 skipped，
+  但 check 名仍然存在，分支保护的 required checks 保持稳定。
+- **质量档**（`.github/workflows/**`、`tools/**`、`scripts/classify-change-scope.sh`、
+  PR 模板、labeler）：只跑 `Quality gate`，不跑 Windows parity。
+- **其余任何路径**（Go 代码、`go.mod`、`e2e/**`、`scripts/build.sh`、`LICENSE`）：
+  质量门 + Windows parity 全量跑。这是刻意的：EOL 与 ignore 规则的错误会真实
   影响构建产物。
-- 合并到 `main` 会再跑一次 `ci`（合并提交的树通常与 PR 头相同，那次运行严格
-  来说重复）。保留它是为了（a）覆盖直接 push `main` 的提交，（b）让 `main` 上的
-  `ci` 徽章反映真实结果。不要为了省这一次而移除 `main` 触发器。
+
+分类器在 `scope` job 里从 **base 提交** checkout 运行，PR 无法通过修改规则文件或
+脚本改写评判自己的标准；空 diff、无 base 等异常一律退回全量验证。一个 PR 里混进
+一个非文档文件（哪怕某个 commit 本身是纯文档）就会升级为全量。
+
+与 CI 并行的 PR 门禁见 `.github/workflows/pr-metadata.yml`（模板三段 + 清单勾选，
+发布 `PR template gate` / `PR commands gate` 两个稳定 status）与
+`.github/workflows/pr-triage.yml`（路径标签、指派）。
 
 ## 目录地图
 
@@ -61,6 +71,7 @@ internal/nitter/protocol/httpx/  # tls-client 传输（pacing/重试/429/脱敏�
 internal/watch/              # 去重选推引擎（纯函数 Select）
 internal/storage/seen/       # seen.json 原子存储（schema v1）
 scripts/build.sh             # 构建脚本（VERSION/COMMIT/BUILD_DATE 注入）
+scripts/classify-change-scope.sh  # 变更范围分类（.github/ci-change-scope.gitignore）
 changelog/unreleased/        # 双语发布说明草稿区
 changelog/vX.Y.Z/            # 版本化双语发布说明（发布来源）
 docs/                        # 双语公开文档 + maintainers/ 维护者文档
