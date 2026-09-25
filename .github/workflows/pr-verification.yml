@@ -87,7 +87,7 @@ jobs:
             gh api graphql \
               -f query='mutation($subjectId: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $subjectId, content: $content}) { reaction { content } } }' \
               -f subjectId="$subject_id" \
-              -f content="$content" >/dev/null
+              -f content="$2" >/dev/null
           }
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
             pr="$INPUT_PR_NUMBER"
@@ -241,7 +241,7 @@ jobs:
             gh api graphql \
               -f query='mutation($subjectId: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $subjectId, content: $content}) { reaction { content } } }' \
               -f subjectId="$subject_id" \
-              -f content="$content" >/dev/null
+              -f content="$2" >/dev/null
           }
           remove_reaction() {
             local subject_id
@@ -250,7 +250,7 @@ jobs:
             gh api graphql \
               -f query='mutation($subjectId: ID!, $content: ReactionContent!) { removeReaction(input: {subjectId: $subjectId, content: $content}) { subject { id } } }' \
               -f subjectId="$subject_id" \
-              -f content="$content" >/dev/null
+              -f content="$2" >/dev/null
           }
           # Identity binds the PR, the HEAD commit, and the commands that
           # actually run. The hash is the effective hash, so an override is a
@@ -522,7 +522,7 @@ jobs:
             gh api graphql \
               -f query='mutation($subjectId: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $subjectId, content: $content}) { reaction { content } } }' \
               -f subjectId="$subject_id" \
-              -f content="$content" >/dev/null
+              -f content="$2" >/dev/null
           }
           remove_reaction() {
             local subject_id
@@ -531,7 +531,7 @@ jobs:
             gh api graphql \
               -f query='mutation($subjectId: ID!, $content: ReactionContent!) { removeReaction(input: {subjectId: $subjectId, content: $content}) { subject { id } } }' \
               -f subjectId="$subject_id" \
-              -f content="$content" >/dev/null
+              -f content="$2" >/dev/null
           }
           comment_id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- pr-test-result -->"))) | .id' | head -1)
           test -n "$comment_id"
