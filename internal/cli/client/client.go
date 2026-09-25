@@ -166,6 +166,24 @@ type FollowingSource interface {
 	Following(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error)
 }
 
+// FollowersSource is the follower-list acquisition capability a command
+// consumes. Backed by *fxtwitter.Client through followersAdapter.
+type FollowersSource interface {
+	Followers(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error)
+}
+
+// ThreadSource is the self-thread acquisition capability a command consumes.
+// Backed by *fxtwitter.Client through threadAdapter.
+type ThreadSource interface {
+	Thread(ctx context.Context, statusID string) ([]nitter.Tweet, error)
+}
+
+// TypeaheadSource is the user-completion acquisition capability a command
+// consumes. Backed by *fxtwitter.Client through typeaheadAdapter.
+type TypeaheadSource interface {
+	Typeahead(ctx context.Context, query string, limit int) ([]nitter.Profile, error)
+}
+
 // ConversationSource is the conversation acquisition capability a command
 // consumes. Backed by *fxtwitter.Client through conversationAdapter.
 type ConversationSource interface {
@@ -625,6 +643,45 @@ func (a followingAdapter) Following(ctx context.Context, handle string, limit in
 
 // Following returns the following acquisition capability.
 func (w *Wiring) Following() FollowingSource { return followingAdapter{w: w} }
+
+type followersAdapter struct{ w *Wiring }
+
+func (a followersAdapter) Followers(ctx context.Context, handle string, limit int, cursor string) ([]nitter.Profile, string, error) {
+	if a.w.Fx == nil {
+		return nil, "", nitter.Errorf(nitter.KindLocalState, "client.Followers", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchFollowers(ctx, handle, limit, cursor)
+}
+
+type threadAdapter struct{ w *Wiring }
+
+func (a threadAdapter) Thread(ctx context.Context, statusID string) ([]nitter.Tweet, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Thread", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchThread(ctx, statusID)
+}
+
+type typeaheadAdapter struct{ w *Wiring }
+
+func (a typeaheadAdapter) Typeahead(ctx context.Context, query string, limit int) ([]nitter.Profile, error) {
+	if a.w.Fx == nil {
+		return nil, nitter.Errorf(nitter.KindLocalState, "client.Typeahead", "no fxtwitter client wired")
+	}
+	return a.w.Fx.FetchTypeahead(ctx, query, limit)
+}
+
+// Followers returns the follower-list acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) Followers() FollowersSource { return followersAdapter{w: w} }
+
+// Thread returns the self-thread acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) Thread() ThreadSource { return threadAdapter{w: w} }
+
+// Typeahead returns the user-completion acquisition capability as the narrow
+// interface commands consume (R11: commands never import appapi).
+func (w *Wiring) Typeahead() TypeaheadSource { return typeaheadAdapter{w: w} }
 
 type conversationAdapter struct{ w *Wiring }
 

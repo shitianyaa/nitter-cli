@@ -1067,3 +1067,45 @@ func TestMixFallbackKeepsFxCauseWhenChooserUnavailable(t *testing.T) {
 		}
 	}
 }
+
+func TestFxOnlyCapabilityAdaptersRequireFx(t *testing.T) {
+	w := &client.Wiring{} // zero value: Fx == nil
+	if _, _, err := w.Followers().Followers(context.Background(), "NASA", 20, ""); !isLocalState(err) {
+		t.Errorf("Followers: want KindLocalState, got %v", err)
+	}
+	if _, err := w.Thread().Thread(context.Background(), "101"); !isLocalState(err) {
+		t.Errorf("Thread: want KindLocalState, got %v", err)
+	}
+	if _, err := w.Typeahead().Typeahead(context.Background(), "nas", 20); !isLocalState(err) {
+		t.Errorf("Typeahead: want KindLocalState, got %v", err)
+	}
+}
+
+func TestFxOnlyCapabilityAdaptersForward(t *testing.T) {
+	cfg := validCfg()
+	cfg.FetchBackend = "fx"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/2/profile/NASA/followers" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":200,"followers":[{"screen_name":"a","name":"A"}]}`))
+	}))
+	defer srv.Close()
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	profiles, _, err := w.Followers().Followers(context.Background(), "NASA", 20, "")
+	if err != nil || len(profiles) != 1 || profiles[0].Handle != "a" {
+		t.Fatalf("profiles=%+v err=%v", profiles, err)
+	}
+}
+
+func isLocalState(err error) bool {
+	var e *nitter.Error
+	return errors.As(err, &e) && e.Kind == nitter.KindLocalState
+}
