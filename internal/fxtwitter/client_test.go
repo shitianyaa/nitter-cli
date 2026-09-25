@@ -1633,12 +1633,22 @@ func TestFetchFollowersHappyPath(t *testing.T) {
 
 func TestFetchFollowersRejectsBadArgs(t *testing.T) {
 	client := fxtwitter.NewClient()
-	if _, _, err := client.FetchFollowers(context.Background(), " ", 20, ""); err == nil {
+	_, _, err := client.FetchFollowers(context.Background(), " ", 20, "")
+	if err == nil {
 		t.Fatal("empty handle must be rejected")
 	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty handle: want KindInvalidArg, got %v", err)
+	}
 	for _, limit := range []int{0, -5} {
-		if _, _, err := client.FetchFollowers(context.Background(), "NASA", limit, ""); err == nil {
+		_, _, err := client.FetchFollowers(context.Background(), "NASA", limit, "")
+		if err == nil {
 			t.Fatalf("limit %d must be rejected", limit)
+		}
+		var sdkErr *sdk.Error
+		if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+			t.Errorf("limit %d: want KindInvalidArg, got %v", limit, err)
 		}
 	}
 }
@@ -1698,8 +1708,13 @@ func TestFetchThreadGuards(t *testing.T) {
 	defer srv.Close()
 	client := fxtwitter.NewClient(fxtwitter.WithBaseURL(srv.URL), fxtwitter.WithHTTPClient(srv.Client()))
 
-	if _, err := client.FetchThread(context.Background(), " "); err == nil {
+	_, err := client.FetchThread(context.Background(), " ")
+	if err == nil {
 		t.Fatal("empty statusID must be rejected")
+	}
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty statusID: want KindInvalidArg, got %v", err)
 	}
 	if _, err := client.FetchThread(context.Background(), "404"); !fxtwitter.IsNotFound(err) {
 		t.Fatalf("want KindNotFound, got %v", err)
@@ -1744,10 +1759,20 @@ func TestFetchTypeaheadTruncatesToLocalLimit(t *testing.T) {
 
 func TestFetchTypeaheadGuards(t *testing.T) {
 	client := fxtwitter.NewClient()
-	if _, err := client.FetchTypeahead(context.Background(), "   ", 20); err == nil {
+	_, err := client.FetchTypeahead(context.Background(), "   ", 20)
+	if err == nil {
 		t.Fatal("empty query must be rejected")
 	}
-	if _, err := client.FetchTypeahead(context.Background(), "nas", 0); err == nil {
+	var sdkErr *sdk.Error
+	if !errors.As(err, &sdkErr) || sdkErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("empty query: want KindInvalidArg, got %v", err)
+	}
+	_, err = client.FetchTypeahead(context.Background(), "nas", 0)
+	if err == nil {
 		t.Fatal("count 0 must be rejected")
+	}
+	var countErr *sdk.Error
+	if !errors.As(err, &countErr) || countErr.Kind != sdk.KindInvalidArg {
+		t.Errorf("count 0: want KindInvalidArg, got %v", err)
 	}
 }
