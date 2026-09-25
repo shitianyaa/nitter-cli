@@ -91,7 +91,7 @@ and **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)** by
 - **Honest, verified updates** — `update --check [--prerelease] [--json]`
   compares against the latest GitHub release by strict semver and writes
   nothing; `update` additionally offers to install after confirmation, and
-  `--confirm` skips the prompt for scripts. The installer verifies the archive
+  `--confirm` skips the prompt for scripts. `update` verifies the archive
   against the release's `checksums.txt` and the staged binary's version before
   replacing the executable, so a failed verification leaves the current
   installation untouched. `go install` installations are refused with the
@@ -115,6 +115,9 @@ sha256sum -c checksums.txt --ignore-missing   # or an equivalent tool
 
 Extract the `nitter` binary into a per-user directory that is on your `PATH`.
 There is no installer script; the archive is the whole product.
+
+To upgrade an existing installation, run `nitter update --check` and then
+`nitter update` — no archive download needed.
 
 ### Source build
 
