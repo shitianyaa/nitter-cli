@@ -56,6 +56,7 @@ func readProfiles(t *testing.T, home, handle string) (map[string]any, bool) {
 func TestCircleRefreshWritesFacts(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "big")
 	runCLI(t, "circle", "add", "dev", "small")
 
@@ -89,6 +90,7 @@ func TestCircleRefreshWritesFacts(t *testing.T) {
 func TestCircleRefreshPreservesJudgement(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "big")
 
 	dir := filepath.Join(home, ".nitter-cli")
@@ -126,6 +128,7 @@ func TestCircleRefreshPreservesJudgement(t *testing.T) {
 func TestCircleRefreshPartialFailureWarnsAndContinues(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "big")
 	runCLI(t, "circle", "add", "dev", "gone")
 
@@ -155,6 +158,7 @@ func TestCircleRefreshPartialFailureWarnsAndContinues(t *testing.T) {
 func TestCircleRefreshAllFailuresExit1(t *testing.T) {
 	home := tempHome(t)
 	writeConfig(t, home)
+	deadFxBaseURL(t)
 	runCLI(t, "circle", "add", "dev", "gone")
 
 	srv := httptest.NewServer(fxProfileHandler(t, map[string]map[string]any{"gone": nil}))

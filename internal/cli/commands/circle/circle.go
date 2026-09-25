@@ -273,11 +273,60 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				return err
 			}
 
+			// Best-effort profile fetch: the roster write already succeeded, so a
+			// failed fetch must not fail the command — a warning keeps the old
+			// behavior (facts arrive with circle refresh) visible.
+			fetchProfileFacts(s, p.ProfilesFile, cleanHandle)
+
 			fmt.Fprintf(s.Out, "added @%s to circle %s\n", cleanHandle, name)
 			return nil
 		},
 	}
 	return cmd
+}
+
+// fetchProfileFacts best-effort fetches a newly added member's profile facts
+// and merges them into the sidecar. Every failure here is only a warning on
+// stderr: the roster write has already succeeded, so the command stays exit 0.
+// Like circle refresh, only the machine fields (Handle/Name/Bio/
+// FollowersCount) are written via settings.MergeProfileFacts — the judgement
+// fields (role/note/noted_at) are never touched here.
+func fetchProfileFacts(s *invocation.Streams, profilesFile, handle string) {
+	fetchCtx := s.CTX
+	if fetchCtx == nil {
+		fetchCtx = context.Background()
+	}
+	cfg, err := client.LoadEffectiveSettings()
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: load settings: %v\n", err)
+		return
+	}
+	w, err := client.Build(s.RootOptions, cfg, time.Now)
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: build client: %v\n", err)
+		return
+	}
+	prof, err := w.Profile().Profile(fetchCtx, handle)
+	if err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: fetch profile facts: %v\n", err)
+		return
+	}
+	profiles, err := settings.LoadProfiles(profilesFile)
+	if err != nil {
+		// A sidecar we cannot read must never be rewritten from an empty map —
+		// that would drop every other member's judgement. Warn and leave it.
+		fmt.Fprintf(s.Err, "warning: circle add: load profile sidecar: %v\n", err)
+		return
+	}
+	profiles = settings.MergeProfileFacts(profiles, handle, settings.Profile{
+		Handle:         prof.Handle,
+		Name:           prof.Name,
+		Bio:            prof.Bio,
+		FollowersCount: prof.FollowersCount,
+	}, time.Now())
+	if err := settings.SaveProfiles(profilesFile, profiles); err != nil {
+		fmt.Fprintf(s.Err, "warning: circle add: save profile facts: %v\n", err)
+	}
 }
 
 // newRemoveCmd builds `nitter circle remove <NAME> <HANDLE>`: it edits ONLY
