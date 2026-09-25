@@ -41,6 +41,8 @@ successful output; **stderr is never JSON**.
 | `unknown flag: --...` | 2 | Invented or misspelled flag | Run `nitter <command> --help`; never invent flags |
 | A watch burst delivered only some new tweets | 0 | `--max-new` cap (default 10); the excess was marked seen and will not re-emit | Raise `--max-new` or poll more often; see references/watch.md |
 | Watch emitted nothing on its first run | 0 | First run of an uninitialized source records state only (只记不推) | Expected; use `--include-existing` for the run where history is wanted |
+| `this binary was installed with 'go install'; update it with:` … | 1 | The binary is managed by `go install`, which a later `go install` would silently undo — `update` refuses to replace it | Run the printed `go install github.com/shitianyaa/nitter-cli/cmd/nitter@<tag>` line instead; do not overwrite a toolchain-managed binary from a release archive |
+| `release archive … failed SHA-256 verification (the existing installation is unchanged)` / `staged binary failed verification (the existing installation is unchanged)` | 1 | The downloaded archive or the staged binary failed verification, so **nothing was replaced** | Report the failure; the existing installation is untouched. Re-check the release assets (never substitute a mirror) and retry later |
 
 ## Diagnosis order
 
