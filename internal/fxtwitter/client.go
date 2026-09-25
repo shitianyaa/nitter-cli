@@ -478,13 +478,17 @@ func (c *Client) FetchUserFollowing(
 	if cleanUser == "" {
 		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserFollowing, "handle cannot be empty")
 	}
+	// limit <= 0 used to be sent upstream as an unbounded request; the CLI
+	// resolves every limit to a positive cap before calling, so a non-positive
+	// limit is a caller bug and must be loud (same contract as FetchUserTimeline).
+	if limit <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opUserFollowing, "limit must be >= 1, got %d", limit)
+	}
 
 	endpoint := fmt.Sprintf("/2/profile/%s/following", cleanUser)
 	params := url.Values{}
-	if limit > 0 {
-		params.Set("limit", strconv.Itoa(limit))
-		params.Set("count", strconv.Itoa(limit))
-	}
+	params.Set("limit", strconv.Itoa(limit))
+	params.Set("count", strconv.Itoa(limit))
 	if cursor != "" {
 		params.Set("cursor", cursor)
 	}
@@ -512,7 +516,7 @@ func (c *Client) FetchUserFollowing(
 		nextCursor = ""
 	}
 
-	if limit > 0 && len(profiles) > limit {
+	if len(profiles) > limit {
 		profiles = profiles[:limit]
 	}
 	return profiles, nextCursor, nil
@@ -572,7 +576,7 @@ func (c *Client) SearchTweets(
 ) ([]sdk.Tweet, string, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
-		return nil, "", nil
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opSearch, "query cannot be empty")
 	}
 
 	feed = strings.ToLower(strings.TrimSpace(feed))
@@ -585,10 +589,13 @@ func (c *Client) SearchTweets(
 		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opSearch, "invalid feed %q; must be latest or top", feed)
 	}
 
-	perPage := count
-	if perPage < 1 {
-		perPage = 10
+	// count <= 0 used to fall back to the upstream default page size; the CLI
+	// resolves every limit to a positive cap before calling, so a non-positive
+	// count is a caller bug and must be loud (same contract as FetchUserTimeline).
+	if count <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opSearch, "count must be >= 1, got %d", count)
 	}
+	perPage := count
 	if perPage > 100 {
 		perPage = 100
 	}
@@ -624,7 +631,7 @@ func (c *Client) SearchTweets(
 		nextCursor = ""
 	}
 
-	if count > 0 && len(tweets) > count {
+	if len(tweets) > count {
 		tweets = tweets[:count]
 	}
 	return tweets, nextCursor, nil
@@ -734,13 +741,17 @@ func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cu
 	if cleanID == "" {
 		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opQuotes, "statusID cannot be empty")
 	}
+	// count <= 0 used to be sent upstream without a page cap; the CLI resolves
+	// every limit to a positive cap before calling, so a non-positive count is
+	// a caller bug and must be loud (same contract as FetchUserTimeline).
+	if count <= 0 {
+		return nil, "", sdk.Errorf(sdk.KindInvalidArg, opQuotes, "count must be >= 1, got %d", count)
+	}
 
 	endpoint := fmt.Sprintf("/2/status/%s/quotes", cleanID)
 	params := url.Values{}
-	if count > 0 {
-		params.Set("count", strconv.Itoa(count))
-		params.Set("limit", strconv.Itoa(count))
-	}
+	params.Set("count", strconv.Itoa(count))
+	params.Set("limit", strconv.Itoa(count))
 	if cursor != "" {
 		params.Set("cursor", cursor)
 	}
@@ -780,7 +791,7 @@ func (c *Client) FetchQuotes(ctx context.Context, statusID string, count int, cu
 		nextCursor = ""
 	}
 
-	if count > 0 && len(tweets) > count {
+	if len(tweets) > count {
 		tweets = tweets[:count]
 	}
 
@@ -822,11 +833,14 @@ func (c *Client) SearchUsers(ctx context.Context, query string, count int) ([]sd
 	if q == "" {
 		return nil, sdk.Errorf(sdk.KindInvalidArg, opSearchUsers, "query cannot be empty")
 	}
+	// count <= 0 used to fall back to the upstream default page size; the CLI
+	// resolves every limit to a positive cap before calling, so a non-positive
+	// count is a caller bug and must be loud (same contract as FetchUserTimeline).
+	if count <= 0 {
+		return nil, sdk.Errorf(sdk.KindInvalidArg, opSearchUsers, "count must be >= 1, got %d", count)
+	}
 
 	perPage := count
-	if perPage < 1 {
-		perPage = 10
-	}
 	if perPage > 100 {
 		perPage = 100
 	}
@@ -859,7 +873,7 @@ func (c *Client) SearchUsers(ctx context.Context, query string, count int) ([]sd
 		}
 	}
 
-	if count > 0 && len(profiles) > count {
+	if len(profiles) > count {
 		profiles = profiles[:count]
 	}
 

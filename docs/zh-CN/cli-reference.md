@@ -70,7 +70,7 @@ text 渲染；信封流请传 `--ndjson`。
 的逐源抓取失败，`media` 与 `download` 的逐 REF 失败）：
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured (fx attempt: fxtwitter.FetchUserTimeline: not_found: resource not found (404): /2/profile/NASA/statuses)"},"meta":{"input":"user:NASA"}}
 ```
 
 错误信封的 `data` 为 `{command, stage, code, message}`；`code` 是本次失败的

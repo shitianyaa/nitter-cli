@@ -78,7 +78,7 @@ additive-only in v1; the currently emitted kinds are `tweet` (data commands),
 `watch`, per-ref failures of `media` and `download`):
 
 ```json
-{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured"},"meta":{"input":"user:NASA"}}
+{"schema":"nitter.pipeline/v1","kind":"error","data":{"command":"watch","stage":"fetch","code":"upstream_unavailable","message":"chooser: upstream_unavailable: no instances configured (fx attempt: fxtwitter.FetchUserTimeline: not_found: resource not found (404): /2/profile/NASA/statuses)"},"meta":{"input":"user:NASA"}}
 ```
 
 Error envelope `data` is `{command, stage, code, message}`; `code` is the SDK

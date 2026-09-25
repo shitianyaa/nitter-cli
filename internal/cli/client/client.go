@@ -320,7 +320,10 @@ func (a timelineAdapter) Timeline(ctx context.Context, handle string, limit, max
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
+		// timelineNitter returns (tweets, instance, error): the wrap only
+		// rewrites the error, so the other two values pass through.
+		page, pageInstance, pageErr := a.timelineNitter(ctx, handle, limit, maxPages, opt)
+		return page, pageInstance, withFxCause(pageErr, err)
 	default:
 		return a.timelineNitter(ctx, handle, limit, maxPages, opt)
 	}
@@ -448,7 +451,10 @@ func (a searchAdapter) Search(ctx context.Context, query string, limit, maxPages
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, "", err
 		}
-		return a.searchNitter(ctx, query, limit, maxPages, sort)
+		// searchNitter returns (tweets, instance, error): the wrap only
+		// rewrites the error, so the other two values pass through.
+		page, pageInstance, pageErr := a.searchNitter(ctx, query, limit, maxPages, sort)
+		return page, pageInstance, withFxCause(pageErr, err)
 	default:
 		return a.searchNitter(ctx, query, limit, maxPages, sort)
 	}
@@ -505,6 +511,25 @@ func (w *Wiring) effectiveBackend() string {
 	return w.FetchBackend
 }
 
+// withFxCause re-attaches the fast lane's error when the instance path
+// answered with the chooser's availability failure ("no instances
+// configured" / "all instances cooling down"), so falling back no longer
+// replaces why the fast lane was left. Any other instance-path error is a
+// real instance failure and passes through untouched. The op literal is
+// sdk's unexported opChooser; the error-rendering contract freezes it.
+// fxErr text is redaction-safe (fx lane errors carry no query string or body).
+func withFxCause(instanceErr, fxErr error) error {
+	var e *nitter.Error
+	if !errors.As(instanceErr, &e) || e.Kind != nitter.KindUnavailable || e.Op != "chooser" {
+		return instanceErr
+	}
+	return &nitter.Error{
+		Kind: e.Kind,
+		Op:   e.Op,
+		Err:  fmt.Errorf("%w (fx attempt: %v)", e.Err, fxErr),
+	}
+}
+
 // statusAdapter bridges the primitive-parameter StatusSource to the hybrid dispatcher.
 type statusAdapter struct{ w *Wiring }
 
@@ -535,7 +560,10 @@ func (a statusAdapter) Status(ctx context.Context, ref string) (nitter.Tweet, st
 				// configured" and mask the cause.
 				return nitter.Tweet{}, "", err
 			}
-			return a.w.AppAPI.Status(ctx, ref)
+			// AppAPI.Status returns (tweet, instance, error): the wrap only
+			// rewrites the error, so the other two values pass through.
+			tweet, inst, statusErr := a.w.AppAPI.Status(ctx, ref)
+			return tweet, inst, withFxCause(statusErr, err)
 		}
 		// FetchStatus never returns a nil tweet with a nil error — an
 		// unidentifiable payload is KindNotFound, not an empty success — so

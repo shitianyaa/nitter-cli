@@ -614,3 +614,40 @@ func TestGetFxBackendSurfacesFxErrorWithoutInstances(t *testing.T) {
 		t.Errorf("stdout = %q, want nothing on the failure path", out)
 	}
 }
+
+// TestGetMixBackendWithoutInstancesKeepsFxCause: under fetch_backend = mix the
+// fallback to the instance path stays, but when that path answers with the
+// chooser's "no instances configured" the surfaced error must still carry the
+// fx cause the fallback replaced — both markers, never the chooser answer
+// alone. Mirrors the fx-mode fixture above, changing only the backend and the
+// assertions.
+func TestGetMixBackendWithoutInstancesKeepsFxCause(t *testing.T) {
+	home := tempHome(t) // zero instances
+	writeConfig(t, home, "fetch_backend = \"mix\"\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 404, "message": "Status not found"})
+	}))
+	defer srv.Close()
+
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() {
+		fxtwitter.EndpointOverrides.BaseURL = ""
+	})
+
+	code, out, errOut := runCLI(t, "get", "101")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "no instances configured") {
+		t.Errorf("stderr = %q, want the chooser answer", errOut)
+	}
+	if !strings.Contains(errOut, "(fx attempt:") {
+		t.Errorf("stderr = %q, want the fx cause kept", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing on the failure path", out)
+	}
+}

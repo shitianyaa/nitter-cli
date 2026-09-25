@@ -1027,3 +1027,43 @@ func TestSearchSortPropagatesToBothBackends(t *testing.T) {
 		}
 	})
 }
+
+// TestMixFallbackKeepsFxCauseWhenChooserUnavailable pins the mix-mode cause
+// rule: when the fast lane fails and the instance path answers with the
+// chooser's availability error (zero instances here), the surfaced error must
+// carry BOTH the chooser answer and the fx cause it replaced — the fallback
+// must not erase why the fast lane was left. A 404 stub is enough: the guard
+// semantics do not depend on the exact fx error.
+func TestMixFallbackKeepsFxCauseWhenChooserUnavailable(t *testing.T) {
+	cfg := validCfg() // zero instances
+	cfg.FetchBackend = "mix"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":404,"results":[]}`))
+	}))
+	defer srv.Close()
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	_, _, timelineErr := w.Timeline().Timeline(context.Background(), "NASA", 3, 1)
+	_, _, searchErr := w.Search().Search(context.Background(), "AI", 3, 1, client.WithSearchSort("latest"))
+	_, _, statusErr := w.Status().Status(context.Background(), "101")
+
+	for name, err := range map[string]error{"timeline": timelineErr, "search": searchErr, "status": statusErr} {
+		if err == nil {
+			t.Fatalf("%s: want an error, got nil", name)
+		}
+		if !strings.Contains(err.Error(), "no instances configured") {
+			t.Errorf("%s: stderr lacks the chooser answer: %v", name, err)
+		}
+		if !strings.Contains(err.Error(), "(fx attempt:") {
+			t.Errorf("%s: the fx cause was dropped: %v", name, err)
+		}
+	}
+}
