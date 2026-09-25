@@ -247,7 +247,8 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				return err
 			}
 
-			circle, ok := settings.FindCircle(circles, name)
+			matchedKey, circle, ok := settings.FindCircleKey(circles, name)
+			inserted := false
 			if !ok {
 				circle = settings.Circle{
 					Key:   name,
@@ -255,6 +256,7 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 					Users: []string{cleanHandle},
 				}
 				circles[name] = circle
+				inserted = true
 			} else {
 				exists := false
 				for _, u := range circle.Users {
@@ -265,7 +267,8 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				}
 				if !exists {
 					circle.Users = append(circle.Users, cleanHandle)
-					circles[circle.Key] = circle
+					circles[matchedKey] = circle
+					inserted = true
 				}
 			}
 
@@ -273,10 +276,14 @@ func newAddCmd(s *invocation.Streams) *cobra.Command {
 				return err
 			}
 
-			// Best-effort profile fetch: the roster write already succeeded, so a
-			// failed fetch must not fail the command — a warning keeps the old
-			// behavior (facts arrive with circle refresh) visible.
-			fetchProfileFacts(s, p.ProfilesFile, cleanHandle)
+			// Best-effort profile fetch, gated on an actual insertion: a
+			// duplicate add is a roster no-op and must not touch the network.
+			// The roster write already succeeded, so a failed fetch must not
+			// fail the command — a warning keeps the old behavior (facts
+			// arrive with circle refresh) visible.
+			if inserted {
+				fetchProfileFacts(s, p.ProfilesFile, cleanHandle)
+			}
 
 			fmt.Fprintf(s.Out, "added @%s to circle %s\n", cleanHandle, name)
 			return nil
@@ -364,7 +371,7 @@ func newRemoveCmd(s *invocation.Streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			circle, ok := settings.FindCircle(circles, name)
+			matchedKey, circle, ok := settings.FindCircleKey(circles, name)
 			if !ok {
 				return fmt.Errorf("circle %q not found", name)
 			}
@@ -379,15 +386,15 @@ func newRemoveCmd(s *invocation.Streams) *cobra.Command {
 				kept = append(kept, u)
 			}
 			if !removed {
-				fmt.Fprintf(s.Err, "circle remove: @%s is not a member of %s; nothing changed\n", cleanHandle, circle.Key)
+				fmt.Fprintf(s.Err, "circle remove: @%s is not a member of %s; nothing changed\n", cleanHandle, matchedKey)
 				return nil
 			}
 			circle.Users = kept
-			circles[circle.Key] = circle
+			circles[matchedKey] = circle
 			if err := settings.SaveCircles(p.CirclesFile, circles); err != nil {
 				return err
 			}
-			fmt.Fprintf(s.Out, "removed @%s from circle %s\n", cleanHandle, circle.Key)
+			fmt.Fprintf(s.Out, "removed @%s from circle %s\n", cleanHandle, matchedKey)
 			return nil
 		},
 	}
