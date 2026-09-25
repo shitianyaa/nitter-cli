@@ -118,6 +118,12 @@ check "user --max-pages 0 exits 2" 2 'must be >= 1' -- ./nitter user e2e --max-p
 check "watch --max-pages 0 exits 2" 2 'must be >= 1' -- ./nitter watch user:e2e --once --max-pages 0
 check "seen list on empty store" 0 '\(empty\)' -- ./nitter seen list
 check "seen clear without --confirm exits 2" 2 '' -- ./nitter seen clear
+# The fx-only commands (followers, thread, typeahead) ignore fetch_backend and
+# always hit the real fx upstream on their happy paths — but exit-2 usage
+# validation runs before any config or network, so the rejections stay offline.
+check "followers --limit 0 exits 2" 2 'must be >= 1' -- ./nitter followers NASA --limit 0
+check "thread non-numeric ID exits 2" 2 'numeric status ID' -- ./nitter thread abc
+check "typeahead blank query exits 2" 2 'query cannot be empty' -- ./nitter typeahead " "
 
 # NDJSON error envelope: a config fixture pointing at an unreachable instance
 # (port 1 on loopback — connection refused, no network) must produce a
