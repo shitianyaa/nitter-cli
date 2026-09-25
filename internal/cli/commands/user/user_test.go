@@ -345,6 +345,11 @@ func TestUserBothFailExitsOneWithClassifiedError(t *testing.T) {
 	if !strings.Contains(errOut, "upstream_unavailable") {
 		t.Fatalf("stderr = %q, want the classified kind", errOut)
 	}
+	// Only Op separates the chooser's answer from a real instance failure, and
+	// both are upstream_unavailable: pin the reverse half on this call site too.
+	if strings.Contains(errOut, "(fx attempt:") {
+		t.Errorf("stderr = %q — the fx cause must not be appended to a real instance failure", errOut)
+	}
 	if out != "" {
 		t.Errorf("stdout = %q, want nothing on the failure path", out)
 	}
