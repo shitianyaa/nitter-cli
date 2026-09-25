@@ -20,11 +20,16 @@ safety boundaries, and semantics traps.
 ## Precheck
 
 - Probe the environment only with `nitter --version`; the output looks like
-  `nitter version <v>` (for example `nitter version 0.7.3`). If the binary is
+  `nitter version <v>`. If the binary is
   missing or not executable, state the blocker. Install only when the user
   explicitly asked for installation; then read
   [references/install.md](references/install.md) and follow its approved
   sources. Otherwise do not install or guess installation steps.
+- Compare that version with this Skill's own `version:` field. They are released
+  as one pair, so a mismatch means one of the two is stale: report the pair. Do
+  not start an upgrade on your own — `nitter update` and the Skill refresh both
+  need the user to ask for them (see
+  [references/install.md](references/install.md)).
 - Instances come from the user's config (`nitter config path` prints the
   location, typically `~/.nitter-cli/config.toml`). The default
   `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
@@ -111,7 +116,7 @@ safety boundaries, and semantics traps.
 | Local write | `config set`, `config unset`, `seen clear`, `circle add`, `circle remove`, `circle refresh` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
-| Software update | `update` (with `--confirm`) | **State change**: replaces the running binary. Never run without the user's explicit authorization — `--confirm` is a mechanism for their own scripts, not a grant of permission. The installer verifies the archive against the release's `checksums.txt` and the staged binary's version before replacing anything; a `go install` installation is refused with the correct `go install` line |
+| Software update | `update --check` (read-only), then `update --confirm` | Start with the read-only `update --check` and report the comparison; installing is a **state change** that replaces the running binary. Never run `--confirm` without the user's explicit authorization — `--confirm` is a mechanism for their own scripts, not a grant of permission. Back up the binary first (see [references/install.md](references/install.md)); `update` verifies the archive against the release's `checksums.txt` and the staged binary's version before replacing anything; a `go install` installation is refused with the correct `go install` line |
 
 Notes: `instances test` completes even when every probe fails (the report is
 the product — exit 0); treat the report, not the exit code, as the diagnostic.
@@ -258,7 +263,7 @@ nitter seen clear --source user:NASA --confirm          # state change: consent 
 nitter seen clear --confirm                             # clear ALL sources: consent each time
 
 nitter update --check                                   # read-only release comparison
-nitter update --check --json                            # {current, latest, outdated, prerelease, release_url}
+nitter update --check --json                            # {current, latest, outdated, prerelease, release_url}; a dev build prints {current, development_build}
 nitter update --check --prerelease                      # admit prereleases into the "latest" pick (only with --check)
 nitter update                                           # check, then prompt "install now? [y/N]" on a TTY
 nitter update --confirm                                 # install without asking (required when stdin is not a TTY)
@@ -526,7 +531,7 @@ references/download.md).
 
 | Task | Read |
 | --- | --- |
-| Install or upgrade the `nitter` binary, or install the matching Skill | [references/install.md](references/install.md) |
+| Install or upgrade the `nitter` binary (start with the read-only `nitter update --check`), or install the matching Skill | [references/install.md](references/install.md) |
 | Fetch public tweets (timelines, search, lists, single statuses) | the quick reference in this file; on errors [references/troubleshooting.md](references/troubleshooting.md) |
 | Configure instances (incl. basic auth), override one command, diagnose instance health | [references/instances.md](references/instances.md) |
 | The user has no Nitter instance (deploy with Docker, default localhost) or its URL is unknown | [references/deploy.md](references/deploy.md) |
