@@ -1055,7 +1055,12 @@ func TestMixFallbackKeepsFxCauseWhenChooserUnavailable(t *testing.T) {
 	_, _, searchErr := w.Search().Search(context.Background(), "AI", 3, 1, client.WithSearchSort("latest"))
 	_, _, statusErr := w.Status().Status(context.Background(), "101")
 
-	for name, err := range map[string]error{"timeline": timelineErr, "search": searchErr, "status": statusErr} {
+	// A slice, not a map: the failure report must be deterministic.
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{{"timeline", timelineErr}, {"search", searchErr}, {"status", statusErr}} {
+		name, err := tc.name, tc.err
 		if err == nil {
 			t.Fatalf("%s: want an error, got nil", name)
 		}
@@ -1108,4 +1113,57 @@ func TestFxOnlyCapabilityAdaptersForward(t *testing.T) {
 func isLocalState(err error) bool {
 	var e *nitter.Error
 	return errors.As(err, &e) && e.Kind == nitter.KindLocalState
+}
+
+// TestMixFallbackKeepsFxCauseWhenAllInstancesCooling covers the second chooser
+// answer withFxCause exists for. "All instances cooling down" is a different
+// message from "no instances configured" but the same Kind and Op, so it takes
+// the same branch — and nothing else pins it. The first call marks the only
+// instance as failed; the second finds it cooling and gets the chooser's answer
+// instead of the instance's own error.
+func TestMixFallbackKeepsFxCauseWhenAllInstancesCooling(t *testing.T) {
+	cfg := fastCfg()
+	cfg.FetchBackend = "mix"
+	// A cooldown far longer than this test keeps the second call deterministic.
+	cfg.InstanceCooldown = "1h"
+
+	inst := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer inst.Close()
+	cfg.Instances = []settings.Instance{{URL: inst.URL}}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":404,"results":[]}`))
+	}))
+	defer srv.Close()
+	fxtwitter.EndpointOverrides.BaseURL = srv.URL
+	t.Cleanup(func() { fxtwitter.EndpointOverrides.BaseURL = "" })
+
+	w, err := client.Build(&invocation.RootOptions{}, cfg, time.Now)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// First call: the instance is picked and fails, so its own failure is the
+	// better report and the fx cause stays off.
+	if _, _, err := w.Timeline().Timeline(context.Background(), "NASA", 3, 1); err == nil {
+		t.Fatal("first call: want the instance failure, got nil")
+	} else if strings.Contains(err.Error(), "cooling down") {
+		t.Fatalf("first call: got the chooser answer instead of the instance failure: %v", err)
+	}
+
+	// Second call: every instance is cooling, so the chooser answers and the fx
+	// cause must survive alongside it.
+	_, _, err = w.Timeline().Timeline(context.Background(), "NASA", 3, 1)
+	if err == nil {
+		t.Fatal("second call: want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cooling down") {
+		t.Errorf("second call: want the chooser's cooling answer, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "(fx attempt:") {
+		t.Errorf("second call: the fx cause was dropped: %v", err)
+	}
 }
