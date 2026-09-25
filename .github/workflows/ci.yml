@@ -1,56 +1,115 @@
-# Quality gate: fmt / vet / tests (with race detector) / build / offline e2e.
+# Quality gate: scope classification / fmt / vet / tests (with race) / build /
+# offline e2e.
 #
-# Action pins: major-version tags. Full commit-SHA pinning is release
-# hardening and lands with the release-prep PR (same policy as release.yml).
+# Gating model ported from FlanChanXwO/javdb-cli (MIT): a change-scope
+# classifier lets docs-only pull requests skip runner-heavy steps while the
+# required check names stay static, so branch protection stays stable.
+# Main itself runs nothing on push: changes only arrive through PRs, so every
+# change has already passed the gate before it reaches main.
+#
+# The scope job checks out the base commit, so the classifier script and its
+# rules file come from the protected branch, never from the PR being judged.
+#
+# Action pins: commit SHAs (same policy as release.yml).
 name: ci
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "skills/**"
-      - "changelog/**"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "skills/**"
-      - "changelog/**"
+    branches:
+      - main
+  workflow_dispatch: {}
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: quality-gate-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  quality:
-    runs-on: ubuntu-latest
+  scope:
+    name: Classify change scope
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      quality_required: ${{ steps.scope.outputs.quality_required }}
+      platform_required: ${{ steps.scope.outputs.platform_required }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      - name: Classify change scope
+        id: scope
+        shell: bash
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            printf 'quality_required=true\nplatform_required=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/pull/$PR/head"
+          test "$(git rev-parse "refs/remotes/pull/$PR/head")" = "$HEAD_SHA"
+          bash ./scripts/classify-change-scope.sh --base "$BASE_SHA" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"
+
+  quality_gate:
+    name: Quality gate
+    needs: scope
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.quality_required == 'true') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require successful scope classification
+        if: ${{ needs.scope.result != 'success' }}
+        shell: bash
+        run: |
+          echo '::error::Change-scope classification failed.'
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: ${{ needs.scope.result == 'success' }}
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        if: ${{ needs.scope.result == 'success' }}
         with:
           go-version-file: go.mod
-      - name: gofmt (no unformatted files)
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::files need gofmt:"
-            echo "$unformatted"
-            exit 1
-          fi
+          cache: true
+      - name: Check Go formatting
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
+        run: test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
       - name: go vet
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
         run: go vet ./...
       - name: go test
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
         run: go test ./... -count=1
       - name: go test -race
-        run: go test -race ./...
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
+        run: go test -race ./... -count=1
       - name: build
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
         run: sh scripts/build.sh
+      - name: version smoke
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./nitter --version | tee /tmp/nitter-version.txt
+          grep -F 'nitter version' /tmp/nitter-version.txt >/dev/null
       - name: e2e (offline contracts; exit 2 = only skips, soft pass)
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
         run: |
           bash e2e/run.sh
           code=$?
@@ -60,17 +119,34 @@ jobs:
           fi
           exit "$code"
 
-  # Windows parity: the test suite and the build must hold off-Linux too.
-  # The race detector stays off here (single race run per push, on Linux).
   windows:
-    runs-on: windows-latest
+    name: Windows parity
+    needs: scope
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.platform_required == 'true') }}
+    runs-on: windows-2025
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - name: Require successful scope classification
+        if: ${{ needs.scope.result != 'success' }}
+        shell: bash
+        run: |
+          echo '::error::Change-scope classification failed.'
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: ${{ needs.scope.result == 'success' }}
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        if: ${{ needs.scope.result == 'success' }}
         with:
           go-version-file: go.mod
+          cache: true
       - name: go test
+        if: ${{ needs.scope.result == 'success' }}
+        shell: bash
         run: go test ./... -count=1
       - name: build
+        if: ${{ needs.scope.result == 'success' }}
         shell: bash
         run: sh scripts/build.sh
