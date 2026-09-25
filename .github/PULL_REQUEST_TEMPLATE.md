@@ -24,10 +24,14 @@ Bullet the change and why. Link an issue with `Closes #123` (closes on merge).
 未测试时说明原因。 / If not tested, explain why.
 
 可在下方提供恰好一个 ```commands fenced block，声明合并前 CI 可代跑的默认验证命令；
-只允许受信任白名单中的命令与受控管道，不会执行 shell。
+评论 `/test`（首个非空行，精确匹配）触发执行，评论中的 commands block 会完全覆盖
+PR 里声明的命令。
 Optionally declare exactly one ```commands fenced block below as the default
-verification commands for CI. Only trusted-whitelist commands and controlled
-pipelines are accepted; no shell is invoked.
+verification commands for CI; comment `/test` (the exact first non-empty line)
+to run them, and a commands block in the comment fully replaces the PR-declared
+commands.
+只允许受信任白名单中的命令与受控管道；不会执行 shell。
+Only trusted-whitelist commands and controlled pipelines are accepted; no shell is invoked.
 
 \`\`\`commands
 nitter search nitter --ndjson | head
