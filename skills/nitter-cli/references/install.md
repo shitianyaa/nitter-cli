@@ -17,7 +17,45 @@ There are no install scripts for this project. Never fetch, improvise, or
 execute an installer; never substitute a mirror, a package copied from chat,
 or any URL that is not an official GitHub Release asset of this repository.
 
-## Platform flow
+## Upgrading an existing installation
+
+`nitter update` is part of the installed binary — it is NOT one of the
+third-party installers this file forbids, and running it is the supported
+upgrade path. It reads only the `proxy` key from the config; it never reads
+credentials. The manual `Platform flow` (marked fallback) below is for a first
+install, and for an install whose source cannot be determined.
+
+1. `nitter update --check` (`--check --json` for scripts) is read-only: it
+   reports the current and latest versions and writes nothing. Installing always
+   needs the separate authorization in step 2.
+2. Get the user's explicit authorization. `update --confirm` is a state change;
+   `--confirm` exists for the user's own commands, not for a downloaded script,
+   and is not a grant of permission.
+3. Back up the binary you are about to replace, and report the backup path to
+   the user. Resolve the real target first (`command -v nitter`, then follow
+   symlinks) — the updater replaces the resolved file — and keep the backup
+   outside every PATH directory. This matters most on Unix, where the updater
+   renames over the target and leaves no backup at all. Windows leaves an
+   `<exe>.old`, but the next `nitter update` deletes it, so that is not a
+   rollback point either.
+4. Run `nitter update --confirm`. Every failure leaves the current installation
+   untouched.
+5. Close-out: `nitter --version` must print `nitter version <v>`.
+6. Update the Skill in the same step (see "Skill installation"): the binary and
+   the Skill are released as one pair. If the matching tag tree cannot be
+   fetched, stop and report — never upgrade only the binary.
+7. Summarize the change from the release's curated notes: the
+   `changelog/vX.Y.Z/{en,zh-CN}.md` files in the release tag's git tree — the
+   same text the published GitHub Release body carries. Take the tag from the
+   version `--check` reported. Do not read `changelog/unreleased/`: the release
+   workflow never reads it.
+
+`nitter update` refuses a `go install` installation and prints the exact
+`go install …@<tag>` line to use instead — follow that line rather than
+overwriting a toolchain-managed binary. A development build has nothing to
+replace and exits 0.
+
+## Platform flow (fallback)
 
 1. Detect OS and architecture. Do not read, create, or modify
    `~/.nitter-cli/config.toml` or any Nitter credential as part of
@@ -69,7 +107,12 @@ binary — never from `main`:
   into the agent skills directory the user confirms;
 - do not guess the skills path, and do not mix Skill content across releases;
 - command syntax always defers to the installed binary's
-  `nitter <cmd> --help`.
+  `nitter <cmd> --help`;
+- overwrite the installed directory rather than merging into it — a stale file
+  left behind is Skill content mixed across releases;
+- after the copy, confirm the installed `SKILL.md`'s `version` field equals
+  `nitter --version`: the binary and the Skill are one pair, upgraded together
+  and never one without the other;
 
 ## Refusal conditions
 
@@ -80,6 +123,6 @@ Refuse and report instead of improvising when:
 - the only available source is a mirror, an unofficial copy, or a
   third-party package;
 - the user asks for an install script (none exists — offer the manual
-  Release-archive route above instead);
+  Release-archive route in `Platform flow` instead);
 - the install would require administrator/root privileges or a system-PATH
   edit without the user's explicit consent.
