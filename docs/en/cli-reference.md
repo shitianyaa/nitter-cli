@@ -13,7 +13,7 @@ Every command accepts these persistent options:
 | Option | Meaning |
 | --- | --- |
 | `--proxy URL` | Proxy for this invocation (`http`, `https`, `socks5`, `socks5h`). Precedence: flag > config `proxy`. When both are empty the environment variables `HTTPS_PROXY`/`ALL_PROXY` apply to the FxTwitter fast lane and to `update`, but **not** to the nitter transport — use `--proxy` or `config proxy` to proxy instance traffic. |
-| `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL and pins the invocation to the instance path, skipping the Fx fast lane — the way to exercise one instance. It applies only to the commands that have an instance path (`user`, `search`, `get`, `list`); the Fx-only commands (`comments`, `following`, `profile`, `quotes`, `trends`, `search --type user`) ignore it. The override carries no basic-auth credentials, so a credential-protected instance will answer 401. It is not a routine flag: `fetch_backend` chooses the routing, and this only overrides the instance set for one call. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
+| `--instance URL` | Nitter instance URL for this invocation. It **replaces the whole configured instance set** with this single URL and pins the invocation to the instance path, skipping the Fx fast lane — the way to exercise one instance. It applies only to the commands that have an instance path (`user`, `search`, `get`, `list`); the Fx-only commands (`followers`, `thread`, `typeahead`, `comments`, `following`, `profile`, `quotes`, `trends`, `search --type user`) ignore it. The override carries no basic-auth credentials, so a credential-protected instance will answer 401. It is not a routine flag: `fetch_backend` chooses the routing, and this only overrides the instance set for one call. An invalid proxy scheme or instance URL fails as a usage error (exit 2) before anything runs. |
 
 `nitter --version` prints `nitter version <version>`; a bare `nitter` prints
 help. An unknown subcommand exits 1 (not 2).
@@ -27,9 +27,12 @@ machine. Under the default `mix`:
   service — first: the handle, query or status ID goes there, with **no
   credentials of yours attached**. On failure they fall back to your own
   instances.
-- `comments`, `following`, `profile`, `quotes`, `trends`, `search --type user`
-  and `circle refresh` have no Nitter equivalent, so they always reach
-  `api.fxtwitter.com`, whatever `fetch_backend` says.
+- `followers`, `thread`, `typeahead`, `comments`, `following`, `profile`,
+  `quotes`, `trends`, `search --type user` and `circle refresh` have no Nitter
+  equivalent, so they always reach `api.fxtwitter.com`, whatever `fetch_backend`
+  says. `circle add` sends the newly added member's handle to
+  `api.fxtwitter.com` as well, for its best-effort profile-facts fetch (a
+  failure there is only a stderr warning).
 - `list` always runs on your own instances (FxTwitter has no List endpoint).
 
 `fx` removes the fallback (fast lane only, its failures surface as errors);
@@ -146,6 +149,24 @@ Fetches accounts followed by `HANDLE` via FxTwitter API v2.
 - Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelopes in pipe mode.
 - `--json` outputs the array of `Profile` objects.
 
+## nitter followers
+
+```bash
+nitter followers <HANDLE> [--limit N] [--json|--ndjson]
+```
+
+Fetches the accounts following `HANDLE` — the follower list, the counterpart of
+`following` — via FxTwitter API v2.
+- Renders as formatted table on TTY: `@<handle>  <name>  <followers>  <bio>`.
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelopes in pipe mode (`meta.source` is `followers:<handle as typed>`, `meta.instance` is `FxTwitter`).
+- `--json` outputs the array of `Profile` objects (`[]` when empty).
+- `--limit` caps the number of profiles to fetch (default: 20; must be >= 1 — there is no unlimited value).
+
+This capability always queries the FxTwitter fast lane regardless of
+`fetch_backend`; `--instance` does not apply. `HANDLE` is 1–15 letters, digits
+or underscores, without the `@` — a bad shape (or any extra argument) exits 2
+before any network; a fetch failure exits 1 with the classified error message.
+
 ## nitter comments
 
 ```bash
@@ -156,6 +177,26 @@ Fetches the root tweet, context thread chain, and user replies for a status.
 - Essential for extracting author self-replies with hidden download links or reading long multi-part threads.
 - `--sort` selects reply ordering (`likes` default or `recency`).
 
+## nitter thread
+
+```bash
+nitter thread <TWEET_ID> [--json|--ndjson]
+```
+
+Fetches the full self-thread containing `TWEET_ID` and prints one row per
+status, root post first: `<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <single-line text>`.
+
+`TWEET_ID` must be the numeric status ID (1–20 digits); URL and other reference
+forms belong to the `get` command — a non-numeric ID (or any extra argument)
+exits 2 before any network. A status that is not part of a thread answers
+`not_found` and exits 1 with the classified error message. This capability
+always queries the FxTwitter fast lane regardless of `fetch_backend`;
+`--instance` does not apply.
+
+- Emits single-line `nitter.pipeline/v1` (`kind: "tweet"`) NDJSON envelopes in pipe mode (the status ID as `id`, `meta.source` is `thread:<id>`, `meta.instance` is `FxTwitter`).
+- `--json` outputs the array of tweet objects (`[]` when empty).
+- An empty thread is a success (exit 0): it prints nothing on stdout in NDJSON mode and the `(empty)` hint on stderr in the default mode.
+
 ## nitter circle
 
 ```bash
@@ -164,6 +205,7 @@ nitter circle show <NAME> [--json] [--min-followers N]
 nitter circle refresh <NAME>
 nitter circle suggest <HANDLE> [--limit N] [--min-followers N] [--json]
 nitter circle add <NAME> <HANDLE>
+nitter circle remove <NAME> <HANDLE>
 nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gif] [--json|--ndjson]
 ```
 
@@ -173,7 +215,7 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
   - **`--min-followers N`**: keeps only members whose **cached** follower count is at least N. A member with no cache has no verified count and is excluded by the filter, but is still counted in the stderr note. `N < 0` is a usage error (exit 2).
   - Members without a cache keep their row with `-` placeholders, and a `note: <N> member(s) have no cached profile; run 'nitter circle refresh <NAME>'` line goes to stderr (whether or not `--min-followers` filtered them out). Run `refresh` once to populate the cache.
   - `--json` emits an array of `{handle, name, bio, followers_count, fetched_at, role, note}` in roster order; as in the human rows, `bio` is flattened to one line and truncated to 120 bytes. An empty `fetched_at` means never fetched; consumers derive freshness from it (`noted_at` and a derived age are deliberately not projected).
-- `refresh`: fetches each member's profile and merges the results into the sidecar `~/.nitter-cli/profiles.toml`. It is the **only** networked writer of that file and the only command that fetches profiles for a circle.
+- `refresh`: fetches each member's profile and merges the results into the sidecar `~/.nitter-cli/profiles.toml`. It is the **only bulk** refresher of that file and the only command that fetches profiles for a whole circle (`circle add` performs a best-effort single-member fetch at add time — see below; `circle remove` never reads nor writes the file).
   - It writes only the fact fields (`name`, `bio`, `followers_count`, `fetched_at`) and **never** touches `role`, `note` or `noted_at` — judgement recorded there survives every refresh.
   - A member whose fetch fails is skipped with a `warning:` on stderr while the rest continue, and its existing entry keeps its previous facts (no empty overwrite, and no entry is created for it). All members failing exits 1; an unknown circle exits 1; an empty circle prints `(empty)`, exits 0 and creates no file.
   - Prints `refreshed N/M members in circle <key>`. It never prunes: sidecar entries for handles no longer in the circle are left alone.
@@ -183,7 +225,8 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
   - `--min-followers N` (default 0): filters only the trailing `top matches` summary section, never the main table or `--json` output.
   - The seed must exist (a `profile` probe runs first; a missing seed exits 1). A lane failure degrades with a stderr warning while the other lane still produces candidates; both lanes failing exits 1. A retweet-only candidate whose profile fetch fails is skipped with a stderr warning.
   - Human output: a stats header, the ranked table (`@<handle>\t<followers>\t<bio one line>\t<source>` where source is `following`, `retweet` or `both`), then a `top matches (>= N followers)` summary. `--json` emits an array of `{handle, followers_count, bio, source}` objects. `suggest` never writes to the circle file — use `circle add` to commit the handles you pick.
-- `add`: adds handle to a circle (creates file/circle on demand).
+- `add`: adds handle to a circle (creates file/circle on demand). After the roster write succeeds it best-effort fetches the new member's profile facts: the handle goes to `api.fxtwitter.com`, and only the fact fields (`name`, `bio`, `followers_count`, `fetched_at`) are merged into the sidecar — judgement (`role`/`note`/`noted_at`) is never touched. Every failure on that path is a `warning:` on stderr only: the roster write stands, the command still exits 0, and the facts arrive with the next `circle refresh`.
+- `remove`: removes handle from a circle, editing **only** the circle's users array in `circles.toml`. The profile sidecar `~/.nitter-cli/profiles.toml` — recorded `role`/`note` included — is never read nor written, so removing a member keeps their cached profile. The removal is idempotent: a handle that is not a member prints `circle remove: @<handle> is not a member of <key>; nothing changed` on stderr and exits 0 (the notice is the honesty, never silence). Success prints `removed @<handle> from circle <key>`; an unknown circle exits 1 and a bad handle shape exits 2.
 - `run`: traverses and streams latest tweets for all creators in the circle.
   - `--limit N` (default 20; must be >= 1): caps the number of tweets fetched per creator.
   - `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
@@ -275,6 +318,26 @@ The same field filters apply as on `user`: `--no-reposts`, `--media-only`,
 ```bash
 nitter search "#AI" --sort top --limit 10 --json   # popular results instead of newest-first
 ```
+
+## nitter typeahead
+
+```bash
+nitter typeahead <QUERY> [--limit N] [--json|--ndjson]
+```
+
+Suggests X accounts matching `QUERY` through the user-completion endpoint and
+prints one row per profile: `@<handle>  <name>  <followers>  <bio>`.
+
+This is a completion lookup, NOT search: no query operators, the upstream
+answers at most ~10-20 accounts and there is no pagination. Use `search` for
+real queries. An empty (whitespace-only) query exits 2 before any network.
+
+This capability always queries the FxTwitter fast lane regardless of
+`fetch_backend`; `--instance` does not apply.
+
+- `--limit` caps the number of profiles to print (default: 20; must be >= 1 — the upstream may answer fewer).
+- Emits single-line `nitter.pipeline/v1` (`kind: "profile"`) NDJSON envelopes in pipe mode (`meta.source` is `typeahead:<query as typed>`, `meta.instance` is `FxTwitter`).
+- `--json` outputs the array of `Profile` objects (`[]` when empty).
 
 ## nitter list
 

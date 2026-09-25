@@ -19,11 +19,11 @@ cmd/nitter → internal/cli (root.go → commands/*) → sdk (公开; package ni
                          ├── cli/client       （唯一可导入 internal/{nitter/*,fxtwitter,media} 的 CLI 层包；fetch_backend 混合调度）
                          ├── cli/pipeline     （nitter.pipeline/v1 信封与输出模式）
                          ├── cli/result       （tweet/profile/trend/instance 纯投影）
-                         ├── cli/commands/{config,instances,user,search,list,get,media,download,watch,seen,update,following,comments,trends,quotes,profile,circle}
+                         ├── cli/commands/{config,instances,user,search,list,get,media,download,watch,seen,update,followers,following,thread,typeahead,comments,trends,quotes,profile,circle}
                          └── internal/common/jsonx（NDJSON JSON 编码）
 sdk ← internal/nitter/appapi（Client 组合 → timeline/search/list/status/probe）
         └── internal/nitter/protocol/httpx（tls-client 传输：pacing/重试/429/脱敏）
-sdk ← internal/fxtwitter（免凭据 FxTwitter v2 客户端：statuses/media/search/users/status/quotes/trends/conversation/following/profile）
+sdk ← internal/fxtwitter（免凭据 FxTwitter v2 客户端：statuses/media/search/users/status/quotes/trends/conversation/following/followers/thread/typeahead/profile）
 internal/watch（去重选推引擎，纯函数） → internal/storage/seen（seen.json 原子存储）
 internal/config/{paths,settings}（~/.nitter-cli 布局——config.toml/circles.toml/state——与 schema/env 优先级）
 internal/buildinfo（版本元数据）
@@ -41,6 +41,7 @@ internal/buildinfo（版本元数据）
   httpx}`、`internal/fxtwitter` 与 `internal/media` 的 CLI 层包（裁决 R11）。
   命令消费的能力全部收窄为 client 导出的接口（`InstanceTester`、`TimelineSource`、
   `SearchSource`、`ListSource`、`StatusSource`、`FollowingSource`、
+  `FollowersSource`、`ThreadSource`、`TypeaheadSource`、
   `ConversationSource`、`QuotesSource`、`TrendsSource`、`ProfileSource`）与
   类型别名（`TestOptions`、`TimelineOption`）、函数（`ParseStatusRef`）——
   appapi 与 fxtwitter 的类型不越过这堵墙。`fetch_backend`（mix/fx；实例路径由 `--instance` 逐次选择）的
@@ -71,7 +72,11 @@ env > file > default 优先级（`NITTER_DEFAULT_LIMIT`/`NITTER_LOG_LEVEL`/
 `fetch_backend` 只接受 `mix|fx`（`nitter` 已移除，其语义在新两模式下无等价物，故硬拒绝并提示改 `mix`），非法值返回 `ValidationError`（CLI 层
 映射为退出码 2）；`SaveKnown` 读整树 → 改已知键 → 原子写 0600，保留未知键与
 数组表，注释不保证保留。创作者圈子（`circle` 命令域）在 `circles.toml` 单独
-加载/保存（原子写，保留 `list_id` 等建模字段）。
+加载/保存（原子写，保留 `list_id` 等建模字段）。成员档案侧写
+`profiles.toml` 只有两个联网写入者：`circle refresh`（批量刷新）与
+`circle add`（best-effort 的单成员档案事实写入，失败降级为 stderr 警告、
+绝不失败命令）；`circle remove` 只改名册，从不读写侧写。判断字段
+（`role`/`note`/`noted_at`）只有人工写入，机器路径一律不触碰。
 
 ### `internal/nitter/protocol/httpx`
 
@@ -92,7 +97,9 @@ list、status（多形态 URL 解析）、instances probe（RSS/user/search/list
 注入 HTTP client/timeout/代理；`EndpointOverrides.BaseURL` 是测试接缝）：
 timeline（`/2/profile/{h}/statuses`，含转推守卫与纯文本过滤）、media
 （`/2/profile/{h}/media`）、profile（`/2/{h}`）、following
-（`/2/profile/{h}/following`）、conversation（`/2/conversation/{id}`）、
+（`/2/profile/{h}/following`）、followers（`/2/profile/{h}/followers`）、
+self-thread（`/2/thread/{id}`）、typeahead（`/2/typeahead`，固定
+`result_type=users`，是补全而非搜索）、conversation（`/2/conversation/{id}`）、
 status（`/2/status/{id}`）、quotes（`/2/status/{id}/quotes`）、trends
 （`/2/trends`，空 rank 按 1-based 防御编号）、user search
 （`/2/search/users`）、tweet search（`/2/search`）。全部映射为 `sdk.Tweet`/
@@ -121,7 +128,8 @@ nitter.pipeline/v1 信封协议：`ResolveOutputMode`（`--json`/`--ndjson` 互�
 `profile`/`trend`）；错误信封 `data={command,stage,code,message}`、`meta.input`
 指明输入，绝不携带密钥/URL 查询串。`meta.instance` 标注来源（`"FxTwitter"` 或
 实例 URL），`meta.source` 标注操作与输入（`user:<h>`、`search:<q>`、
-`following:<h>`、`comments:<id>`、`quotes:<id>`、`trends`、`circle:<name>` 等）。
+`following:<h>`、`followers:<h>`、`thread:<id>`、`typeahead:<q>`、
+`comments:<id>`、`quotes:<id>`、`trends`、`circle:<name>` 等）。
 
 ## 裁决记录
 

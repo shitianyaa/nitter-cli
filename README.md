@@ -12,8 +12,9 @@ from **FxTwitter's public API** (the default fast lane — no account, no
 credentials) with **Nitter instances you run yourself** as the private
 fallback, the List path, and — one call at a time, via `--instance URL` — the
 instance path for timelines and single statuses. It fetches user timelines,
-search results, list timelines, single statuses, conversations, following
-lists, profiles, quote tweets and trends, watches sources with persistent dedup
+search results, list timelines, single statuses, conversations, self-threads,
+following and follower lists, profiles, account-name completions, quote tweets
+and trends, watches sources with persistent dedup
 state, and downloads media — a flexible CLI built for agents and schedulers
 (cron, systemd timers, Hermes), consumed as NDJSON.
 
@@ -37,9 +38,10 @@ and **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)** by
   public API first — no account, no credentials — and falls back to your own
   instances on failure; `fx` pins the fast lane. To send ONE call to a single
   instance, pass `--instance URL` (a testing aid, not a mode; `user`, `search`,
-  `get` and `list` only). `list` always needs Nitter, while `comments` /
-  `profile` / `following` / `quotes` / `trends` and `circle refresh` always
-  reach `api.fxtwitter.com` instead (they have no Nitter equivalent).
+  `get` and `list` only). `list` always needs Nitter, while `followers` /
+  `thread` / `typeahead` / `comments` / `profile` / `following` / `quotes` /
+  `trends` and `circle refresh` always reach `api.fxtwitter.com` instead (they
+  have no Nitter equivalent).
 - **Flexible instance policy** — point it at any Nitter instance you control:
   configure a rotation set (`[[instances]]`, tried strictly in config order,
   failed entries cool down), override per command with `--instance`, and
@@ -52,15 +54,18 @@ and **[pixiv-cli](https://github.com/FlanChanXwO/pixiv-cli)** by
   via `get`. `list` is strictly isolated:
   every list fetch always runs on your own instances (FxTwitter has no List
   endpoint). No bundled instances, no login, no bypassing of access controls.
-- **Social graph & discovery** — `following` lists who an account follows,
-  `profile` prints an account card, `search --type user` finds creators and
+- **Social graph & discovery** — `following` lists who an account follows and
+  `followers` lists who follows it, `profile` prints an account card,
+  `typeahead` completes handles from a prefix (completion, not search),
+  `search --type user` finds creators and
   artists by name, `trends` shows what X is talking about right now, and
   `quotes` digs up the quote-tweet derivatives of a status — all credential-free.
 - **Conversations & reply trees** — `comments` pulls a status's thread and
-  replies (sorted by likes or recency), the fast way to reach an author's
+  replies (sorted by likes or recency) and `thread` prints the full self-thread
+  a status belongs to, root first — the fast way to reach an author's
   self-replies with hidden links or to read a serialized thread.
 - **Creator circles** — `nitter circle` curates themed rosters in
-  `~/.nitter-cli/circles.toml` (`list` / `show` / `refresh` / `suggest` / `add` / `run`):
+  `~/.nitter-cli/circles.toml` (`list` / `show` / `refresh` / `suggest` / `add` / `remove` / `run`):
   `suggest` mines a handle's following list and retweet authors for new
   candidate members, then on-demand discovery and pipeline streaming,
   distinct from scheduled `watch` subscriptions.
@@ -134,10 +139,10 @@ Also install the `nitter-cli` Skill that matches the same stable release tag (ne
 ## 60-second quick start
 
 nitter-cli ships without instances, and the default `mix` mode already works:
-`user`, `search`, `get`, `comments`, `following`, `profile`, `quotes`, `trends`
-and `search --type user` run through FxTwitter's public endpoint out of the
-box. `circle refresh` also always uses FxTwitter, whatever `fetch_backend` says
-(it sends every member's handle). Configure a Nitter instance you control for
+`user`, `search`, `get`, `comments`, `following`, `followers`, `thread`,
+`typeahead`, `profile`, `quotes`, `trends` and `search --type user` run through
+FxTwitter's public endpoint out of the box. `circle refresh` also always uses
+FxTwitter, whatever `fetch_backend` says (it sends every member's handle). Configure a Nitter instance you control for
 `list` and as the fallback when Fx is unavailable. Don't have one? Deploy your
 own with Docker — see the
 [upstream wiki](https://github.com/zedeus/nitter/wiki) or the community
@@ -164,8 +169,11 @@ nitter user NASA --limit 10 --json
 # Discovery extras — no instance or account needed
 nitter trends --limit 10 --json                   # what X is talking about now
 nitter following NASA --limit 10                  # who an account follows
+nitter followers NASA --limit 10                  # who follows an account
 nitter profile NASA                               # account card
+nitter typeahead nas                              # complete handles from a prefix (completion, NOT search)
 nitter comments 2100031016471818431 --limit 10    # reply tree (author self-replies live here)
+nitter thread <STATUS_ID> --json                  # the full self-thread containing a status, root first
 nitter quotes <STATUS_ID> --media-only | nitter download   # derivative media from quote tweets
 nitter circle run ai_researchers --limit 1            # stream a curated creator roster
 

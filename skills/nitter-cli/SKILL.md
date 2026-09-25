@@ -28,8 +28,9 @@ safety boundaries, and semantics traps.
 - Instances come from the user's config (`nitter config path` prints the
   location, typically `~/.nitter-cli/config.toml`). The default
   `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
-  `comments`, `following`, `profile`, `quotes`, `trends` and `search --type
-  user` (FxTwitter fast lane); instances are required for `list`, for the Fx
+  `followers`, `thread`, `typeahead`, `comments`, `following`, `profile`,
+  `quotes`, `trends` and `search --type user`
+  (FxTwitter fast lane); instances are required for `list`, for the Fx
   fallback, and for `--instance` (one call on a single instance, on `user` /
   `search` / `get` / `list` only).
   When the user wants those, ask whether they run their own Nitter instance:
@@ -106,8 +107,8 @@ safety boundaries, and semantics traps.
 
 | Tier | Commands | Agent behavior |
 | --- | --- | --- |
-| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `comments`, `circle list`, `circle show`, `circle suggest`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
-| Local write | `config set`, `config unset`, `seen clear`, `circle add`, `circle refresh` | Confirm every single time; authorization does not carry over |
+| Read-only | `user`, `search`, `list`, `get`, `media`, `following`, `followers`, `thread`, `typeahead`, `comments`, `circle list`, `circle show`, `circle suggest`, `circle run`, `trends`, `quotes`, `profile`, `instances test`, `seen list`, `config get`, `config path`, `update --check`, `--version` | May run directly when the user's task needs them |
+| Local write | `config set`, `config unset`, `seen clear`, `circle add`, `circle remove`, `circle refresh` | Confirm every single time; authorization does not carry over |
 | Disk write (本地媒体写入) | `download` | Writes media files to disk: state the target directory (`--output DIR`, else the `download_path` config key, default `./nitter-media`) and the exact refs before EACH invocation; authorization never carries over |
 | Scheduled / resident | `watch --once` (recommended) / `watch` | Follow the user-given cadence; prefer `--once` driven by a scheduler (cron, systemd timer, Hermes) |
 | Software update | `update` (with `--confirm`) | **State change**: replaces the running binary. Never run without the user's explicit authorization — `--confirm` is a mechanism for their own scripts, not a grant of permission. The installer verifies the archive against the release's `checksums.txt` and the staged binary's version before replacing anything; a `go install` installation is refused with the correct `go install` line |
@@ -125,21 +126,22 @@ the user is fine sharing (see trap 16).
 - For humans on a TTY: the default tab-separated text.
 - For programs: when stdout is NOT a TTY (a pipe or a redirect) the data
   commands (`user` `search` `list` `get` `media` `download` `instances test`
-  `following` `comments` `trends` `quotes` `profile` `circle run`)
+  `following` `followers` `thread` `typeahead` `comments` `trends` `quotes`
+  `profile` `circle run`)
   emit NDJSON by DEFAULT — one `nitter.pipeline/v1` envelope per line, no flag
   needed; `--ndjson` selects the same stream explicitly (also on a TTY).
   An empty result in a pipe prints nothing at all — no `(empty)` hint; do not
   read silence as failure, check the exit code.
   Envelope kinds: `tweet` or `error` (plus `instance_report` for
   `instances test`, `media` for `media`, `download` for `download`,
-  `profile` for `following`/`profile`/`search --type user`, `trend` for `trends`).
+  `profile` for `following`/`followers`/`typeahead`/`profile`/`search --type user`, `trend` for `trends`).
   `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
   stream. `seen list`, `config`, `update` are unchanged.
   For single-object extraction: `--json` (one object for one record, an array
   for many, `[]` when empty). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
-  `update --check` `following` `comments` `trends` `quotes` `profile`; `--ndjson` on `user` `search` `list` `get` `media`
-  `download` `instances test` `following` `comments` `trends` `quotes` `profile` and `watch`; `watch --json` only with `--once`
+  `update --check` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile`; `--ndjson` on `user` `search` `list` `get` `media`
+  `download` `instances test` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile` and `watch`; `watch --json` only with `--once`
   (one `{"tweets","errors"}` document); `config`/`seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
@@ -193,6 +195,9 @@ nitter user NASA --instance http://127.0.0.1:8080       # per-invocation instanc
 nitter user NASA --proxy socks5://127.0.0.1:10808       # per-invocation proxy (http/https/socks5/socks5h)
 
 nitter following NASA --limit 10                        # fetch accounts followed by handle (profile table or NDJSON)
+nitter followers NASA --limit 10                        # fetch the accounts following a handle (follower list, profile rows)
+nitter thread 2100031016471818431 --json                # full self-thread containing the status, root first (numeric ID only)
+nitter typeahead nas --limit 10                         # complete handles from a prefix — completion, NOT search (see trap 28)
 nitter profile NASA                                     # display creator profile card (bio, follower count, stats)
 nitter profile NASA --json                              # profile object JSON
 nitter comments 2100031016471818431 --limit 10          # fetch replies/thread for tweet (extract hidden links/threads)
@@ -208,6 +213,7 @@ nitter circle suggest NewCreator --limit 20             # read-only: candidates 
 nitter circle run ai_researchers --limit 2              # stream latest tweets for all creators in circle
 nitter circle run ai_researchers --media-type image --ndjson   # keep only tweets carrying an image entry (video|gif likewise)
 nitter circle add ai_researchers NewCreator             # add handle to circle
+nitter circle remove ai_researchers OldCreator          # remove handle from circle (idempotent; the profile sidecar is untouched)
 
 nitter search "#AI" --limit 10 --json                   # hashtag: pass raw, escaping happens once
 nitter search "from:nasa" --limit 10 --ndjson           # user search form
@@ -425,10 +431,14 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     by theme/style for on-demand discovery and pipeline streaming
     (`circle run <name> | nitter download -o DIR`). Members carry a machine-readable
     sidecar at `~/.nitter-cli/profiles.toml` (keyed by lowercase handle) that splits
-    machine-refreshed facts (`name`, `bio`, `followers_count`, `fetched_at`) from
+    machine-fetched facts (`name`, `bio`, `followers_count`, `fetched_at`) from
     judgement you record (`role`, `note`, `noted_at`). `circle refresh <NAME>` is the
-    only networked writer and never touches the judgement fields, so a refresh never
-    erases a recorded call. `circle show` is **local-only** and joins the roster
+    only **bulk** refresher of the sidecar and never touches the judgement fields, so a
+    refresh never erases a recorded call; `circle add` best-effort fetches the new
+    member's facts on the spot (machine fields only — any failure is a stderr warning
+    and the roster write stands), and `circle remove` edits only the roster — the
+    sidecar, judgement included, is never read nor written there, so removing a member
+    keeps their recorded profile. `circle show` is **local-only** and joins the roster
     against that cache — run `refresh` first, otherwise members render with `-`
     placeholders and a stderr note. `role` is the place to record a creator/fanwork
     judgement; the CLI never guesses it.
@@ -467,6 +477,13 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     cross-domain value exits 2 (never a silent fallback to the default).
     `search --sort` also has no meaning with `--type user` (exit 2), and an
     unknown value is always a usage error.
+28. **`typeahead` is completion, NOT search**: it queries the user-completion
+    endpoint to complete account names from a prefix — no query operators
+    (`from:`, `#`, quoted phrases do nothing), the upstream answers at most
+    ~10–20 accounts, and there is no pagination. Use `search --type user` for
+    real queries and `followers`/`following` for the social graph. `--limit`
+    (default 20, must be >= 1) only caps what is printed — the upstream may
+    answer fewer.
 
 ## Media delivery for agents
 

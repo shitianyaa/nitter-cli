@@ -5,7 +5,30 @@
 
 ## 新增
 
+- **`nitter followers <HANDLE>`**：`following` 的镜像能力——拉取关注某 handle（1–15 个字母、数字或
+  下划线，不带 `@`）的账号，每个粉丝档案一行（`@<handle>  <name>  <followers_count>  <bio>`）。
+  `--limit N` 限制档案条数（默认 20，必须 ≥ 1）；`--json`/`--ndjson` 遵循统一输出模式。该路由无论
+  `fetch_backend` 怎么设都恒走 `api.fxtwitter.com`；`--instance` 不适用。
+- **`nitter thread <TWEET_ID>`**：拉取包含某条推文的完整自帖串并从主楼开始输出（每条状态一行：
+  `<ID>  <YYYY-MM-DD HH:MM>  @<handle>  <单行文本>`）。ID 必须是纯数字 status ID（1–20 位数字；URL
+  等其他引用形态归 `get`）；不属于任何串的推文按 `not_found` 应答（退出 1）。该路由恒走
+  `api.fxtwitter.com`；`--instance` 不适用。
+- **`nitter typeahead <QUERY>`**：经 user-completion 端点做账号名补全。这是补全查询，不是搜索
+  （completion, NOT search）：无查询算子，上游最多应答约 10–20 个账号，且不可翻页——真正的查询请用
+  `search`。`--limit N` 只限制打印条数（默认 20，必须 ≥ 1；上游可能给得更少）。该路由恒走
+  `api.fxtwitter.com`；`--instance` 不适用。
+- **`nitter circle remove <NAME> <HANDLE>`**：从圈子移除一个 handle，只编辑 `circles.toml` 中该圈子的
+  users 数组。档案侧写文件（`~/.nitter-cli/profiles.toml`，含已记录的 `role`/`note`）从不被读取或写入，
+  因此移除成员会保留其缓存档案。幂等：移除非成员 handle 时在 stderr 打印明确的
+  `not a member; nothing changed` 提示并退出 0。
+
 ## 变更
+
+- **`circle add` 现在会拉取新成员的档案事实**：名册写入成功后，新增的 handle 会被发送到
+  `api.fxtwitter.com` 做一次尽力而为的档案拉取，事实字段（`name`、`bio`、`followers_count`、
+  `fetched_at`）合并进侧写文件，`circle show` 无需等待 `circle refresh` 即可渲染新成员。
+  判断字段（`role`/`note`/`noted_at`）绝不被触碰。该路径上的任何失败都只是 stderr 一行警告：
+  名册写入已成功，命令仍退出 0，事实随下一次 `circle refresh` 到位。
 
 - **其余四个 FxTwitter 车道函数现在与时间线函数对执行同一套参数契约**：`SearchTweets`、`SearchUsers`、
   `FetchUserFollowing` 与 `FetchQuotes` 现在会对空 query/handle 与非正数 count/limit 返回
