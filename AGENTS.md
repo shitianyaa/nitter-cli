@@ -26,6 +26,7 @@
 - **变更范围分类**：`.github/workflows/ci.yml` 先跑 `scripts/classify-change-scope.sh`，按 `.github/ci-change-scope.gitignore` 分档：纯文档改动（docs、changelog、skills、README 等）跳过 runner 重的检查；workflow/工具自身改动只跑质量门；代码改动跑质量门 + Windows parity。分类器从 base 提交 checkout 运行，PR 无法改写评判自己的规则。
 - **PR 元数据门**（`pr-metadata.yml`）：PR 正文必须保留模板三段（变更点 / 验证步骤 / 检查清单）且清单全部勾选，检查结果以 `PR template gate` 与 `PR commands gate` 两个稳定 status 发布。正文失效 7 天未改的 PR 会被 `pr-invalid-close.yml` 自动关闭。
 - **验证命令声明**（可选）：PR 正文的验证步骤里可声明恰好一个 ```commands fenced block，作为 CI 代跑的默认验证命令；命令必须落在 `tools/verification/command-whitelist.txt` 白名单内，不会执行 shell。
+- **`/test` 评论验证门**（`pr-verification.yml`）：在 PR 里评论 `/test`（首个非空行、精确匹配）触发；触发者须是 PR 作者或有写权限。评论生命周期用 reaction 表达：👀 受理 → 🎉 通过 / 👎 失败，结果沉淀在一条带状态 JSON 的常驻评论里。执行身份绑定 `PR + HEAD SHA + 命令哈希`，重复触发去重、新提交自动取代旧 run。trusted runner 从 main tip checkout 工具链到 `_trusted/`，PR 代码只被构建成二进制执行，且全程不接触仓库 secrets；评论中的 commands block 会完全覆盖 PR 声明，声明无效一律 fail closed。单条命令默认 10 分钟超时。
 - **triage**：`pr-triage.yml` 按路径打 `area: *` 标签并指派维护者；外部 PR 由 `auto-assign.yml` 自动请求 review。
 
 ## 架构边界（不可违反）

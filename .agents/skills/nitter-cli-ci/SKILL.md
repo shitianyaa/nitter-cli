@@ -52,6 +52,7 @@ description: Diagnose, verify, and monitor nitter-cli GitHub Actions runs and lo
 
 - `ci.yml` → `scope`（变更范围分类：分类器从 base 提交运行，PR 无法改写评判自己的规则）+ `Quality gate`（gofmt / vet / test / race / build / offline e2e）+ `Windows parity`（test + build 的平台一致性）。纯文档改动（见 `.github/ci-change-scope.gitignore`）时后两个 job 以 skipped 结束，但 check 名仍存在，分支保护保持稳定。
 - `pr-metadata.yml` → 校验 PR 模板三段与清单勾选，发布 `PR template gate` / `PR commands gate` 两个稳定 status；维护"正文失效 7 天自动关闭"的 age state。
+- `pr-verification.yml` → `/test` 评论触发的实机验证门：授权（PR 作者或有写权限）、👀→🎉/👎 reaction 生命周期、`PR号+HEAD SHA+命令哈希` 身份绑定去重；trusted runner 从 main tip checkout 到 `_trusted/`，PR 代码只以二进制形式执行，无仓库 secrets；评论 commands block 完全覆盖 PR 声明且无效即 fail closed；单条命令 10 分钟超时。
 - `pr-triage.yml` / `auto-assign.yml` → 路径打标、指派维护者、外部 PR 自动请求 review。
 - `pr-invalid-close.yml` → 每日 cron 关闭正文长期无效且未修改的 PR。
 - `release.yml` → tag 触发的 SemVer 校验、双语 changelog 软检查、6 平台构建与草稿 Release。
@@ -66,6 +67,7 @@ bash scripts/classify-change-scope.sh --base <base-sha> --head <head-sha>
 
 - **测试/构建失败**：读取完整失败 step，使用同一 ref/SHA 在本地重现；检查 gofmt 对齐、平台差异（路径分隔符、`USERPROFILE` vs `HOME`、文件权限、CRLF）与依赖。修复代码需要用户明确请求，CI skill 默认只诊断。
 - **e2e 契约失败**：核对是真实契约破坏还是脚本假设变化；exit 1 才是失败，exit 2 是仅 skip 的软通过。
+- **`/test` 验证失败**：先读 PR 上 `<!-- pr-test-result -->` 结果评论的表格与失败命令的 stderr（已脱敏，不会出现明文凭据）；退出码 124 表示触发了 10 分钟超时。没有结果评论时区分：触发未授权（无 reaction）、声明无效（👎 + 原因文案）、run 被更新的触发取代。身份不匹配的旧 run 不拥有结果评论，不得手改评论状态。
 - **docs-only 与跳过**：`ci.yml` 由 `scripts/classify-change-scope.sh` 依据 `.github/ci-change-scope.gitignore` 分类；docs-only 时 `Quality gate` / `Windows parity` 整体 skipped，job 被有意跳过不等于通过。分类器失败（scope job 红）会让两个门禁 job 显式失败，不会静默放行。
 - **缺失、skipped 或 pending check**：区分有意的范围跳过、job 未创建、权限不足和真正卡住；不得把 pending 当成功。
 - **基础设施/瞬态失败**：只有日志证据支持 runner、网络或 GitHub API 异常时才建议 rerun；若同一失败重复出现，停止重跑并报告共同根因。
