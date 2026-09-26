@@ -64,7 +64,7 @@
 
 ## Repo-local skills
 
-本仓库自身的流程 skill 位于 [`.agents/skills/`](.agents/skills/)；只在对应任务中读取：
+本仓库自身的流程 skill 位于 [`.agents/skills/`](.agents/skills/)。**执行下表动作前先读对应 skill，不凭记忆**：
 
 | 任务 | Skill |
 | --- | --- |

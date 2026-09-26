@@ -109,8 +109,8 @@ CONTRIBUTING.zh-CN.md        # 贡献入口（简体中文）
   [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md) 的三段式。
 - 审查清单：[`agents/review-checklist.md`](agents/review-checklist.md)。
 - 仓库本地流程 skill：[`.agents/skills/`](../../.agents/skills/)（PR / CI / review / docs /
-  commit-message / release-notes）；只在对应任务读取，与面向使用者的
-  `skills/nitter-cli/` 职责不同。
+  commit-message / release-notes）；读取时机与义务见 [`AGENTS.md`](../../AGENTS.md) 的
+  Repo-local skills 表，与面向使用者的 `skills/nitter-cli/` 职责不同。
 
 ## Changelog 约定
 
