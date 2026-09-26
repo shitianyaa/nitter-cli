@@ -46,6 +46,7 @@ successful output; **stderr is never JSON**.
 | `circle: "..." is not a valid handle (1-15 letters, digits or underscores, without the @)` | 2 | Bad handle shape | Strip the `@`, check for illegal characters (same rule as `user`) |
 | `circle "<name>" not found` | 1 | The named circle is not in `circles.toml` | Check the configured names with `nitter circle list`; the case-insensitive lookup and its four-step fallback are described in references/circle.md |
 | `warning: circle refresh: @<handle>: ...` | 0/1 | A member's profile fetch failed and was skipped; the rest continue. All members failing exits 1 (2 when the input contract is violated) | The member keeps its previous facts — re-run `refresh` after checking the network/upstream; do not hand-edit that member's **fact fields** (`role`/`note` are fine to hand-edit) |
+| `warning: circle run: @<handle>: ...` | 0/1 | A member's timeline fetch failed and was skipped while the rest still emit, so **exit 0 can mean partial output**. All members failing exits 1 (2 when the input contract is violated) | Re-run `run` after checking the network/upstream, and compare the emitted handles against `nitter circle list` to spot who was skipped |
 | `circle remove: @<handle> is not a member of <key>; nothing changed` | 0 | Idempotent removal: the handle was not in the roster | Nothing to do; this is an explicit notice, not an error |
 
 ## Diagnosis order
