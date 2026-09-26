@@ -2,12 +2,11 @@
 
 默认离线验证：`go test ./...` + `sh scripts/build.sh`。
 
-> **本文件是通用、可公开的规则层**；绑定本机环境、代理、私有实例与账号的个性化
+> **本文件是通用、可公开的规则层**；绑定本机代理与协作约束的个性化
 > 规则在仓库根目录的 `AGENTS.local.md`（仅本地，见 `.gitignore`，不入库），
 > 两者是同一套约束的两层，不是可选补充。
 > **任何写或执行动作之前，必须先 `read` 一次 `AGENTS.local.md`** —— 不凭记忆、
-> 不假设本次会话已读过；其余触发时机见其开头的「读取时机」。冲突时以它为准
-> （三层优先级见其 §0.6）。子代理简报只给路径，不复制其内容。
+> 不假设本次会话已读过。冲突时以它为准。子代理简报只给路径，不复制其内容。
 > 该文件不存在时按本文件的通用规则行事，并向用户确认环境细节。
 
 ## 通用协作规则
@@ -18,7 +17,7 @@
   相对路径，不复制进受跟踪文件。本地目录：`Progress/`、`docs/superpowers/`、
   `Testignore/`、`.superpowers/`、`AGENTS.local.md`。
 - **子代理**：只用于审核计划与执行计划；代码审查、实现、设计、调研在当前会话完成。
-  子代理不得再派子代理或自 spawn reviewer；派发参数与简要约束见 `AGENTS.local.md`。
+  子代理不得再派子代理或自 spawn reviewer；简要约束见 `AGENTS.local.md`。
   不可逆操作、安全敏感操作、工作区之外的副作用（merge / push 共享分支 / 发布）
   一律停下问用户。
 - **Git**：不用 `git add -A`；`git add --renormalize .` 是批量操作，不能当定向 add 用。
@@ -64,7 +63,7 @@
 | 面向使用者的产品 skill | [`skills/nitter-cli/SKILL.md`](skills/nitter-cli/SKILL.md) |
 | 贡献入口 | [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md) |
 | 发布说明 | [`changelog/README.md`](changelog/README.md) |
-| 本机环境、代理、踩坑记录（仅本地） | `AGENTS.local.md`（不入库，无超链接） |
+| 本机代理、协作约束（仅本地） | `AGENTS.local.md`（不入库，无超链接） |
 
 ## Repo-local skills
 
