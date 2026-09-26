@@ -1,4 +1,4 @@
-# v0.9.0 — 2026-09-26
+# v0.8.2 — 2026-09-26
 
 新增 `followers`、`thread`、`typeahead` 三个命令与 `circle remove`，并修正 FxTwitter 车道契约、`update` 失败保证与产品 skill 的升级路径。
 
@@ -58,4 +58,4 @@
   `fetch_backend = fx`（从不回退）不受影响。
   ([#13](https://github.com/shitianyaa/nitter-cli/pull/13))
 
-**Full Changelog**: [v0.8.0...v0.9.0](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.9.0)
+**Full Changelog**: [v0.8.0...v0.8.2](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.8.2)
