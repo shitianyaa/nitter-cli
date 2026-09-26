@@ -206,6 +206,7 @@ nitter circle run <NAME> [--limit N] [--media-only] [--media-type image|video|gi
 - `run`：按序遍历圈子中所有博主并拉取最新推文流，天然支持管道传输给 `nitter download`。
   - `--limit N`（默认 20，必须 ≥ 1）：每个博主抓取的推文上限。
   - `--media-type image|video|gif` 只保留携带至少一个该类型 media 的推文（非法值为 usage error；语义与 `user` 命令的 `--media-type` 一致）。
+  - **成员失败属部分失败，不致命**：某成员的推文流抓取失败时，只在其 stderr 打印 `warning: circle run: @<handle>: …` 并跳过，其余成员照常输出——**因此退出码 0 可能意味着部分输出**。全部成员失败退出 1；未知圈子退出 1；空圈子在 stderr 打印 `(empty)`（`--ndjson` 下无输出、`--json` 下输出 `[]`）并退出 0。
   - **快照语义**：每次 run 都从头重新拉取每个成员的最近推文，无增量状态——同圈子同 limit 多次运行可能返回重叠结果集；需要增量追踪新推文用 `watch`。
   - **页数预算**：`run` 没有 `--max-pages` flag；每个成员的抓取使用配置 `max_pages`（默认 5）。需要更深时请改配置（这同时会提高 `watch` 每轮的预算）。
   - **确定性顺序**：Fx 快车道下结果按推文 ID 降序（时间线序）排序后再按 `--limit` 截断，即使上游翻页组成在多次运行间波动，同输入也产生同输出序列。
