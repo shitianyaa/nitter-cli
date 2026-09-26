@@ -7,7 +7,7 @@ license: MIT
 homepage: https://github.com/shitianyaa/nitter-cli
 tags: [nitter, cli, agent]
 name: nitter-cli
-description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、部署或自建 Nitter 实例、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
+description: 通过 nitter-cli 的 `nitter` 二进制和用户自建的 Nitter 实例检索公开推文（用户时间线、搜索、List、单条推文、创作者圈子 `circle`），并把推文解析成可直接下载的媒体直链（`nitter media`：视频 mp4、图片原图、GIF），用 watch 做去重轮询；仅在用户明确授权时变更本地状态（配置、去重状态、圈子名册）。当用户明确提到 nitter-cli、`nitter` 命令、Nitter 监控/推文抓取、创作者圈子（creator circles）管理、部署或自建 Nitter 实例、要求解析或下载推文中的视频/图片/GIF，或要求把推文流接入调度/管道时加载；不要用于发推、点赞等任何写操作（本工具没有这些能力）。每次执行前以 `nitter <command> --help` 核对当前可用参数。
 ---
 
 # nitter-cli Operator
@@ -35,7 +35,7 @@ safety boundaries, and semantics traps.
   location, typically `~/.nitter-cli/config.toml`). The default
   `fetch_backend = mix` works without any instance for `user`, `search`, `get`,
   `followers`, `thread`, `typeahead`, `comments`, `following`, `profile`,
-  `quotes`, `trends` and `search --type user`
+  `quotes`, `trends`, `circle run`, `circle suggest` and `search --type user`
   (FxTwitter fast lane); instances are required for `list`, for the Fx
   fallback, and for `--instance` (one call on a single instance, on `user` /
   `search` / `get` / `list` only).
@@ -144,10 +144,11 @@ the user is fine sharing (see trap 16).
   `watch` keeps its text default in pipes — pass `--ndjson` for its envelope
   stream. `seen list`, `config`, `update` are unchanged.
   For single-object extraction: `--json` (one object for one record, an array
-  for many, `[]` when empty). Which commands take which flag: `--json` on
+  for many, `[]` when empty; the `circle` subcommands always emit an array,
+  even for a single record). Which commands take which flag: `--json` on
   `user` `search` `list` `get` `media` `download` `instances test` `seen list`
-  `update --check` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile`; `--ndjson` on `user` `search` `list` `get` `media`
-  `download` `instances test` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile` and `watch`; `watch --json` only with `--once`
+  `update --check` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile` `circle list` `circle show` `circle suggest` `circle run`; `--ndjson` on `user` `search` `list` `get` `media`
+  `download` `instances test` `following` `followers` `thread` `typeahead` `comments` `trends` `quotes` `profile` `circle run` and `watch`; `watch --json` only with `--once`
   (one `{"tweets","errors"}` document); `config`/`seen clear` have neither.
 - Shrink first with `--limit` before reaching for `jq`; do not add limits,
   pages, timeouts, or retries the user did not ask for. If `jq` is present,
@@ -448,6 +449,8 @@ TOML, not `config set` targets: `[[instances]]` (`url`, optional
     against that cache — run `refresh` first, otherwise members render with `-`
     placeholders and a stderr note. `role` is the place to record a creator/fanwork
     judgement; the CLI never guesses it.
+    The roster/profile split, the fx-only lanes and the remaining traps are in
+    [references/circle.md](references/circle.md).
 22. **`trends` retrieves real-time Twitter/X trending topics**: FxTwitter-powered;
     returns trending topic rank, name, context category, tweet count, and grouped topics.
     Emits tab-separated table on TTY or `kind: "trend"` NDJSON in pipes.
@@ -539,4 +542,5 @@ references/download.md).
 | Resolve media links (strategies, trust boundary, quality, probe, delivery) | [references/media.md](references/media.md) |
 | Write media to disk (download, templates, `--on-exists`, stdin pipelines) | [references/download.md](references/download.md) |
 | Schedule monitoring (`watch` cycles, dedup, `--max-new` and the overflow policy, per-category state dirs) | [references/watch.md](references/watch.md) |
+| Manage or stream creator circles (`circle` rosters, profile cache, privacy boundary) | [references/circle.md](references/circle.md) |
 | Errors: failure messages, exit codes, and fixes | [references/troubleshooting.md](references/troubleshooting.md) |
