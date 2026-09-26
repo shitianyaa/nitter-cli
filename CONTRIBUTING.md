@@ -72,7 +72,7 @@ Before requesting review:
 - [ ] New or changed code has focused tests that first demonstrated the failure.
 - [ ] `go test ./... -count=1` passes.
 - [ ] `go vet ./...` passes.
-- [ ] `gofmt -l .` prints nothing.
+- [ ] `git ls-files -z '*.go' | xargs -0 gofmt -l` prints nothing.
 - [ ] `sh scripts/build.sh` passes.
 - [ ] `bash e2e/run.sh` passes when the change touches a contract it covers.
 - [ ] `git diff --check` passes.

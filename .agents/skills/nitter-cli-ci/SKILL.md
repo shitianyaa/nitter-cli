@@ -43,7 +43,7 @@ description: Diagnose, verify, and monitor nitter-cli GitHub Actions runs and lo
 | 范围 | 最小验证 |
 | --- | --- |
 | README/docs/agent-only | `git diff --check` |
-| Go 或行为代码 | 聚焦测试；随后 `go test ./... -count=1`、`go vet ./...`、`gofmt -l .`，构建相关时运行 `sh scripts/build.sh` |
+| Go 或行为代码 | 聚焦测试；随后 `go test ./... -count=1`、`go vet ./...`、`git ls-files -z '*.go' | xargs -0 gofmt -l`，构建相关时运行 `sh scripts/build.sh` |
 | 取数、媒体解析、CLI、SDK、共享代码 | 另跑 `go test -race ./... -count=1` |
 | `e2e/` 覆盖的契约 | `bash e2e/run.sh`（退出码 2 = 只有 skip，属软通过） |
 | `.github/workflows/**` 或 `release.yml` 矩阵 | 核对 workflow 变换与平台矩阵条目；本仓库尚无 workflow 策略测试脚本 |

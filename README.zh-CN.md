@@ -78,7 +78,7 @@ API**（默认快车道——无需账号、无需凭证），并以**你自己�
   文件损坏是硬错误（绝不静默重置）。
 - **诚实且经验证的更新**——`update --check [--prerelease] [--json]` 按严格 semver
   与 GitHub 最新发布版比较且不写任何东西；`update` 另外会在确认后提供安装，
-  `--confirm` 则可跳过询问供脚本使用。安装器在替换可执行文件前，用发布的
+  `--confirm` 则可跳过询问供脚本使用。`update` 在替换可执行文件前，用发布的
   `checksums.txt` 校验归档、并校验暂存二进制的版本，因此校验失败不会改动现有安装。
   `go install` 安装会被拒绝并给出对应的 `go install` 行；agent 不得在未获用户
   授权时执行 `update`。
@@ -99,6 +99,8 @@ sha256sum -c checksums.txt --ignore-missing   # 或等价工具
 
 把 `nitter` 二进制解压到一个已在 `PATH` 上的用户级目录。本项目没有安装脚本；
 压缩包就是全部产品。
+
+升级既有安装：先跑 `nitter update --check`，再跑 `nitter update` —— 不需要重新下载压缩包。
 
 ### 源码构建
 

@@ -2,7 +2,8 @@
 // release and, with consent, install it by replacing the running binary.
 // The install path verifies the archive against the release's checksums.txt
 // and the staged binary's reported version before anything is written, so
-// every failure leaves the current installation untouched.
+// every failure before the replacement leaves the current installation
+// untouched.
 package update
 
 import (
@@ -87,8 +88,9 @@ newer one exists, offers to install it:
 
 The installer downloads only this platform's archive, verifies its SHA-256
 against the release's checksums.txt, checks the staged binary's version, and
-only then replaces the executable. Any failure leaves the current
-installation unchanged.
+only then replaces the executable. Any failure before that replacement leaves
+the current installation unchanged; if the replacement itself fails, verify the
+installed binary before retrying.
 
 Flags: --prerelease admits prereleases into the "latest" selection (only with
 --check). --json is only valid with --check. --proxy / config.proxy apply to

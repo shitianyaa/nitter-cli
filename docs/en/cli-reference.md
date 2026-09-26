@@ -898,8 +898,10 @@ Checks the latest release on GitHub and, when a newer one exists, offers to
 install it. The install path downloads **only this platform's archive**,
 verifies its SHA-256 against the release's `checksums.txt`, checks that the
 staged binary reports the expected version, and only then replaces the
-executable. **Every failure leaves the current installation untouched** —
-nothing touches the target until all checks pass.
+executable. **Every failure before that replacement leaves the current
+installation untouched** — nothing touches the target until all checks pass.
+The replacement itself is not covered by that guarantee: if it fails, verify
+the installed binary (on Windows also look for `<exe>.old`) before retrying.
 
 - Bare `nitter update` compares versions and then asks
   `install now? [y/N]` (default No) on a terminal. Without `--confirm` and

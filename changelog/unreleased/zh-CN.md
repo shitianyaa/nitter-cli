@@ -33,7 +33,9 @@
 - **其余四个 FxTwitter 车道函数现在与时间线函数对执行同一套参数契约**：`SearchTweets`、`SearchUsers`、
   `FetchUserFollowing` 与 `FetchQuotes` 现在会对空 query/handle 与非正数 count/limit 返回
   `invalid_argument`，而不是静默回退到上游页大小、丢弃 limit 参数或返回空成功。CLI 从未触达过这些路径
-  （它会先以退出 2 拒绝 `--limit < 1`），因此这只是对齐 SDK 契约，没有用户可见的行为变化。
+  （它会先以退出 2 拒绝 `--limit < 1`），因此这只是对齐车道契约，没有用户可见的行为变化。
+
+- **`nitter update` 的失败保证现在按它实际覆盖的范围表述**：帮助文本与 CLI reference 原先写「任何失败都不会改动现有安装」，但最终替换动作并不在这条保证内——Windows 上 `ReplaceFileW` 不是原子的，可能在把旧二进制改名到一旁之后失败。现在措辞把保证限定为替换动作之前的失败，并提示重试前先核实已安装的二进制。行为无变化。
 
 ## 弃用
 
@@ -44,7 +46,7 @@
 - **`mix` 不再用 `no instances configured` 覆盖快车道的失败原因**：当 FxTwitter 尝试失败、而实例路径又
   无从应答（未配置实例，或全部在冷却中）时，用户看到的错误只剩选择器的答复。现在选择器错误会携带快车道
   的真因，例如 `chooser: upstream_unavailable: no instances configured (fx attempt:
-  fxtwitter.SearchTweets: not_found: resource not found (404))`。真实的实例失败仍按原样上报；
+  fxtwitter.SearchTweets: not_found: resource not found (404): /2/search)`。真实的实例失败仍按原样上报；
   `fetch_backend = fx`（从不回退）不受影响。
 
 ## 安全

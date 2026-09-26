@@ -490,6 +490,13 @@ func TestGetAllInstancesFailExitsOne(t *testing.T) {
 	if !strings.Contains(errOut, "upstream_unavailable") {
 		t.Fatalf("stderr = %q, want the classified kind", errOut)
 	}
+	// The chooser's answer and a real instance failure are both
+	// upstream_unavailable, and only Op separates them: pin the reverse half of
+	// that discriminator here. Without this, dropping the Op check would
+	// silently append the fx cause to every instance failure.
+	if strings.Contains(errOut, "(fx attempt:") {
+		t.Errorf("stderr = %q — the fx cause must not be appended to a real instance failure", errOut)
+	}
 	if out != "" {
 		t.Errorf("stdout = %q, want nothing on the failure path", out)
 	}

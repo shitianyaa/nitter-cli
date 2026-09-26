@@ -40,7 +40,13 @@
   reject an empty query/handle and a non-positive count/limit with `invalid_argument` instead of
   silently defaulting to the upstream page size, dropping the limit parameter, or returning an
   empty success. The CLI has never been able to reach these paths (it rejects `--limit < 1` with
-  exit 2 first), so this aligns the SDK contract without a user-visible behavior change.
+  exit 2 first), so this aligns the lane contract without a user-visible behavior change.
+
+- **`nitter update`'s failure guarantee is now stated for what it covers**: the help text and
+  the CLI reference said every failure leaves the installation untouched, but the final
+  replacement is not covered — on Windows `ReplaceFileW` is not atomic and can fail after
+  moving the old binary aside. The wording now limits the guarantee to failures before the
+  replacement and says to verify the installed binary before retrying. No behavior change.
 
 ## Deprecated
 
@@ -52,7 +58,8 @@
   the FxTwitter attempt failed and the instance path had nothing to answer with (no instances
   configured, or all cooling down), the error the user saw was only the chooser's answer. The
   chooser error now carries the fast lane's cause, e.g. `chooser: upstream_unavailable: no
-  instances configured (fx attempt: fxtwitter.SearchTweets: not_found: resource not found (404))`.
+  instances configured (fx attempt: fxtwitter.SearchTweets: not_found: resource not found
+  (404): /2/search)`.
   A real instance failure is reported unchanged, and `fetch_backend = fx` (which never falls back)
   is unaffected.
 

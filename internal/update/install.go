@@ -99,9 +99,11 @@ func NewInstaller(opts InstallOptions) *Installer {
 }
 
 // Install fetches the release's platform archive, verifies it end to end and
-// atomically replaces the running binary. Every failure path leaves the
-// existing installation untouched: nothing touches the target until the
-// checksum, the archive structure and the staged binary's version all pass.
+// replaces the running binary (an atomic rename on Unix; on Windows
+// ReplaceFileW, which is not atomic and can fail after moving the old file
+// aside). Every failure before the replacement leaves the existing
+// installation untouched: nothing touches the target until the checksum, the
+// archive structure and the staged binary's version all pass.
 func (i *Installer) Install(ctx context.Context, rel Release) error {
 	archiveName := ArchiveName(rel.Version, i.goos, i.goarch)
 	archiveURL, ok := assetURLFor(rel, archiveName)

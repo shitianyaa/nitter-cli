@@ -4,6 +4,11 @@ Before submitting: no instance credentials, proxy credentials, private instance 
 -->
 
 <!--
+本正文按 `.agents/skills/nitter-cli-pr/SKILL.md` 的范围选择与模板生成；「验证步骤」只写实际跑过的命令。
+This body follows `.agents/skills/nitter-cli-pr/SKILL.md` for scope-based verification; Verification lists only commands actually run.
+-->
+
+<!--
 Closes #123
 -->
 
@@ -45,3 +50,4 @@ nitter search nitter --ndjson | head
 - [ ] 这不是一次破坏性更新，或已在「变更点」标注迁移影响 / Not a breaking change, or migration impact noted in Changes
 - [ ] 受影响的文档已按 `docs/maintainers/agents/documentation-guidelines.md` 的变更路由同步 / Affected docs synced per the routing table in `docs/maintainers/agents/documentation-guidelines.md`
 - [ ] 改动方向和范围已在实现前与维护者确认 / The direction and scope of this change were confirmed with a maintainer before implementation
+- [ ] 我已按本次改动的范围运行验证，并在「验证步骤」列出实际命令（未运行的项说明了原因；范围表见 `.agents/skills/nitter-cli-pr/SKILL.md`） / I ran the verification this change's scope requires and listed the actual commands in Verification (unrun items explained; scope table in `.agents/skills/nitter-cli-pr/SKILL.md`)
