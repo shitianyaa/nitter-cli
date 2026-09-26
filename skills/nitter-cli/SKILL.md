@@ -28,8 +28,9 @@ safety boundaries, and semantics traps.
 - Compare that version with this Skill's own `version:` field. They are released
   as one pair, so a mismatch means one of the two is stale: report the pair. Do
   not start an upgrade on your own — `nitter update` and the Skill refresh both
-  need the user to ask for them (see
-  [references/install.md](references/install.md)).
+  need the user to ask for them, and one request does not cover the other: a
+  request to upgrade the binary alone does not authorize replacing this Skill
+  directory (see [references/install.md](references/install.md)).
 - Instances come from the user's config (`nitter config path` prints the
   location, typically `~/.nitter-cli/config.toml`). The default
   `fetch_backend = mix` works without any instance for `user`, `search`, `get`,

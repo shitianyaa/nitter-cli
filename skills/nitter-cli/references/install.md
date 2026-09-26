@@ -28,23 +28,35 @@ install, and for an install whose source cannot be determined.
 1. `nitter update --check` (`--check --json` for scripts) is read-only: it
    reports the current and latest versions and writes nothing. Installing always
    needs the separate authorization in step 2.
-2. Get the user's explicit authorization. `update --confirm` is a state change;
-   `--confirm` exists for the user's own commands, not for a downloaded script,
-   and is not a grant of permission.
-3. Back up the binary you are about to replace, and report the backup path to
-   the user. Resolve the real target first (`command -v nitter`, then follow
-   symlinks) — the updater replaces the resolved file — and keep the backup
+2. Get the user's explicit authorization for the binary. `update --confirm` is a
+   state change; `--confirm` exists for the user's own commands, not for a
+   downloaded script, and is not a grant of permission.
+3. Settle both halves of the pair BEFORE anything is replaced:
+   - confirm the matching release tag's `skills/nitter-cli/` tree is fetchable and
+     that its `SKILL.md` `version:` field equals the version `--check` reported;
+   - get the user's separate authorization to refresh the installed Skill
+     directory — a request to upgrade the binary alone does not cover it.
+   If either half fails, stop here and report: the binary and the Skill are one
+   pair, so replacing only the binary is not an option. If the user explicitly
+   accepts a temporary mismatch, proceed with the binary alone and report the
+   stale Skill as a known deviation.
+4. Back up what you are about to replace, and report the backup paths to the
+   user: the binary (always) and the installed Skill directory (when one exists).
+   Resolve the binary's real target first (`command -v nitter`, then follow
+   symlinks) — the updater replaces the resolved file — and keep the backups
    outside every PATH directory. This matters most on Unix, where the updater
    renames over the target and leaves no backup at all. Windows leaves an
    `<exe>.old`, but the next `nitter update` deletes it, so that is not a
    rollback point either.
-4. Run `nitter update --confirm`. Every failure leaves the current installation
-   untouched.
-5. Close-out: `nitter --version` must print `nitter version <v>`.
-6. Update the Skill in the same step (see "Skill installation"): the binary and
-   the Skill are released as one pair. If the matching tag tree cannot be
-   fetched, stop and report — never upgrade only the binary.
-7. Summarize the change from the release's curated notes: the
+5. Run `nitter update --confirm`. Every failure before the final replacement
+   leaves the current installation untouched — nothing touches the target until
+   the checksum, the archive layout and the staged binary's version all pass.
+   The replacement itself is not covered by that guarantee: if it fails, verify
+   the installed binary (on Windows also look for `<exe>.old`) before retrying.
+6. Close-out: `nitter --version` must print `nitter version <v>`.
+7. Install the Skill from the same tag (see "Skill installation"). If the copy
+   fails, restore both from the step-4 backups so the pair stays consistent.
+8. Summarize the change from the release's curated notes: the
    `changelog/vX.Y.Z/{en,zh-CN}.md` files in the release tag's git tree — the
    same text the published GitHub Release body carries. Take the tag from the
    version `--check` reported. Do not read `changelog/unreleased/`: the release
@@ -112,7 +124,9 @@ binary — never from `main`:
   left behind is Skill content mixed across releases;
 - after the copy, confirm the installed `SKILL.md`'s `version` field equals
   `nitter --version`: the binary and the Skill are one pair, upgraded together
-  and never one without the other;
+  and never one without the other. Refreshing the Skill is its own authorization
+  (step 3 of the upgrade flow), and the only accepted exception is a user who
+  explicitly takes the mismatched pair;
 
 ## Refusal conditions
 
