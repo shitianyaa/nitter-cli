@@ -392,6 +392,83 @@ func TestCircle_Run(t *testing.T) {
 	})
 }
 
+// TestCircle_RunPartialAndTotalFailure: a member whose fetch fails is skipped
+// with a warning while the rest continue (exit 0); only when every member fails
+// does the command exit 1. The semantics mirror what cli-reference documents
+// for refresh's per-member loop — its `run` section does not restate them, so
+// this test is the only place pinning them.
+func TestCircle_RunPartialAndTotalFailure(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, home) // fetch_backend = "fx": keeps the 404 on the fast lane
+	writeCircles(t, home, "space", []string{"ok", "gone"})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.ToLower(r.URL.Path)
+		if strings.Contains(path, "/profile/ok/statuses") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"tweets": []map[string]any{
+					{
+						"id":   "201",
+						"text": "ok tweet 1",
+						"author": map[string]any{
+							"screen_name": "ok",
+							"name":        "OK",
+						},
+						"created_at": "Sun Jul 05 09:09:40 +0000 2026",
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	cleanup := client.SetFxBaseURLForTesting(srv.URL)
+	defer cleanup()
+
+	// One member fails: a warning names it, and the surviving member's tweet
+	// still reaches stdout — the run must not degrade into an empty success.
+	// --ndjson pins the output mode so the assertion does not depend on TTY
+	// detection.
+	code, out, errOut := runCLI(t, "circle", "run", "space", "--ndjson")
+	if code != 0 {
+		t.Fatalf("partial failure exit = %d, want 0 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "warning: circle run: @gone") {
+		t.Errorf("stderr = %q, want a warning naming @gone", errOut)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("stdout lines = %d, want 1 (only the surviving member); out=%q", len(lines), out)
+	}
+	var env pipeline.Envelope
+	if err := json.Unmarshal([]byte(lines[0]), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v (out=%q)", err, out)
+	}
+	if env.Kind != pipeline.KindTweet || env.ID != "201" {
+		t.Errorf("envelope mismatch: kind=%s id=%s", env.Kind, env.ID)
+	}
+	if env.Meta == nil || env.Meta.Source != "circle:space" {
+		t.Errorf("envelope meta mismatch: %+v", env.Meta)
+	}
+
+	// Every member fails: the warning names each member, nothing reaches stdout
+	// (no silent empty success) and the exit is 1.
+	writeCircles(t, home, "dead", []string{"gone"})
+	code, out, errOut = runCLI(t, "circle", "run", "dead", "--ndjson")
+	if code != 1 {
+		t.Fatalf("total failure exit = %d, want 1 (stderr %q)", code, errOut)
+	}
+	if !strings.Contains(errOut, "warning: circle run: @gone") {
+		t.Errorf("stderr = %q, want a warning naming @gone", errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want empty (a total failure must not emit tweets)", out)
+	}
+}
+
 // TestCircle_RunDeterministicOrder: the Fx fast lane sorts its results by
 // tweet ID descending (timeline order) before returning them, so the same
 // fixture always produces the same ID sequence — two consecutive runs emit
