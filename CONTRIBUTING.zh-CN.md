@@ -72,7 +72,7 @@ sh scripts/build.sh
 - [ ] 新增或修改代码有聚焦测试，并且测试曾先证明失败。
 - [ ] `go test ./... -count=1` 通过。
 - [ ] `go vet ./...` 通过。
-- [ ] `gofmt -l .` 无输出。
+- [ ] `git ls-files -z '*.go' | xargs -0 gofmt -l` 无输出。
 - [ ] `sh scripts/build.sh` 通过。
 - [ ] 改动涉及 `e2e/` 覆盖的契约时，`bash e2e/run.sh` 通过。
 - [ ] `git diff --check` 通过。

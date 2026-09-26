@@ -10,7 +10,7 @@
 ```bash
 go test ./...          # 全部单元测试（离线）
 go vet ./...
-gofmt -l .             # 必须为空
+git ls-files -z '*.go' | xargs -0 gofmt -l   # 必须为空（与 CI 同一条命令；gofmt -l . 会扫到忽略目录里的草稿）
 sh scripts/build.sh    # 产出 ./nitter（VERSION=可覆盖，默认 dev）
 ```
 
@@ -18,10 +18,10 @@ sh scripts/build.sh    # 产出 ./nitter（VERSION=可覆盖，默认 dev）
   以 CI 结果为准。Windows 开发机上 `CGO_ENABLED=0` 且通常没有 gcc，本地
   **跑不了** `-race`，所以这一项无法本地替代——不要因此把 CI 挪到只在合并后跑，
   否则竞态只能在上 main 之后才被发现。本地能完整替代的是上一条命令组：
-  `go test ./...`、`go vet`、`gofmt -l`、`sh scripts/build.sh`，以及在 Git Bash
+  `go test ./...`、`go vet`、`git ls-files -z '*.go' | xargs -0 gofmt -l`、`sh scripts/build.sh`，以及在 Git Bash
   下跑 `sh e2e/run.sh`（POSIX 权限断言在 MINGW64 上会自动 skip）。
 - 若安装了 `pre-commit`，交付前运行 `pre-commit run --all-files`。仓库钩子：
-  `gofmt -l` 必须为空 + `go test ./...`。
+  `git ls-files -z '*.go' | xargs -0 gofmt -l` 必须为空 + `go test ./...`。
 - 手工冒烟（离线安全）：`./nitter --version`、`./nitter <cmd> --help`、
   `nitter config path/get/set` 往返、`nitter watch --once`（无实例时应以
   退出码 1 报每源失败而非崩溃）、`nitter seen list`（空库打印 `(empty)`）。
@@ -148,7 +148,7 @@ FlanChanXwO/javdb-cli（MIT）：
 ## 质量门清单（交付前）
 
 - [ ] `go test ./...` 全绿
-- [ ] `gofmt -l .` 为空；`go vet ./...` 干净
+- [ ] `git ls-files -z '*.go' | xargs -0 gofmt -l` 为空；`go vet ./...` 干净
 - [ ] `sh scripts/build.sh` 成功，`./nitter --version` 正常
 - [ ] 受影响命令的 `--help` 实测与文档一致
 - [ ] 改动涉及 `e2e/` 覆盖的契约时，`bash e2e/run.sh` 通过

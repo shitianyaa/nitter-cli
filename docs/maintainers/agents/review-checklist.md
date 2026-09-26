@@ -36,7 +36,7 @@
 ## 测试与文档
 
 - 行为变更是否补了聚焦测试，且测试曾先证明失败？
-- 是否运行了 `go test ./...`、`go vet ./...`、`gofmt -l .`、`sh scripts/build.sh`，以及改到 `e2e/` 覆盖范围时的 `bash e2e/run.sh`？
+- 是否运行了 `go test ./...`、`go vet ./...`、`git ls-files -z '*.go' | xargs -0 gofmt -l`、`sh scripts/build.sh`，以及改到 `e2e/` 覆盖范围时的 `bash e2e/run.sh`？
 - 按 [文档路由](documentation-guidelines.md) 核对：CLI 行为/flag/输出语义 → 两个 locale 的 CLI reference + 双语 README + `skills/nitter-cli/` + `changelog/`；SDK/模型签名 → `docs/{en,zh-CN}/sdk.md` + `docs/maintainers/architecture.md`；构建/发布 → `docs/maintainers/development.md`。
 - 新文档链接是否指向 `docs/<locale>/`、`docs/maintainers/` 或 `skills/nitter-cli/` 的权威路径？
 - 提交信息是否为 Conventional Commits 单行英文小写 subject，且没有 AI 署名？

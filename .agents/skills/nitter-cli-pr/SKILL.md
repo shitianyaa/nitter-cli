@@ -34,7 +34,7 @@ description: Prepare, create, update, and monitor nitter-cli pull requests using
 4. Verification 只记录实际运行过的完整命令和结果。按范围选择：
 
    - 文档或 agent-only：`git diff --check`；
-   - Go 或行为改动：聚焦测试、`go test ./... -count=1`、`go vet ./...`、`gofmt -l .`，必要时 `sh scripts/build.sh`；
+   - Go 或行为改动：聚焦测试、`go test ./... -count=1`、`go vet ./...`、`git ls-files -z '*.go' | xargs -0 gofmt -l`，必要时 `sh scripts/build.sh`；
    - 涉及 e2e 覆盖的契约：`bash e2e/run.sh`；
    - 共享、取数、媒体解析、CLI、SDK：补跑 `go test -race ./... -count=1`。
 
