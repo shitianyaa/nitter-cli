@@ -1,4 +1,4 @@
-# v0.9.0 — 2026-09-26
+# v0.8.2 — 2026-09-26
 
 Adds the `followers`, `thread` and `typeahead` commands and `circle remove`, and corrects the FxTwitter lane contract, the `update` failure guarantee and the operator skill's upgrade path.
 
@@ -74,4 +74,4 @@ Adds the `followers`, `thread` and `typeahead` commands and `circle remove`, and
   is unaffected.
   ([#13](https://github.com/shitianyaa/nitter-cli/pull/13))
 
-**Full Changelog**: [v0.8.0...v0.9.0](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.9.0)
+**Full Changelog**: [v0.8.0...v0.8.2](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.8.2)

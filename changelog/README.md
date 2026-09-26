@@ -8,7 +8,7 @@ grouped by user outcome and carry inline PR or historical direct-commit sources;
 | Version | Date | Release notes |
 | --- | --- | --- |
 | Unreleased | — | [English](unreleased/en.md) · [简体中文](unreleased/zh-CN.md) |
-| [v0.9.0](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.9.0) | 2026-09-26 | [English](v0.9.0/en.md) · [简体中文](v0.9.0/zh-CN.md) |
+| [v0.8.2](https://github.com/shitianyaa/nitter-cli/compare/v0.8.0...v0.8.2) | 2026-09-26 | [English](v0.8.2/en.md) · [简体中文](v0.8.2/zh-CN.md) |
 | [v0.8.0](https://github.com/shitianyaa/nitter-cli/compare/v0.7.3...v0.8.0) | 2026-09-24 | [English](v0.8.0/en.md) · [简体中文](v0.8.0/zh-CN.md) |
 | [v0.7.3](https://github.com/shitianyaa/nitter-cli/compare/v0.7.2...v0.7.3) | 2026-09-23 | [English](v0.7.3/en.md) · [简体中文](v0.7.3/zh-CN.md) |
 | [v0.7.2](https://github.com/shitianyaa/nitter-cli/compare/v0.7.1...v0.7.2) | 2026-09-23 | [English](v0.7.2/en.md) · [简体中文](v0.7.2/zh-CN.md) |
