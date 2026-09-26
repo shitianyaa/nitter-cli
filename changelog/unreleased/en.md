@@ -42,6 +42,12 @@
   empty success. The CLI has never been able to reach these paths (it rejects `--limit < 1` with
   exit 2 first), so this aligns the lane contract without a user-visible behavior change.
 
+- **`nitter update`'s failure guarantee is now stated for what it covers**: the help text and
+  the CLI reference said every failure leaves the installation untouched, but the final
+  replacement is not covered — on Windows `ReplaceFileW` is not atomic and can fail after
+  moving the old binary aside. The wording now limits the guarantee to failures before the
+  replacement and says to verify the installed binary before retrying. No behavior change.
+
 ## Deprecated
 
 ## Removed
