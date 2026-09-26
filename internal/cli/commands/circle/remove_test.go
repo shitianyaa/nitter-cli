@@ -74,6 +74,23 @@ func TestCircleRemoveUnknownCircleFails(t *testing.T) {
 	}
 }
 
+// TestCircleRemoveInvalidHandleExit2: the handle-shape check runs before the
+// circle lookup, so a bad handle is a usage error (exit 2) even when the named
+// circle exists. Documented in docs/en/cli-reference.md (remove: a bad handle
+// shape exits 2).
+func TestCircleRemoveInvalidHandleExit2(t *testing.T) {
+	home := tempHome(t)
+	writeCircles(t, home, "coser", []string{"alice"})
+	code, _, errOut := runCLI(t, "circle", "remove", "coser", "bad!handle")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2 (stderr %q)", code, errOut)
+	}
+	users := readCircles(t, home)["coser"].Users
+	if len(users) != 1 || users[0] != "alice" {
+		t.Errorf("users = %v, want [alice] (a usage error must not mutate the roster)", users)
+	}
+}
+
 // TestCircleRemoveLeavesProfileSidecarAlone: remove edits only the circles
 // roster; the profile sidecar (role/note judgement included) must not be read
 // or rewritten by remove.

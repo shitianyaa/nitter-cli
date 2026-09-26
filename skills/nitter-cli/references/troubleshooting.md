@@ -43,6 +43,11 @@ successful output; **stderr is never JSON**.
 | Watch emitted nothing on its first run | 0 | First run of an uninitialized source records state only (只记不推) | Expected; use `--include-existing` for the run where history is wanted |
 | `this binary was installed with 'go install'; update it with:` … | 1 | The binary is managed by `go install`, which a later `go install` would silently undo — `update` refuses to replace it | Run the printed `go install github.com/shitianyaa/nitter-cli/cmd/nitter@<tag>` line instead; do not overwrite a toolchain-managed binary from a release archive |
 | `release archive … failed SHA-256 verification (the existing installation is unchanged)` / `staged binary failed verification (the existing installation is unchanged)` | 1 | The downloaded archive or the staged binary failed verification, so **nothing was replaced** | Report the failure; the existing installation is untouched. Re-check the release assets (never substitute a mirror) and retry later |
+| `circle: "..." is not a valid handle (1-15 letters, digits or underscores, without the @)` | 2 | Bad handle shape | Strip the `@`, check for illegal characters (same rule as `user`) |
+| `circle "<name>" not found` | 1 | The named circle is not in `circles.toml` | Check the configured names with `nitter circle list`; the case-insensitive lookup and its four-step fallback are described in references/circle.md |
+| `warning: circle refresh: @<handle>: ...` | 0/1 | A member's profile fetch failed and was skipped; the rest continue. All members failing exits 1 (2 when the input contract is violated) | The member keeps its previous facts — re-run `refresh` after checking the network/upstream; do not hand-edit that member's **fact fields** (`role`/`note` are fine to hand-edit) |
+| `warning: circle run: @<handle>: ...` | 0/1 | A member's timeline fetch failed and was skipped while the rest still emit, so **exit 0 can mean partial output**. All members failing exits 1 (2 when the input contract is violated) | Re-run `run` after checking the network/upstream, and compare the emitted handles against `nitter circle list` to spot who was skipped |
+| `circle remove: @<handle> is not a member of <key>; nothing changed` | 0 | Idempotent removal: the handle was not in the roster | Nothing to do; this is an explicit notice, not an error |
 
 ## Diagnosis order
 

@@ -230,6 +230,7 @@ Manages and traverses curated creator circles in `~/.nitter-cli/circles.toml`.
 - `run`: traverses and streams latest tweets for all creators in the circle.
   - `--limit N` (default 20; must be >= 1): caps the number of tweets fetched per creator.
   - `--media-type image|video|gif` keeps only tweets carrying at least one media entry of that type (an invalid value is a usage error; the semantics match the `user` command's `--media-type`).
+  - **Per-member failures are partial, not fatal**: a member whose timeline fetch fails is skipped with a `warning: circle run: @<handle>: …` on stderr while the rest still emit, so **exit 0 can mean partial output**. All members failing exits 1; an unknown circle exits 1; an empty circle prints `(empty)` on stderr (nothing under `--ndjson`, `[]` under `--json`) and exits 0.
   - **Snapshot semantics**: every run re-fetches each member's latest tweets from scratch with no incremental state — the same circle and limit can return overlapping result sets between runs; use `watch` for incremental tracking of new tweets.
   - **Page budget**: `run` takes no `--max-pages` flag; each member's fetch uses the config `max_pages` (default 5). Raise it in the config if a member's timeline needs more pages (that also raises `watch`'s per-cycle budget).
   - **Deterministic order**: under the Fx fast lane results are sorted by tweet ID descending (timeline order) before `--limit` truncates, so the same input produces the same output sequence even when the upstream page composition fluctuates between runs.
