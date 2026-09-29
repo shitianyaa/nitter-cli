@@ -93,8 +93,10 @@ source-reported duration is never overwritten. Images are not probed.
 The CLI can do the download itself: `nitter download` resolves with these
 same strategies and writes the planned files to disk — selection rule,
 `--on-exists` semantics, the stdin pipeline from `watch` and its own privacy
-wording: references/download.md. It is a Disk write command (consent each
-time). The plain-GET path below stays for callers who resolve-only.
+wording: references/download.md. It is a Disk write command whose default
+destination is pre-agreed: no per-run confirmation is needed, and consent applies
+only to the deviations in SKILL.md's hard rule 9. The plain-GET path below stays
+for callers who resolve-only.
 
 - Every projected URL is a direct https link — fetch it with a plain GET
   (curl, wget, or the host's HTTP client). No cookies, no sign-in, no

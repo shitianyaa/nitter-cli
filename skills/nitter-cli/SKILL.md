@@ -251,7 +251,7 @@ nitter download <ref> --quality low --output D:/media      # quality defaults to
 nitter download <ref> --filename-template "{kind}-{id}{ext}"         # per-call filename template (config filename_template is the default; covers ignore it; no path separators — subdirectories come from directory_template)
 nitter download <ref> --strategy nitter                   # resolve + download both stay on the user's own instance
 nitter download <ref> --on-exists skip                    # keep existing files: row marked (skipped), on-disk size, no sha256
-nitter watch user:NASA --once --ndjson | nitter download --ndjson   # feed the watch stream straight into downloads (Disk write: consent)
+nitter watch user:NASA --once --ndjson | nitter download --ndjson   # feed the watch stream straight into downloads (Disk write: default destination pre-agreed)
 
 nitter watch user:NASA --once --ndjson                  # recommended Hermes form (scheduler-driven)
 nitter watch user:NASA tag:#AI list:12345 --once --ndjson   # mixed sources; failed source = error envelope, others continue
@@ -302,7 +302,7 @@ Storage layout comes from two of those keys: `download_path` is the base directo
 and `directory_template` is the per-file subdirectory (`{id}`/`{user}`/`{kind}`, or a
 literal segment such as `temp/{user}`) — a literal segment needs no new key, so
 "keep everything under a temp area" is `directory_template = "temp/{user}"` and
-"one folder per creator" is `directory_template = "{user}"`.
+"one folder per tweet author" is `directory_template = "{user}"`.
 
 ## Key semantics and traps
 
@@ -509,7 +509,9 @@ literal segment such as `temp/{user}`) — a literal segment needs no new key, s
 
 ## Where files land (storage decision rules)
 
-Decide the destination yourself from these rules — do not ask the user per run:
+Decide the destination yourself from these rules — the default landing spot needs
+no per-run confirmation. The `--output` destinations below are *deviations*: hard
+rule 9's consent rules still apply to them.
 
 | Situation | Destination |
 |---|---|
@@ -534,8 +536,9 @@ stdout output.
 
 `nitter media` resolves links; the download is the agent's job (full
 details: references/media.md). To resolve and download in one step, the CLI
-has `nitter download` — a Disk write command: agree on the target directory
-and the exact refs with the user before each invocation (full details:
+has `nitter download` — a Disk write command whose default destination is
+pre-agreed (hard rule 9): state where the files will land and proceed; consent is
+required only for the three deviations hard rule 9 lists (full details:
 references/download.md).
 
 - Resolved URLs are direct links — fetch them with a plain GET (curl, wget,

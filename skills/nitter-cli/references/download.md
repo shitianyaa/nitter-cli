@@ -12,7 +12,8 @@ are governed by the installed binary's `nitter download --help`.
    key, default `./nitter-media`, cwd-relative) and the exact refs, then proceed —
    the default landing spot is pre-agreed (SKILL.md hard rule 9). Ask for consent
    only for the three deviations: the first archive of a given circle, an
-   `--output` outside the agreed default, or `--on-exists overwrite`.
+   `--output` outside the agreed default, or `--on-exists overwrite` — and never
+   pass `--on-exists skip` unprompted either (item 3).
 2. Check the trust boundary below: unless the run is `--strategy nitter`,
    resolving AND downloading sends the tweet URL through third-party public
    services — public statuses only.
@@ -210,6 +211,7 @@ never creates a directory.
 - `DIR` missing is a success (0 removed). `DIR` being a symlink/junction is refused
   (exit 1) — nothing is removed.
 - Symlinks inside the tree are skipped and reported; their targets are never touched.
+  A skip is normal operation and never fails the run.
 - The report goes to stderr; stdout stays empty. A removal that failed makes the
   exit code 1.
 - This deletes files, so it needs consent each time (SKILL.md hard rule 2).
