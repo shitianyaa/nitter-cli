@@ -56,5 +56,5 @@ successful output; **stderr is never JSON**.
 2. For fetch problems: `nitter instances test [--full]` and read the cells.
 3. For watch problems: `nitter seen list --state-dir <dir>` (or the default
    location without the flag) and references/watch.md's exit-code matrix.
-4. For anything state-changing (clear, set, unset): fresh user consent, every
-   time.
+4. For anything state-changing (clear, set, unset, download --clean-temp):
+   fresh user consent, every time.

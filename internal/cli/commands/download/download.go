@@ -94,6 +94,11 @@ type options struct {
 	directoryTemplate string
 	asJSON            bool
 	asNDJSON          bool
+	// cleanTemp backs --clean-temp: when non-empty, run() takes the
+	// maintenance path (delete aged files under this directory) instead of
+	// downloading. olderThan is its --older-than window.
+	cleanTemp string
+	olderThan time.Duration
 }
 
 // capabilities bundles the three wiring capabilities one download run
@@ -210,6 +215,16 @@ actual on-disk size and NO sha256 (nothing was re-downloaded, nothing is
 fabricated) and is never counted as a failure; overwrite re-downloads
 through the same atomic temp-then-rename flow.
 
+--clean-temp DIR (with --older-than DURATION, default 168h) is a maintenance
+mode: it removes regular files under DIR whose mtime is older than the window,
+prunes the subdirectories it emptied, reports on stderr and exits — it never
+downloads, never reads stdin and never creates a directory. DIR missing is a
+success; DIR that is a symlink, junction or regular file is refused. Entries
+inside the tree that are not regular files are skipped and a skip never fails
+the run. It takes no REFs and rejects every download-only flag the user actually
+passed, plus --older-than alone, an empty DIR, a root directory and a
+negative --older-than.
+
 --json prints the downloaded files as one JSON document (a single object
 when exactly one file, an array otherwise, [] when none); --ndjson instead
 prints one nitter.pipeline/v1 envelope per downloaded file (kind download,
@@ -223,7 +238,9 @@ kind:"error" envelope on the NDJSON stream, a stderr line otherwise) while
 the other refs continue, and the command exits 1 with a "download completed
 with N of M refs failed" summary when at least one ref failed; usage
 problems (unknown --kind/--quality/--strategy/--on-exists, bad or missing
-refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
+refs, malformed stdin envelopes, --json with --ndjson, and every --clean-temp
+conflict — a REF, a download-only flag, --older-than alone, an empty DIR, a
+root directory or a negative --older-than) exit 2.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, s, args, opts)
@@ -245,6 +262,10 @@ refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 		"Print the downloaded files as one JSON document (single object when exactly one file, array otherwise)")
 	cmd.Flags().BoolVar(&opts.asNDJSON, "ndjson", false,
 		"Print one nitter.pipeline/v1 envelope per downloaded file (kind download) and per failed ref (kind error)")
+	cmd.Flags().StringVar(&opts.cleanTemp, "clean-temp", "",
+		"Maintenance mode: remove files older than --older-than under this directory and exit (no download; not combinable with REFs or any download-only flag)")
+	cmd.Flags().DurationVar(&opts.olderThan, "older-than", 168*time.Hour,
+		"Age threshold for --clean-temp (default 168h; \"0s\" removes everything)")
 	return cmd
 }
 
@@ -253,6 +274,26 @@ refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 // mode), validate them locally, build the wiring, prepare the output
 // directory and run the batch.
 func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options) error {
+	// --clean-temp is a self-contained maintenance mode: it takes no refs and
+	// shares no state with the download contract, so it short-circuits before
+	// output-mode resolution and before collectRefs (which would otherwise
+	// error out on the missing REF or block reading stdin).
+	if opts.cleanTemp != "" {
+		return runCleanTemp(cmd, s, args, opts)
+	}
+	// --older-than only means something to --clean-temp (handled above). In
+	// the download path it would be read by nothing, so accepting it would
+	// silently ignore user input: reject it instead.
+	if cmd.Flags().Changed("older-than") {
+		return invocation.Usagef("download: --older-than is only valid with --clean-temp")
+	}
+	// The maintenance branch above keys off a non-empty value, so an explicitly
+	// empty --clean-temp ("" — an unset shell variable, say) would fall through
+	// to the download path and silently do something else entirely. The flag
+	// was passed, so it must be honoured or rejected — never reinterpreted.
+	if cmd.Flags().Changed("clean-temp") {
+		return invocation.Usagef("download: --clean-temp requires a non-empty directory")
+	}
 	// Flag conflicts are input-contract problems: resolve before anything
 	// else runs so --json --ndjson exits 2 up front.
 	mode, err := pipeline.ResolveOutputMode(opts.asNDJSON, opts.asJSON, s.OutIsTTY)
@@ -688,4 +729,73 @@ func writeDownloadEnvelope(out io.Writer, rec nitter.DownloadRecord) error {
 		Data:   rec,
 		Meta:   &pipeline.Meta{Input: rec.Ref},
 	})
+}
+
+// runCleanTemp implements the --clean-temp maintenance mode: reject every
+// download-only flag the user actually passed, resolve the directory, remove
+// its aged files and report the outcome on stderr. stdout stays untouched
+// (this mode has no machine output). A deliberate skip (a symlink entry) is
+// reported but does not fail the run; a real removal failure turns the exit
+// code into 1 — never silent.
+func runCleanTemp(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options) error {
+	if len(args) > 0 {
+		return invocation.Usagef("download: --clean-temp does not accept REF arguments")
+	}
+	// Changed() reports what the user actually passed, which is the only way
+	// to reject a download-only flag that was set to its own default value.
+	for _, name := range []string{
+		"output", "kind", "quality", "strategy", "on-exists",
+		"filename-template", "json", "ndjson",
+	} {
+		if cmd.Flags().Changed(name) {
+			return invocation.Usagef("download: --clean-temp cannot be combined with --%s", name)
+		}
+	}
+	if opts.olderThan < 0 {
+		return invocation.Usagef("download: --older-than must not be negative (got %s)", opts.olderThan)
+	}
+	dir, err := filepath.Abs(opts.cleanTemp)
+	if err != nil {
+		return fmt.Errorf("resolve clean-temp directory %s: %w", opts.cleanTemp, err)
+	}
+	clean := filepath.Clean(dir)
+	vol := filepath.VolumeName(clean)
+	if clean == "/" || clean == vol+string(filepath.Separator) || (vol != "" && clean == vol) {
+		return invocation.Usagef("download: refusing to clean root directory %s", dir)
+	}
+	stats, err := cleanDirectory(dir, opts.olderThan, time.Now())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Err, "clean-temp: removed %d files (%s) older than %s from %s\n",
+		stats.Removed, formatBytes(stats.Bytes), opts.olderThan, dir)
+	if stats.Skipped > 0 {
+		// A skip is normal operation (symlink entries are never followed),
+		// so it is reported but does not fail the run.
+		fmt.Fprintf(s.Err, "clean-temp: left %d non-regular entries untouched\n", stats.Skipped)
+	}
+	if stats.Failed > 0 {
+		// The returned error is the failure report: root prints it prefixed
+		// "error:", so printing it here as well would duplicate the line.
+		return fmt.Errorf("clean-temp: %d entries could not be removed", stats.Failed)
+	}
+	return nil
+}
+
+// formatBytes renders a byte count with one decimal in the largest unit that
+// keeps the value >= 1 (B, KB, MB, GB, TB). Report-only: never parsed.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	value := float64(n)
+	units := []string{"KB", "MB", "GB", "TB"}
+	for _, u := range units {
+		value /= unit
+		if value < unit {
+			return fmt.Sprintf("%.1f %s", value, u)
+		}
+	}
+	return fmt.Sprintf("%.1f PB", value/unit)
 }

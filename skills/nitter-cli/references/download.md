@@ -8,10 +8,12 @@ are governed by the installed binary's `nitter download --help`.
 
 ## Pre-download checklist (agent)
 
-1. State the target directory (`--output DIR`, else the `download_path`
-   config key, default `./nitter-media`, cwd-relative) and the exact refs to
-   the user and get consent for THIS invocation — disk writes need consent
-   every time, authorization never carries over.
+1. State the target directory (`--output DIR`, else the `download_path` config
+   key, default `./nitter-media`, cwd-relative) and the exact refs, then proceed —
+   the default landing spot is pre-agreed (SKILL.md hard rule 9). Ask for consent
+   only for the three deviations: the first archive of a given circle, an
+   `--output` outside the agreed default, or `--on-exists overwrite` — and never
+   pass `--on-exists skip` unprompted either (item 3).
 2. Check the trust boundary below: unless the run is `--strategy nitter`,
    resolving AND downloading sends the tweet URL through third-party public
    services — public statuses only.
@@ -193,4 +195,23 @@ file. Plain ref files work too: `nitter download < refs.txt --ndjson`.
 | --- | --- |
 | 0 | Every ref resolved and every planned file downloaded (skips included); also when the consumer closed the stdout pipe early (EPIPE) |
 | 1 | At least one ref failed (error reports in-stream/stderr, remaining refs continue, `download completed with N of M refs failed` summary on stderr); a filter matching nothing is NOT a failure |
-| 2 | Usage error, no network: unknown `--kind`/`--quality`/`--strategy`/`--on-exists`, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together |
+| 2 | Usage error, no network: unknown flags, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together, and every `--clean-temp` conflict — a REF, any download-only flag the user passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`, `--filename-template`, `--json`, `--ndjson`), `--older-than` alone or negative, an empty `DIR`, or a root directory |
+
+## Cleaning a temporary area (`--clean-temp`)
+
+`nitter download --clean-temp <DIR> [--older-than DURATION]` is a maintenance mode:
+it removes regular files under `DIR` older than the window (default `168h`), prunes
+subdirectories it emptied, and exits — it never downloads, never reads stdin and
+never creates a directory.
+
+- It takes no REFs, and rejects every download-only flag the user actually passed
+  (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`,
+  `--filename-template`, `--json`, `--ndjson`), plus `--older-than` without
+  `--clean-temp`, an empty `DIR` and a root directory — all exit 2.
+- `DIR` missing is a success (0 removed). `DIR` being a symlink/junction is refused
+  (exit 1) — nothing is removed.
+- Symlinks inside the tree are skipped and reported; their targets are never touched.
+  A skip is normal operation and never fails the run.
+- The report goes to stderr; stdout stays empty. A removal that failed makes the
+  exit code 1.
+- This deletes files, so it needs consent each time (SKILL.md hard rule 2).

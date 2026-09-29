@@ -48,6 +48,11 @@
 - A corrupt `profiles.toml` is **never silently reset or rewritten**; `show`/`refresh`
   error out, `add` only warns.
 - `--media-type` is validated before any network (invalid → exit 2).
+- `circle run | nitter download` files land under the **default** destination unless
+  you pass `--output`. Ask the user once — the first time this circle is downloaded —
+  whether it archives (`--output <download_path>/<circle key>`) or stays temporary,
+  then follow that answer. `{user}` resolves to the **tweet author**, so retweets file
+  under the original author, not the circle member.
 
 ## Authoritative source
 

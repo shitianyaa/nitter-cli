@@ -193,6 +193,8 @@ nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 # Fetch only the video's cover image
 nitter download https://x.com/NASA/status/2102761519985332442 --kind cover
 
+nitter download --clean-temp D:/media/temp --older-than 168h   # delete aged files from a temp area
+
 # Set up a deduplicated watch from your scheduler: one cycle per run,
 # new tweets only, state persists between runs
 */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>>/tmp/nitter-watch.err

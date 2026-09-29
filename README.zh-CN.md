@@ -173,6 +173,8 @@ nitter download https://x.com/NASA/status/2102761519985332442 --quality low
 # 只取视频封面图
 nitter download https://x.com/NASA/status/2102761519985332442 --kind cover
 
+nitter download --clean-temp D:/media/temp --older-than 168h   # 清理临时区中超过指定年龄的文件
+
 # 交给调度器做去重监视：每次调用一轮，只出新推文，状态跨次运行持久保存
 */10 * * * * nitter watch user:NASA tag:#AI --once --ndjson >> /var/log/nitter-watch.ndjson 2>>/tmp/nitter-watch.err
 ```
