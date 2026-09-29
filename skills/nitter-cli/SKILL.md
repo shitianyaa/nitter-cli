@@ -91,8 +91,9 @@ safety boundaries, and semantics traps.
    `--json` and `--ndjson` together to any command (mutually exclusive, exit 2).
 9. `download` writes files to disk. **The default landing spot is pre-agreed and needs
    no per-run confirmation**: when the invocation uses neither `--output` nor a
-   non-default `download_path`, state where the files will land (the command prints
-   `note: writing to <dir>` on stderr) and proceed. Consent is required only for the
+   non-default `download_path`, state where the files will land and proceed — the
+   command prints `note: writing to <dir>` on stderr, so use that line to confirm
+   where files actually landed instead of assuming. Consent is required only for the
    three *deviations*: (a) the first time a circle's download is archived rather than
    kept temporarily, (b) any `--output DIR` that points somewhere other than the
    agreed default, (c) `--on-exists overwrite`, which replaces existing files. Consent

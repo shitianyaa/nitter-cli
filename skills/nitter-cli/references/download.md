@@ -203,7 +203,10 @@ it removes regular files under `DIR` older than the window (default `168h`), pru
 subdirectories it emptied, and exits — it never downloads, never reads stdin and
 never creates a directory.
 
-- It takes no REFs and rejects `--output`, `--json` and `--ndjson` (exit 2).
+- It takes no REFs, and rejects every download-only flag the user actually passed
+  (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`,
+  `--filename-template`, `--json`, `--ndjson`), plus `--older-than` without
+  `--clean-temp` and an empty `DIR` — all exit 2.
 - `DIR` missing is a success (0 removed). `DIR` being a symlink/junction is refused
   (exit 1) — nothing is removed.
 - Symlinks inside the tree are skipped and reported; their targets are never touched.
