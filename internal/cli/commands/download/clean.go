@@ -15,7 +15,17 @@ import (
 type cleanStats struct {
 	Removed int
 	Bytes   int64
+	// Skipped counts deliberate skips: symlink/junction entries and
+	// non-regular files. These are a normal part of walking a directory the
+	// user may have pointed at anything, so they are visible but not a
+	// failure.
 	Skipped int
+	// Failed counts real failures: an entry that could not be removed, an
+	// entry whose metadata could not be read, or a directory that was
+	// confirmed empty and still could not be pruned. A non-zero Failed means
+	// the run did not do everything it set out to do and must not be
+	// reported as a clean success.
+	Failed int
 }
 
 // cleanDirectory removes every regular file under dir whose mtime is older
@@ -29,8 +39,9 @@ type cleanStats struct {
 //   - symlink entries inside the tree are skipped and counted (never
 //     followed, never removed, and their targets are never touched).
 //   - only regular files are removed; dir itself is never removed.
-//   - a file that cannot be removed is counted as skipped and the walk
-//     continues (visible via Skipped, never silent).
+//   - a file that cannot be removed increments Failed and the walk
+//     continues (visible, never silent); a deliberate skip (a symlink
+//     entry, a non-regular file) increments Skipped instead.
 func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanStats, error) {
 	var stats cleanStats
 
@@ -56,7 +67,7 @@ func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanSt
 
 	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			stats.Skipped++
+			stats.Failed++
 			return nil
 		}
 		if path == dir {
@@ -77,14 +88,14 @@ func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanSt
 		}
 		fi, err := d.Info()
 		if err != nil {
-			stats.Skipped++
+			stats.Failed++
 			return nil
 		}
 		if !fi.ModTime().Before(cutoff) {
 			return nil
 		}
 		if err := os.Remove(path); err != nil {
-			stats.Skipped++
+			stats.Failed++
 			return nil
 		}
 		stats.Removed++
@@ -96,9 +107,7 @@ func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanSt
 		return stats, fmt.Errorf("clean-temp: walk %s: %w", dir, walkErr)
 	}
 
-	// Prune bottom-up: deepest paths first. os.Remove fails on a non-empty
-	// directory (ENOTEMPTY on Unix, ERROR_DIR_NOT_EMPTY on Windows) and that
-	// failure is the intended "keep it" signal — ignored on purpose.
+	// Prune bottom-up: deepest paths first.
 	seen := make(map[string]bool)
 	var dirs []string
 	for d := range dirty {
@@ -112,7 +121,15 @@ func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanSt
 	}
 	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
 	for _, d := range dirs {
-		_ = os.Remove(d)
+		if err := os.Remove(d); err != nil {
+			// A non-empty directory is the intended "keep it" signal, so
+			// re-check emptiness: still populated means expected, anything
+			// else means the removal genuinely failed and must be visible.
+			if entries, readErr := os.ReadDir(d); readErr == nil && len(entries) > 0 {
+				continue
+			}
+			stats.Failed++
+		}
 	}
 	return stats, nil
 }

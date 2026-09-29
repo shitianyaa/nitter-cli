@@ -175,3 +175,23 @@ func TestCleanDirectoryZeroOlderThanRemovesEverything(t *testing.T) {
 		t.Fatalf("Removed = %d, want 2", stats.Removed)
 	}
 }
+
+func TestCleanDirectoryNonEmptySubdirIsNotAFailure(t *testing.T) {
+	dir := t.TempDir()
+	// A subdirectory that still holds a fresh file cannot be pruned. That is
+	// the expected outcome, so it must NOT be counted as a failure.
+	sub := filepath.Join(dir, "keepme")
+	writeAged(t, filepath.Join(sub, "old.jpg"), "o", baseTime, 200*time.Hour)
+	writeAged(t, filepath.Join(sub, "live.jpg"), "l", baseTime, time.Hour)
+
+	stats, err := cleanDirectory(dir, 168*time.Hour, baseTime)
+	if err != nil {
+		t.Fatalf("cleanDirectory: %v", err)
+	}
+	if stats.Removed != 1 || stats.Failed != 0 {
+		t.Fatalf("stats = %+v, want {Removed:1 Failed:0}", stats)
+	}
+	if _, err := os.Stat(sub); err != nil {
+		t.Errorf("non-empty subdir was removed: %v", err)
+	}
+}
