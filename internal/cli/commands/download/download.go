@@ -215,6 +215,15 @@ actual on-disk size and NO sha256 (nothing was re-downloaded, nothing is
 fabricated) and is never counted as a failure; overwrite re-downloads
 through the same atomic temp-then-rename flow.
 
+--clean-temp DIR (with --older-than DURATION, default 168h) is a maintenance
+mode: it removes regular files under DIR whose mtime is older than the window,
+prunes the subdirectories it emptied, reports on stderr and exits — it never
+downloads, never reads stdin and never creates a directory. DIR missing is a
+success; DIR that is a symlink, junction or regular file is refused. Entries
+inside the tree that are not regular files are skipped and a skip never fails
+the run. It takes no REFs and rejects every download-only flag the user actually
+passed, plus --older-than alone, an empty DIR and a negative --older-than.
+
 --json prints the downloaded files as one JSON document (a single object
 when exactly one file, an array otherwise, [] when none); --ndjson instead
 prints one nitter.pipeline/v1 envelope per downloaded file (kind download,
@@ -228,7 +237,9 @@ kind:"error" envelope on the NDJSON stream, a stderr line otherwise) while
 the other refs continue, and the command exits 1 with a "download completed
 with N of M refs failed" summary when at least one ref failed; usage
 problems (unknown --kind/--quality/--strategy/--on-exists, bad or missing
-refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
+refs, malformed stdin envelopes, --json with --ndjson, and every --clean-temp
+conflict — a REF, a download-only flag, --older-than alone, an empty DIR or a
+negative --older-than) exit 2.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, s, args, opts)
@@ -755,10 +766,11 @@ func runCleanTemp(cmd *cobra.Command, s *invocation.Streams, args []string, opts
 	if stats.Skipped > 0 {
 		// A skip is normal operation (symlink entries are never followed),
 		// so it is reported but does not fail the run.
-		fmt.Fprintf(s.Err, "clean-temp: left %d symlink/junction entries untouched\n", stats.Skipped)
+		fmt.Fprintf(s.Err, "clean-temp: left %d non-regular entries untouched\n", stats.Skipped)
 	}
 	if stats.Failed > 0 {
-		fmt.Fprintf(s.Err, "clean-temp: %d entries could not be removed\n", stats.Failed)
+		// The returned error is the failure report: root prints it prefixed
+		// "error:", so printing it here as well would duplicate the line.
 		return fmt.Errorf("clean-temp: %d entries could not be removed", stats.Failed)
 	}
 	return nil
