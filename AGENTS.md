@@ -84,5 +84,5 @@
 ## 红线
 
 - 不提交实例 basic-auth 凭据、代理凭据、`~/.nitter-cli/` 本地状态、构建产物或测试产物。
-- 状态变更类命令（`config set`、`seen clear`、`circle add`）需用户显式授权，授权不跨命令沿用。
+- 状态变更类命令（`config set`、`seen clear`、`circle add`、`download --clean-temp`）需用户显式授权，授权不跨命令沿用。
 - 不把代理凭据、私有实例 URL 或下载内容写进 commit、PR、issue、日志或最终报告。
