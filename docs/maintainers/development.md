@@ -138,10 +138,12 @@ FlanChanXwO/javdb-cli（MIT）：
    合并后的 `checksums.txt`。
 3. **审批门**：`approve_release` job 挂 `release-approval` environment，
    构建产物必须等维护者在 GitHub 上显式批准才会进入发布步骤。
-4. **GitHub Release 草稿**：发布 job 在独立的 `release` environment 中执行，
-   以 `--generate-notes` 创建草稿并上传全部压缩包与 `checksums.txt`；草稿
-   保持在 draft 状态，公开发布始终是维护者的手动、版本特定动作。发布前把
-   `changelog/vX.Y.Z/` 的双语说明填入草稿正文。
+4. **GitHub Release 草稿**：`validate` job 自动运行 `tools/release assemble-notes`
+   提取 `changelog/vX.Y.Z/` 的双语说明并自动统计本次区间的贡献者（过滤 bot 后在
+   末尾 `@` 致谢），组装为 `release-notes.md` 产物；发布 job 在独立的 `release`
+   environment 中执行，以 `--notes-file` 创建包含双语说明与贡献者致谢的草稿 Release
+   并上传全部压缩包与 `checksums.txt`；草稿保持在 draft 状态，公开发布始终是维护者的
+   手动、版本特定动作。
 5. 发布前人工核对：`nitter --version` 输出新版本号；skill
    `skills/nitter-cli/SKILL.md` 的 `version` 字段与 release 版本对齐。
 
