@@ -1162,6 +1162,7 @@ func TestCleanTempUsageErrors(t *testing.T) {
 		{"with json", []string{"download", "--clean-temp", dir, "--json"}},
 		{"with ndjson", []string{"download", "--clean-temp", dir, "--ndjson"}},
 		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}},
+		{"older-than without clean-temp", []string{"download", "--older-than", "1h", "2102761519985332442"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

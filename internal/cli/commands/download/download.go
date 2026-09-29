@@ -251,7 +251,7 @@ refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 	cmd.Flags().BoolVar(&opts.asNDJSON, "ndjson", false,
 		"Print one nitter.pipeline/v1 envelope per downloaded file (kind download) and per failed ref (kind error)")
 	cmd.Flags().StringVar(&opts.cleanTemp, "clean-temp", "",
-		"Maintenance mode: remove files older than --older-than under this directory and exit (no download; not combinable with REFs, --output, --json or --ndjson)")
+		"Maintenance mode: remove files older than --older-than under this directory and exit (no download; not combinable with REFs or any download-only flag)")
 	cmd.Flags().DurationVar(&opts.olderThan, "older-than", 168*time.Hour,
 		"Age threshold for --clean-temp (default 168h; \"0s\" removes everything)")
 	return cmd
@@ -268,6 +268,12 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options
 	// error out on the missing REF or block reading stdin).
 	if opts.cleanTemp != "" {
 		return runCleanTemp(cmd, s, args, opts)
+	}
+	// --older-than only means something to --clean-temp (handled above). In
+	// the download path it would be read by nothing, so accepting it would
+	// silently ignore user input: reject it instead.
+	if cmd.Flags().Changed("older-than") {
+		return invocation.Usagef("download: --older-than is only valid with --clean-temp")
 	}
 	// Flag conflicts are input-contract problems: resolve before anything
 	// else runs so --json --ndjson exits 2 up front.
