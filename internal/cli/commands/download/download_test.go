@@ -1144,3 +1144,77 @@ func TestDownloadNotesAbsolutePathForRelativeOutput(t *testing.T) {
 		t.Errorf("stderr = %q, want the absolute path %q", errOut, want)
 	}
 }
+
+// --clean-temp is a self-contained maintenance mode. Its flag contract is
+// checked with cmd.Flags().Changed, so every download-only flag is rejected
+// even when it was passed with its own default value.
+func TestCleanTempUsageErrors(t *testing.T) {
+	tempHome(t)
+	dir := t.TempDir()
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"no value", []string{"download", "--clean-temp"}},
+		{"with ref", []string{"download", "--clean-temp", dir, "2102761519985332442"}},
+		{"with output", []string{"download", "--clean-temp", dir, "--output", t.TempDir()}},
+		{"with json", []string{"download", "--clean-temp", dir, "--json"}},
+		{"with ndjson", []string{"download", "--clean-temp", dir, "--ndjson"}},
+		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, _, stderr := runCLI(t, tc.args...)
+			if code != 2 {
+				t.Fatalf("exit = %d, want 2 (stderr=%q)", code, stderr)
+			}
+		})
+	}
+}
+
+func TestCleanTempRemovesAgedFilesAndReportsOnStderr(t *testing.T) {
+	tempHome(t)
+	dir := t.TempDir()
+
+	old := filepath.Join(dir, "old.jpg")
+	if err := os.WriteFile(old, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mt := time.Now().Add(-200 * time.Hour)
+	if err := os.Chtimes(old, mt, mt); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	fresh := filepath.Join(dir, "fresh.jpg")
+	if err := os.WriteFile(fresh, []byte("fresh"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	code, stdout, stderr := runCLI(t, "download", "--clean-temp", dir, "--older-than", "168h")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr=%q)", code, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty (the report belongs on stderr)", stdout)
+	}
+	if !strings.Contains(stderr, "removed 1 files") {
+		t.Errorf("stderr = %q, want the removal report", stderr)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("aged file still present (err=%v)", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("fresh file was removed: %v", err)
+	}
+}
+
+func TestCleanTempMissingDirIsSuccess(t *testing.T) {
+	tempHome(t)
+	code, _, stderr := runCLI(t, "download", "--clean-temp", filepath.Join(t.TempDir(), "nope"))
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr=%q)", code, stderr)
+	}
+	if !strings.Contains(stderr, "removed 0 files") {
+		t.Errorf("stderr = %q, want a zero-removal report", stderr)
+	}
+}

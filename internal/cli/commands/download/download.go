@@ -94,6 +94,11 @@ type options struct {
 	directoryTemplate string
 	asJSON            bool
 	asNDJSON          bool
+	// cleanTemp backs --clean-temp: when non-empty, run() takes the
+	// maintenance path (delete aged files under this directory) instead of
+	// downloading. olderThan is its --older-than window.
+	cleanTemp string
+	olderThan time.Duration
 }
 
 // capabilities bundles the three wiring capabilities one download run
@@ -245,6 +250,10 @@ refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 		"Print the downloaded files as one JSON document (single object when exactly one file, array otherwise)")
 	cmd.Flags().BoolVar(&opts.asNDJSON, "ndjson", false,
 		"Print one nitter.pipeline/v1 envelope per downloaded file (kind download) and per failed ref (kind error)")
+	cmd.Flags().StringVar(&opts.cleanTemp, "clean-temp", "",
+		"Maintenance mode: remove files older than --older-than under this directory and exit (no download; not combinable with REFs, --output, --json or --ndjson)")
+	cmd.Flags().DurationVar(&opts.olderThan, "older-than", 168*time.Hour,
+		"Age threshold for --clean-temp (default 168h; \"0s\" removes everything)")
 	return cmd
 }
 
@@ -253,6 +262,13 @@ refs, malformed stdin envelopes, --json with --ndjson) exit 2.`,
 // mode), validate them locally, build the wiring, prepare the output
 // directory and run the batch.
 func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options) error {
+	// --clean-temp is a self-contained maintenance mode: it takes no refs and
+	// shares no state with the download contract, so it short-circuits before
+	// output-mode resolution and before collectRefs (which would otherwise
+	// error out on the missing REF or block reading stdin).
+	if opts.cleanTemp != "" {
+		return runCleanTemp(cmd, s, args, opts)
+	}
 	// Flag conflicts are input-contract problems: resolve before anything
 	// else runs so --json --ndjson exits 2 up front.
 	mode, err := pipeline.ResolveOutputMode(opts.asNDJSON, opts.asJSON, s.OutIsTTY)
@@ -688,4 +704,67 @@ func writeDownloadEnvelope(out io.Writer, rec nitter.DownloadRecord) error {
 		Data:   rec,
 		Meta:   &pipeline.Meta{Input: rec.Ref},
 	})
+}
+
+// runCleanTemp implements the --clean-temp maintenance mode: reject every
+// download-only flag the user actually passed, resolve the directory, remove
+// its aged files and report the outcome on stderr. stdout stays untouched
+// (this mode has no machine output). A deliberate skip (a symlink entry) is
+// reported but does not fail the run; a real removal failure turns the exit
+// code into 1 — never silent.
+func runCleanTemp(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options) error {
+	if len(args) > 0 {
+		return invocation.Usagef("download: --clean-temp does not accept REF arguments")
+	}
+	// Changed() reports what the user actually passed, which is the only way
+	// to reject a download-only flag that was set to its own default value.
+	for _, name := range []string{
+		"output", "kind", "quality", "strategy", "on-exists",
+		"filename-template", "json", "ndjson",
+	} {
+		if cmd.Flags().Changed(name) {
+			return invocation.Usagef("download: --clean-temp cannot be combined with --%s", name)
+		}
+	}
+	if opts.olderThan < 0 {
+		return invocation.Usagef("download: --older-than must not be negative (got %s)", opts.olderThan)
+	}
+	dir, err := filepath.Abs(opts.cleanTemp)
+	if err != nil {
+		return fmt.Errorf("resolve clean-temp directory %s: %w", opts.cleanTemp, err)
+	}
+	stats, err := cleanDirectory(dir, opts.olderThan, time.Now())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(s.Err, "clean-temp: removed %d files (%s) older than %s from %s\n",
+		stats.Removed, formatBytes(stats.Bytes), opts.olderThan, dir)
+	if stats.Skipped > 0 {
+		// A skip is normal operation (symlink entries are never followed),
+		// so it is reported but does not fail the run.
+		fmt.Fprintf(s.Err, "clean-temp: left %d symlink/junction entries untouched\n", stats.Skipped)
+	}
+	if stats.Failed > 0 {
+		fmt.Fprintf(s.Err, "clean-temp: %d entries could not be removed\n", stats.Failed)
+		return fmt.Errorf("clean-temp: %d entries could not be removed", stats.Failed)
+	}
+	return nil
+}
+
+// formatBytes renders a byte count with one decimal in the largest unit that
+// keeps the value >= 1 (B, KB, MB, GB, TB). Report-only: never parsed.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	value := float64(n)
+	units := []string{"KB", "MB", "GB", "TB"}
+	for _, u := range units {
+		value /= unit
+		if value < unit {
+			return fmt.Sprintf("%.1f %s", value, u)
+		}
+	}
+	return fmt.Sprintf("%.1f PB", value/unit)
 }
