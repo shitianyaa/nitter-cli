@@ -412,6 +412,7 @@ failed` 摘要退出 1；用法问题（`--json` 与 `--ndjson` 同给、`--stra
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
   [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
+  [--clean-temp DIR [--older-than DURATION]] \
   [--json|--ndjson]
 ```
 
@@ -480,6 +481,15 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 `overwrite` 经同样的「临时文件落盘再原子重命名」流程重新下载。同一批次内的
 重复 ref 会命中相同文件名：`refuse` 下第二次出现按文件已存在报错，批次继续。
 
+**`--clean-temp DIR`**（配合 **`--older-than DURATION`**，默认 `168h`）是维护模式：
+删除 `DIR` 下 mtime 早于该窗口的普通文件，剪掉因此变空的子目录，在 stderr 报告后退出
+—— 它不下载、不读 stdin、不创建目录。`DIR` 不存在视为成功；`DIR` 自身是符号链接或
+junction 则拒绝（exit 1，不做任何删除）；子树内的符号链接被跳过且不触碰其目标，**跳过
+永不导致失败**。它不能与 REF 并存，也不能与用户实际传入的任何下载专属 flag
+（`--output`、`--kind`、`--quality`、`--strategy`、`--on-exists`、`--filename-template`、
+`--json`、`--ndjson`）并存；`--older-than` 单独使用、或 `DIR` 为空，同样报错 —— 全部 exit 2。
+stdout 保持为空；有任何文件删不掉时退出码为 1。
+
 人类 / text 输出为每个下载文件一行制表符行：
 
 ```text
@@ -505,7 +515,8 @@ https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/21027615199
 继续运行；至少一个 REF 失败时以 `download completed with N of M refs
 failed` 摘要退出 1；用法问题（`--kind`/`--quality`/`--strategy`/
 `--on-exists` 不合法、引用缺失或不合法、stdin
-信封格式错误、`--json` 与 `--ndjson` 同给）退出 2。
+信封格式错误、`--json` 与 `--ndjson` 同给，以及一切 `--clean-temp` 冲突
+（出现 REF、用户传入任何下载专属 flag、`--older-than` 单独使用、`DIR` 为空））退出 2。
 
 ## nitter instances test
 

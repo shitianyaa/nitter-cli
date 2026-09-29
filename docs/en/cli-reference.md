@@ -462,6 +462,7 @@ invalid `--strategy` or `--quality`, bad/missing refs) exit 2.
 nitter download <REF>... [--output DIR] [--kind image|video|gif|cover] \
   [--quality high|medium|low] [--strategy auto|fx|nitter|xdown] \
   [--on-exists refuse|skip|overwrite] [--filename-template TEMPLATE] \
+  [--clean-temp DIR [--older-than DURATION]] \
   [--json|--ndjson]
 ```
 
@@ -555,6 +556,18 @@ through the same atomic temp-then-rename flow. Duplicate refs in one batch
 meet the same filenames: under `refuse` the second occurrence fails with the
 exists error while the batch continues.
 
+**`--clean-temp DIR`** (with **`--older-than DURATION`**, default `168h`) is a
+maintenance mode: it removes regular files under `DIR` whose mtime is older than the
+window, prunes the subdirectories it emptied, reports on stderr and exits — it never
+downloads, never reads stdin and never creates a directory. `DIR` missing is a
+success; `DIR` being a symlink or junction is refused (exit 1, nothing removed);
+symlinks inside the tree are skipped and their targets are never touched, and a skip
+never fails the run. It cannot be combined with REFs or with any download-only flag
+the user actually passed (`--output`, `--kind`, `--quality`, `--strategy`,
+`--on-exists`, `--filename-template`, `--json`, `--ndjson`), nor with `--older-than`
+alone, nor with an empty `DIR` — all exit 2. stdout stays empty; if any file could
+not be removed the exit code is 1.
+
 Human/text output is one tab-separated row per downloaded file:
 
 ```text
@@ -583,7 +596,8 @@ other refs continue, and the run exits 1 with a
 `download completed with N of M refs failed` summary when at least one ref
 failed; usage problems (unknown `--kind`/`--quality`/`--strategy`/
 `--on-exists`, bad or missing refs, malformed stdin envelopes, `--json` with
-`--ndjson`) exit 2.
+`--ndjson`, and every `--clean-temp` conflict (a REF, any download-only flag
+the user passed, `--older-than` alone, or an empty `DIR`)) exit 2.
 
 ## nitter instances test
 
