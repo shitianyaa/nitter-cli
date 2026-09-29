@@ -222,7 +222,8 @@ downloads, never reads stdin and never creates a directory. DIR missing is a
 success; DIR that is a symlink, junction or regular file is refused. Entries
 inside the tree that are not regular files are skipped and a skip never fails
 the run. It takes no REFs and rejects every download-only flag the user actually
-passed, plus --older-than alone, an empty DIR and a negative --older-than.
+passed, plus --older-than alone, an empty DIR, a root directory and a
+negative --older-than.
 
 --json prints the downloaded files as one JSON document (a single object
 when exactly one file, an array otherwise, [] when none); --ndjson instead
@@ -238,8 +239,8 @@ the other refs continue, and the command exits 1 with a "download completed
 with N of M refs failed" summary when at least one ref failed; usage
 problems (unknown --kind/--quality/--strategy/--on-exists, bad or missing
 refs, malformed stdin envelopes, --json with --ndjson, and every --clean-temp
-conflict — a REF, a download-only flag, --older-than alone, an empty DIR or a
-negative --older-than) exit 2.`,
+conflict — a REF, a download-only flag, --older-than alone, an empty DIR, a
+root directory or a negative --older-than) exit 2.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, s, args, opts)
@@ -756,6 +757,11 @@ func runCleanTemp(cmd *cobra.Command, s *invocation.Streams, args []string, opts
 	dir, err := filepath.Abs(opts.cleanTemp)
 	if err != nil {
 		return fmt.Errorf("resolve clean-temp directory %s: %w", opts.cleanTemp, err)
+	}
+	clean := filepath.Clean(dir)
+	vol := filepath.VolumeName(clean)
+	if clean == "/" || clean == vol+string(filepath.Separator) || (vol != "" && clean == vol) {
+		return invocation.Usagef("download: refusing to clean root directory %s", dir)
 	}
 	stats, err := cleanDirectory(dir, opts.olderThan, time.Now())
 	if err != nil {

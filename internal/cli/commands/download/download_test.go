@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -1152,11 +1153,12 @@ func TestCleanTempUsageErrors(t *testing.T) {
 	tempHome(t)
 	dir := t.TempDir()
 
-	cases := []struct {
+	type testCase struct {
 		name string
 		args []string
 		want string // substring the stderr must contain; empty = no assertion
-	}{
+	}
+	cases := []testCase{
 		{"no value", []string{"download", "--clean-temp"}, "flag needs an argument"},
 		{"with ref", []string{"download", "--clean-temp", dir, "2102761519985332442"}, "does not accept REF"},
 		{"with output", []string{"download", "--clean-temp", dir, "--output", t.TempDir()}, "cannot be combined with --output"},
@@ -1166,10 +1168,17 @@ func TestCleanTempUsageErrors(t *testing.T) {
 		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}, "must not be negative"},
 		{"older-than without clean-temp", []string{"download", "--older-than", "1h", "2102761519985332442"}, "only valid with --clean-temp"},
 		{"empty clean-temp", []string{"download", "--clean-temp", "", "2102761519985332442"}, "requires a non-empty directory"},
+		{"root dir", []string{"download", "--clean-temp", "/"}, "refusing to clean root directory"},
 		{"with kind", []string{"download", "--clean-temp", dir, "--kind", "image"}, "cannot be combined with --kind"},
 		{"with strategy", []string{"download", "--clean-temp", dir, "--strategy", "fx"}, "cannot be combined with --strategy"},
 		{"with on-exists", []string{"download", "--clean-temp", dir, "--on-exists", "skip"}, "cannot be combined with --on-exists"},
 		{"with filename-template", []string{"download", "--clean-temp", dir, "--filename-template", "{id}"}, "cannot be combined with --filename-template"},
+	}
+	if runtime.GOOS == "windows" {
+		cases = append(cases,
+			testCase{"windows drive root", []string{"download", "--clean-temp", `C:\`}, "refusing to clean root directory"},
+			testCase{"windows unc root", []string{"download", "--clean-temp", `\\server\share`}, "refusing to clean root directory"},
+		)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

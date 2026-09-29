@@ -566,7 +566,7 @@ devices) are skipped — no target is ever touched — and a skip never fails th
 It cannot be combined with REFs or with any download-only flag the user actually
 passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`,
 `--filename-template`, `--json`, `--ndjson`), nor with `--older-than` alone, nor
-with an empty `DIR`, and a negative `--older-than` is a usage error — all exit 2.
+with an empty `DIR`, nor with a root directory, and a negative `--older-than` is a usage error — all exit 2.
 stdout stays empty; if any file could not be removed the exit code is 1.
 
 Human/text output is one tab-separated row per downloaded file:
@@ -598,7 +598,7 @@ other refs continue, and the run exits 1 with a
 failed; usage problems (unknown `--kind`/`--quality`/`--strategy`/
 `--on-exists`, bad or missing refs, malformed stdin envelopes, `--json` with
 `--ndjson`, and every `--clean-temp` conflict (a REF, any download-only flag
-the user passed, `--older-than` alone, or an empty `DIR`)) exit 2.
+the user passed, `--older-than` alone, an empty `DIR`, or a root directory)) exit 2.
 
 ## nitter instances test
 

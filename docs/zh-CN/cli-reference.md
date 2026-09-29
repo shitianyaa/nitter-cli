@@ -488,7 +488,7 @@ junction 则拒绝（exit 1，不做任何删除）；子树内非普通文件�
 socket、设备）被跳过 —— 绝不触碰其目标，**跳过永不导致失败**。它不能与 REF 并存，
 也不能与用户实际传入的任何下载专属 flag（`--output`、`--kind`、`--quality`、
 `--strategy`、`--on-exists`、`--filename-template`、`--json`、`--ndjson`）并存；
-`--older-than` 单独使用、`DIR` 为空、或 `--older-than` 取负值，同样报错 —— 全部 exit 2。
+`--older-than` 单独使用、`DIR` 为空、传入根目录、或 `--older-than` 取负值，同样报错 —— 全部 exit 2。
 stdout 保持为空；有任何文件删不掉时退出码为 1。
 
 人类 / text 输出为每个下载文件一行制表符行：
@@ -517,7 +517,7 @@ https://x.com/NASA/status/2102761519985332442	/home/you/nitter-media/21027615199
 failed` 摘要退出 1；用法问题（`--kind`/`--quality`/`--strategy`/
 `--on-exists` 不合法、引用缺失或不合法、stdin
 信封格式错误、`--json` 与 `--ndjson` 同给，以及一切 `--clean-temp` 冲突
-（出现 REF、用户传入任何下载专属 flag、`--older-than` 单独使用、`DIR` 为空））退出 2。
+（出现 REF、用户传入任何下载专属 flag、`--older-than` 单独使用、`DIR` 为空或传入根目录））退出 2。
 
 ## nitter instances test
 

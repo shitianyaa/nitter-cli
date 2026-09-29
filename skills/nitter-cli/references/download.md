@@ -195,7 +195,7 @@ file. Plain ref files work too: `nitter download < refs.txt --ndjson`.
 | --- | --- |
 | 0 | Every ref resolved and every planned file downloaded (skips included); also when the consumer closed the stdout pipe early (EPIPE) |
 | 1 | At least one ref failed (error reports in-stream/stderr, remaining refs continue, `download completed with N of M refs failed` summary on stderr); a filter matching nothing is NOT a failure |
-| 2 | Usage error, no network: unknown flags, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together, and every `--clean-temp` conflict — a REF, any download-only flag the user passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`, `--filename-template`, `--json`, `--ndjson`), `--older-than` alone or negative, or an empty `DIR` |
+| 2 | Usage error, no network: unknown flags, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together, and every `--clean-temp` conflict — a REF, any download-only flag the user passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`, `--filename-template`, `--json`, `--ndjson`), `--older-than` alone or negative, an empty `DIR`, or a root directory |
 
 ## Cleaning a temporary area (`--clean-temp`)
 
@@ -207,7 +207,7 @@ never creates a directory.
 - It takes no REFs, and rejects every download-only flag the user actually passed
   (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`,
   `--filename-template`, `--json`, `--ndjson`), plus `--older-than` without
-  `--clean-temp` and an empty `DIR` — all exit 2.
+  `--clean-temp`, an empty `DIR` and a root directory — all exit 2.
 - `DIR` missing is a success (0 removed). `DIR` being a symlink/junction is refused
   (exit 1) — nothing is removed.
 - Symlinks inside the tree are skipped and reported; their targets are never touched.

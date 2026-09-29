@@ -102,22 +102,47 @@ func TestCleanDirectoryMissingDirIsNoop(t *testing.T) {
 
 func TestCleanDirectoryRejectsFileAndSymlinkRoot(t *testing.T) {
 	root := t.TempDir()
-	file := filepath.Join(root, "afile")
-	writeAged(t, file, "x", baseTime, 200*time.Hour)
-	if _, err := cleanDirectory(file, 168*time.Hour, baseTime); err == nil {
-		t.Error("cleanDirectory(file) = nil error, want an error")
-	}
 
-	target := filepath.Join(root, "target")
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	t.Run("file", func(t *testing.T) {
+		file := filepath.Join(root, "afile")
+		writeAged(t, file, "x", baseTime, 200*time.Hour)
+		if _, err := cleanDirectory(file, 168*time.Hour, baseTime); err == nil {
+			t.Error("cleanDirectory(file) = nil error, want an error")
+		}
+	})
+
+	t.Run("symlink", func(t *testing.T) {
+		target := filepath.Join(root, "target")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		link := filepath.Join(root, "link")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("symlink unavailable on this platform: %v", err)
+		}
+		if _, err := cleanDirectory(link, 168*time.Hour, baseTime); err == nil {
+			t.Error("cleanDirectory(symlink) = nil error, want an error")
+		}
+	})
+}
+
+func TestCleanDirectoryForwardSlashesNormalized(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "temp", "sub")
+	writeAged(t, filepath.Join(sub, "old.jpg"), "x", baseTime, 200*time.Hour)
+
+	// Even if dir is passed with forward slashes (e.g. on Windows), cleaning
+	// must normalize it so bottom-up pruning still recognizes the prefix.
+	dirSlash := filepath.ToSlash(dir)
+	stats, err := cleanDirectory(dirSlash, 168*time.Hour, baseTime)
+	if err != nil {
+		t.Fatalf("cleanDirectory: %v", err)
 	}
-	link := filepath.Join(root, "link")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink unavailable on this platform: %v", err)
+	if stats.Removed != 1 {
+		t.Fatalf("Removed = %d, want 1", stats.Removed)
 	}
-	if _, err := cleanDirectory(link, 168*time.Hour, baseTime); err == nil {
-		t.Error("cleanDirectory(symlink) = nil error, want an error")
+	if _, err := os.Stat(sub); !os.IsNotExist(err) {
+		t.Errorf("emptied subdir was not pruned: %v", err)
 	}
 }
 

@@ -45,6 +45,8 @@ type cleanStats struct {
 func cleanDirectory(dir string, olderThan time.Duration, now time.Time) (cleanStats, error) {
 	var stats cleanStats
 
+	dir = filepath.Clean(dir)
+
 	info, err := os.Lstat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
