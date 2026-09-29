@@ -55,11 +55,11 @@ description: Maintain nitter-cli bilingual changelog entries and run the release
    ```
 
    不要重写已有 tag。
-2. push tag 后由 `release.yml` 自动执行：SemVer 校验 → 双语 changelog 软检查 → 6 平台构建（darwin/linux/windows × amd64/arm64）→ 合并 checksums → 创建草稿 Release。
+2. push tag 后由 `release.yml` 自动执行：SemVer 校验 → 双语 changelog 检查与正文组装（含自动抓取贡献者） → 6 平台构建（darwin/linux/windows × amd64/arm64）→ 合并 checksums → 创建带双语与贡献者说明的草稿 Release。
 3. 用 `nitter-cli-ci` 查看对应 run 与 job；验收至少包括：
 
    - 6 平台压缩包与 `checksums.txt` 属于同一 tag；
-   - 草稿 Release 正文填入 `changelog/vX.Y.Z/` 的双语说明（英文在前、中文在后）后发布；
+   - 草稿 Release 正文已自动包含双语说明与贡献者致谢，核对无误后发布；
    - `nitter --version` 输出新版本号；
    - 工作流中构建的 `go test` 在全部 6 个平台通过。
 

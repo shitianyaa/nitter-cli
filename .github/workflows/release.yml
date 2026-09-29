@@ -80,6 +80,20 @@ jobs:
           done
           exit "$missing"
 
+      - name: Assemble release notes with contributors
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p dist
+          go run ./tools/release assemble-notes --tag "$RELEASE_TAG" --output "dist/release-notes.md"
+
+      - name: Upload assembled release notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-notes
+          path: dist/release-notes.md
+
   build:
     name: Build ${{ matrix.target }}
     needs: validate
@@ -183,8 +197,12 @@ jobs:
           # GH_REPO gives it the owner/name context directly.
           GH_REPO: ${{ github.repository }}
         run: |
+          notes_arg="--generate-notes"
+          if [ -s "dist/release-notes.md" ]; then
+            notes_arg="--notes-file dist/release-notes.md"
+          fi
           gh release create "${RELEASE_TAG}" \
             --draft \
             --title "nitter-cli ${RELEASE_TAG}" \
-            --generate-notes \
+            ${notes_arg} \
             dist/nitter-* dist/checksums.txt

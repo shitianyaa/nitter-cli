@@ -26,11 +26,13 @@ type sourceTrust struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal(errors.New("expected verify-source"))
+		fatal(errors.New("expected verify-source or assemble-notes"))
 	}
 	switch os.Args[1] {
 	case "verify-source":
 		verifySourceCommand(os.Args[2:])
+	case "assemble-notes":
+		assembleNotesCommand(os.Args[2:])
 	default:
 		fatal(fmt.Errorf("unknown command %q", os.Args[1]))
 	}
