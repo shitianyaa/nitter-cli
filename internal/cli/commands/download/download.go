@@ -275,6 +275,13 @@ func run(cmd *cobra.Command, s *invocation.Streams, args []string, opts *options
 	if cmd.Flags().Changed("older-than") {
 		return invocation.Usagef("download: --older-than is only valid with --clean-temp")
 	}
+	// The maintenance branch above keys off a non-empty value, so an explicitly
+	// empty --clean-temp ("" — an unset shell variable, say) would fall through
+	// to the download path and silently do something else entirely. The flag
+	// was passed, so it must be honoured or rejected — never reinterpreted.
+	if cmd.Flags().Changed("clean-temp") {
+		return invocation.Usagef("download: --clean-temp requires a non-empty directory")
+	}
 	// Flag conflicts are input-contract problems: resolve before anything
 	// else runs so --json --ndjson exits 2 up front.
 	mode, err := pipeline.ResolveOutputMode(opts.asNDJSON, opts.asJSON, s.OutIsTTY)

@@ -1155,20 +1155,26 @@ func TestCleanTempUsageErrors(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
+		want string // substring the stderr must contain; empty = no assertion
 	}{
-		{"no value", []string{"download", "--clean-temp"}},
-		{"with ref", []string{"download", "--clean-temp", dir, "2102761519985332442"}},
-		{"with output", []string{"download", "--clean-temp", dir, "--output", t.TempDir()}},
-		{"with json", []string{"download", "--clean-temp", dir, "--json"}},
-		{"with ndjson", []string{"download", "--clean-temp", dir, "--ndjson"}},
-		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}},
-		{"older-than without clean-temp", []string{"download", "--older-than", "1h", "2102761519985332442"}},
+		{"no value", []string{"download", "--clean-temp"}, "flag needs an argument"},
+		{"with ref", []string{"download", "--clean-temp", dir, "2102761519985332442"}, "does not accept REF"},
+		{"with output", []string{"download", "--clean-temp", dir, "--output", t.TempDir()}, "cannot be combined with --output"},
+		{"with json", []string{"download", "--clean-temp", dir, "--json"}, "cannot be combined with --json"},
+		{"with ndjson", []string{"download", "--clean-temp", dir, "--ndjson"}, "cannot be combined with --ndjson"},
+		{"quality at default", []string{"download", "--clean-temp", dir, "--quality", "high"}, "cannot be combined with --quality"},
+		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}, "must not be negative"},
+		{"older-than without clean-temp", []string{"download", "--older-than", "1h", "2102761519985332442"}, "only valid with --clean-temp"},
+		{"empty clean-temp", []string{"download", "--clean-temp", "", "2102761519985332442"}, "requires a non-empty directory"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			code, _, stderr := runCLI(t, tc.args...)
 			if code != 2 {
 				t.Fatalf("exit = %d, want 2 (stderr=%q)", code, stderr)
+			}
+			if tc.want != "" && !strings.Contains(stderr, tc.want) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr, tc.want)
 			}
 		})
 	}
