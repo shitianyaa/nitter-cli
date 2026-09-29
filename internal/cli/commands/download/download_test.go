@@ -1166,6 +1166,10 @@ func TestCleanTempUsageErrors(t *testing.T) {
 		{"negative older-than", []string{"download", "--clean-temp", dir, "--older-than", "-1h"}, "must not be negative"},
 		{"older-than without clean-temp", []string{"download", "--older-than", "1h", "2102761519985332442"}, "only valid with --clean-temp"},
 		{"empty clean-temp", []string{"download", "--clean-temp", "", "2102761519985332442"}, "requires a non-empty directory"},
+		{"with kind", []string{"download", "--clean-temp", dir, "--kind", "image"}, "cannot be combined with --kind"},
+		{"with strategy", []string{"download", "--clean-temp", dir, "--strategy", "fx"}, "cannot be combined with --strategy"},
+		{"with on-exists", []string{"download", "--clean-temp", dir, "--on-exists", "skip"}, "cannot be combined with --on-exists"},
+		{"with filename-template", []string{"download", "--clean-temp", dir, "--filename-template", "{id}"}, "cannot be combined with --filename-template"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1223,5 +1227,53 @@ func TestCleanTempMissingDirIsSuccess(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "removed 0 files") {
 		t.Errorf("stderr = %q, want a zero-removal report", stderr)
+	}
+}
+
+func TestCleanTempRefusedRootExitsOne(t *testing.T) {
+	tempHome(t)
+	dir := t.TempDir()
+	// A regular file as DIR is refused. A Windows junction lands on the same
+	// refusal branch ("not a directory"), so this covers the exit-1 contract
+	// without needing symlink privileges.
+	file := filepath.Join(dir, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	code, stdout, stderr := runCLI(t, "download", "--clean-temp", file)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr=%q)", code, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if stderr == "" {
+		t.Error("stderr is empty; a refused root must be visible")
+	}
+}
+
+func TestCleanTempSkipsDoNotFailTheRun(t *testing.T) {
+	tempHome(t)
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.jpg")
+	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "link.jpg")); err != nil {
+		t.Skipf("symlink unavailable on this platform: %v", err)
+	}
+
+	code, stdout, stderr := runCLI(t, "download", "--clean-temp", dir)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — a skip must never fail the run (stderr=%q)", code, stderr)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "left 1 non-regular entries untouched") {
+		t.Errorf("stderr = %q, want the skip report", stderr)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("the symlink target was touched: %v", err)
 	}
 }
