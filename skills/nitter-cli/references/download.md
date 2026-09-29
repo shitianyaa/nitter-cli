@@ -195,7 +195,7 @@ file. Plain ref files work too: `nitter download < refs.txt --ndjson`.
 | --- | --- |
 | 0 | Every ref resolved and every planned file downloaded (skips included); also when the consumer closed the stdout pipe early (EPIPE) |
 | 1 | At least one ref failed (error reports in-stream/stderr, remaining refs continue, `download completed with N of M refs failed` summary on stderr); a filter matching nothing is NOT a failure |
-| 2 | Usage error, no network: unknown `--kind`/`--quality`/`--strategy`/`--on-exists`, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together |
+| 2 | Usage error, no network: unknown flags, bad or missing refs, malformed stdin envelopes, `--json --ndjson` together, and every `--clean-temp` conflict — a REF, any download-only flag the user passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`, `--filename-template`, `--json`, `--ndjson`), `--older-than` alone or negative, or an empty `DIR` |
 
 ## Cleaning a temporary area (`--clean-temp`)
 
