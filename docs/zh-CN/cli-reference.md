@@ -484,10 +484,11 @@ Content-Type 在下载时决定，并追加在**最终渲染名**之后，与无
 **`--clean-temp DIR`**（配合 **`--older-than DURATION`**，默认 `168h`）是维护模式：
 删除 `DIR` 下 mtime 早于该窗口的普通文件，剪掉因此变空的子目录，在 stderr 报告后退出
 —— 它不下载、不读 stdin、不创建目录。`DIR` 不存在视为成功；`DIR` 自身是符号链接或
-junction 则拒绝（exit 1，不做任何删除）；子树内的符号链接被跳过且不触碰其目标，**跳过
-永不导致失败**。它不能与 REF 并存，也不能与用户实际传入的任何下载专属 flag
-（`--output`、`--kind`、`--quality`、`--strategy`、`--on-exists`、`--filename-template`、
-`--json`、`--ndjson`）并存；`--older-than` 单独使用、或 `DIR` 为空，同样报错 —— 全部 exit 2。
+junction 则拒绝（exit 1，不做任何删除）；子树内非普通文件的条目（符号链接、junction、
+socket、设备）被跳过 —— 绝不触碰其目标，**跳过永不导致失败**。它不能与 REF 并存，
+也不能与用户实际传入的任何下载专属 flag（`--output`、`--kind`、`--quality`、
+`--strategy`、`--on-exists`、`--filename-template`、`--json`、`--ndjson`）并存；
+`--older-than` 单独使用、`DIR` 为空、或 `--older-than` 取负值，同样报错 —— 全部 exit 2。
 stdout 保持为空；有任何文件删不掉时退出码为 1。
 
 人类 / text 输出为每个下载文件一行制表符行：

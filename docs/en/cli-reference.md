@@ -561,12 +561,13 @@ maintenance mode: it removes regular files under `DIR` whose mtime is older than
 window, prunes the subdirectories it emptied, reports on stderr and exits — it never
 downloads, never reads stdin and never creates a directory. `DIR` missing is a
 success; `DIR` being a symlink or junction is refused (exit 1, nothing removed);
-symlinks inside the tree are skipped and their targets are never touched, and a skip
-never fails the run. It cannot be combined with REFs or with any download-only flag
-the user actually passed (`--output`, `--kind`, `--quality`, `--strategy`,
-`--on-exists`, `--filename-template`, `--json`, `--ndjson`), nor with `--older-than`
-alone, nor with an empty `DIR` — all exit 2. stdout stays empty; if any file could
-not be removed the exit code is 1.
+entries inside the tree that are not regular files (symlinks, junctions, sockets,
+devices) are skipped — no target is ever touched — and a skip never fails the run.
+It cannot be combined with REFs or with any download-only flag the user actually
+passed (`--output`, `--kind`, `--quality`, `--strategy`, `--on-exists`,
+`--filename-template`, `--json`, `--ndjson`), nor with `--older-than` alone, nor
+with an empty `DIR`, and a negative `--older-than` is a usage error — all exit 2.
+stdout stays empty; if any file could not be removed the exit code is 1.
 
 Human/text output is one tab-separated row per downloaded file:
 
