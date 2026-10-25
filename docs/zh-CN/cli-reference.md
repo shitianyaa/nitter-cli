@@ -333,7 +333,8 @@ nitter get <REF> [--json|--ndjson]
 抓取单条推文。默认 `fetch_backend=mix` 下优先走 FxTwitter 快道，遇故障或未命中时平滑降级至 Nitter 实例；`fx` 模式下快道是唯一允许的来源，错误按原样上报，不再有降级掩盖真因。
 `REF` 是纯数字 status ID，或推文 URL——`x.com`、`twitter.com` 或
 任意 Nitter 实例，形状为 `<user>/status/<id>`；user 段可省略（Nitter 直接提供
-`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。位置参数 `REF`
+`/status/<id>` 路由），`/photo/N` 与 `/video/1` 后缀同样接受。`/pic/` 媒体链接
+与图片/视频直链不是 `REF`。位置参数 `REF`
 始终优先；仅在未提供位置参数且 stdin 非 TTY 时，才从 stdin 读一行作为引用。
 给出位置参数时绝不读取 stdin，因此 `nitter get <REF>` 不会卡在写端保持打开的管道上。
 没有分页 flag。被引用推文（quote）存在时以 `quote` 字段摘要呈现（`--json`/

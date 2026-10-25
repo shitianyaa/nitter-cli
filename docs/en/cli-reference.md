@@ -367,7 +367,8 @@ Fetches one single status. In `mix` (default) the FxTwitter fast lane is tried f
 `REF` is a bare numeric status ID, or a status URL —
 `x.com`, `twitter.com` or any Nitter instance, shape `<user>/status/<id>`; the
 user segment is optional (Nitter serves `/status/<id>` directly) and `/photo/N`
-and `/video/1` suffixes are accepted. A positional `REF` always wins; only
+and `/video/1` suffixes are accepted. A `/pic/` media link or a direct image
+or video URL is not a `REF`. A positional `REF` always wins; only
 with no argument AND a non-TTY stdin is the reference read from one stdin
 line. A positional `REF` never reads stdin, so `nitter get <REF>` cannot
 block on a pipe whose writer stays open. There are no pagination flags. The
