@@ -35,6 +35,7 @@ successful output; **stderr is never JSON**.
 | `appapi.ParseStatusRef: invalid_argument: not a status reference ...` | 2 | Unparseable `get` ref | Use a bare numeric ID or a `<user>/status/<id>` URL (`/photo/N`, `/video/1` suffixes allowed) |
 | `config set: unknown key "..."` (+ array-table hint) | 2 | Not a scalar key | The thirteen scalar keys only; `[[instances]]`/`[[watch.sources]]` are hand-edited TOML (creator circles live in `circles.toml`) |
 | `config set <key>: "..." is not an integer / not a duration / is invalid` | 2 | Value failed schema validation | Follow the documented shapes: `default_limit`/`max_pages` are integers >= 1 (caps — `0` is not "unlimited"), `retry_attempts` is >= 0, `request_interval`/`retry_delay`/`instance_cooldown` are durations >= 0 (`500ms`, `2s`), `log_level` is debug\|info, `log_format` is text\|json |
+| `stage config: ...` (permission denied) — with or without a wrapping prefix (e.g. `write config:`, `write profiles:`) | 1 | The config **directory** is not writable (read-only mount or permissions); the failed write may be `config set`/`config unset`, a creator-circle or profiles write, or first-run baseline seeding. Reading an existing config still works | Ask the user to make the directory printed by `nitter config path` writable (or point HOME at a writable location); do not retry the same write or drop the setting silently |
 | `watch: invalid config [[watch.sources]] entry ...` | 2 | Malformed source id in config | Fix the entry to `user:<handle>`, `tag:<query>` (raw query), or `list:<id>` |
 | `unsupported .../seen.json schema version N (want 1); refusing to reset state` or a parse error on state | 1 | Corrupt or foreign state file | Hard error by design (never a silent reset). With user consent, move the file away or start from a fresh `--state-dir`; report it as a bug if it corrupted on its own |
 | `error: unknown command "..." for "nitter"` | 1 | Typo'd subcommand | Check `nitter --help`; note this exits 1, not 2 |
@@ -53,7 +54,12 @@ successful output; **stderr is never JSON**.
 
 1. Exit code (0/1/2) — then look at stderr (human text) or the `kind:"error"`
    envelopes on the NDJSON stream (watch per-source failures land on stdout).
-2. For fetch problems: `nitter instances test [--full]` and read the cells.
+2. For fetch problems, use the classified error first. Probe with
+   `nitter instances test [--full]` only when instance health remains unclear;
+   HTTP 429 is rate limiting, not evidence of bad configuration. Avoid immediate
+   retries, repeated searches/probes, or replacing the instance to evade limits.
+   With user authorization, raise `request_interval` or reduce polling frequency
+   as described in the error table.
 3. For watch problems: `nitter seen list --state-dir <dir>` (or the default
    location without the flag) and references/watch.md's exit-code matrix.
 4. For anything state-changing (clear, set, unset, download --clean-temp):

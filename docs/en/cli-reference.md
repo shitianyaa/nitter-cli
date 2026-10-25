@@ -725,7 +725,10 @@ own network-layer access control instead.
 - On a fresh install the first real command (anything except `--help`/`-h`,
   `--version`, the `help` subcommand, and `config set`/`config unset`) publishes
   a self-documenting baseline config; `config set`/`config unset` seed it after
-  validation. Nothing is ever overwritten.
+  validation. Baseline initialization never overwrites an existing path or
+  creates staging files when it exists, so `config path/get` work with an
+  existing readable config in a read-only directory. A missing config still
+  requires a writable directory; initialization errors are reported.
 
 Exit codes: success 0; bad key/value/arity 2. A config file that cannot be read
 or parsed (invalid TOML) fails with exit 1; a value failing schema validation

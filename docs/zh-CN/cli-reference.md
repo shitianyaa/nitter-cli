@@ -627,8 +627,9 @@ id = "user:NASA"                      # user:<handle> | tag:<query> | list:<id>
   中的注释不保证在 `config set`/`config unset` 后保留。**
 - 全新安装时，第一条真实命令（`--help`/`-h`、`--version`、`help` 子命令以及
   `config set`/`config unset` 之外的任何命令）会发布一份自带注释的基线配置；
-  `config set`/`config unset` 在校验通过后自行播种。任何操作都不会覆盖已有
-  配置。
+  `config set`/`config unset` 在校验通过后自行播种。基线初始化不覆盖已有路径，
+  路径存在时也不创建临时文件，因此已有配置可读时，`config path/get` 可用于
+  只读目录。配置缺失时仍需目录可写，初始化失败会明确报告。
 
 退出码：成功 0；键/值/参数个数不合法 2。配置文件无法读取或解析（非法 TOML）
 以退出码 1 失败；值未通过 schema 校验（如非法时长）是用法错误，退出 2。

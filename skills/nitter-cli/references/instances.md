@@ -10,7 +10,13 @@ their health. Command semantics are governed by the installed binary's
   on Windows, under the user profile). The file is created automatically on the
   first real command, pre-filled with commented examples.
 - Instances are `[[instances]]` array tables, hand-edited — `config set` refuses
-  them:
+  them. Do not try `config set instances` or `config get instances`. After the
+  user explicitly authorizes instance maintenance, locate the file with
+  `config path`, read only what the edit requires without printing credentials,
+  and preserve unrelated settings. Other clients' instance settings do not
+  configure this CLI, even when they share the same Nitter server.
+
+  Example:
 
   ```toml
   [[instances]]
@@ -92,6 +98,7 @@ failure. Judge health from the report cells, not the exit code.
 
 - Adding/editing `[[instances]]` is a config-file change: confirm with the
   user, never fill in a public instance, and never echo credentials back.
-- Run `instances test` before bulk work (watch setup, backfills) and report the
-  table; a probe round costs one request per cell per instance (`--full` and
-  `--list-id` each add one).
+- Probe for setup or a specific health decision, not before every fetch or
+  download. Reuse recent evidence when it answers the same question; a probe
+  round costs one request per cell per instance (`--full` and `--list-id` each
+  add one). Report health without exposing credentials or private URLs.

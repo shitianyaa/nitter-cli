@@ -46,17 +46,27 @@ safety boundaries, and semantics traps.
   [references/deploy.md](references/deploy.md) on an explicit yes. In either
   case **never fill in a public instance** (nitter.net and friends) on your
   own.
+- The CLI and other Nitter clients have separate configuration even when they
+  share a server. `config get/set/unset` manage scalar keys only: never use
+  `config set instances`. For authorized instance maintenance, follow
+  [references/instances.md](references/instances.md).
+- To download media from a known tweet, pass its status URL or numeric ID to
+  `nitter download`; `/pic/` links and direct image/video URLs are not valid
+  inputs. No preliminary search or `media` call is needed; see
+  [references/download.md](references/download.md).
 - Check exit codes before interpreting output: 0 = success, 1 = runtime
   failure, 2 = usage error.
 
 ## Hard rules (never violate)
 
-1. Never echo instance credentials (`username`/`password`) from `config.toml`
-   into commentary, logs, or code blocks, and do not read the file to "help
-   debug". Inspect configuration through the CLI instead: `nitter config path`
-   and `nitter config get <key>` (instances are not readable this way — by
-   design; diagnose them with `instances test`, see
-   [references/instances.md](references/instances.md)).
+1. Never echo credentials from `config.toml` into commentary, logs, or code
+   blocks. For routine diagnosis use `nitter config path` and
+   `nitter config get <key>` for the needed non-secret scalar; do not dump the
+   whole config or all effective settings (the proxy may contain credentials).
+   When the user explicitly authorizes instance maintenance, read and edit
+   only the necessary configuration, preserving unrelated settings and keeping
+   credentials out of output. Instances have no `config get/set` interface;
+   follow [references/instances.md](references/instances.md).
 2. State changes (`seen clear`, `config set`, `config unset`, `download --clean-temp`)
    need consent for each individual command; authorization never carries across
    commands. `--clean-temp` deletes files: state the target directory, the

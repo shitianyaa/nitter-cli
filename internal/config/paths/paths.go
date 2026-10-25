@@ -40,12 +40,20 @@ func New() (Paths, error) {
 }
 
 // EnsureDefaultConfigFile publishes the baseline config at cfgPath without
-// ever overwriting: the content is staged in a same-directory temp file
+// ever overwriting. An existing path is left untouched without requiring a
+// writable directory. Otherwise the content is staged in a same-directory temp file
 // (0600, synced, closed) and then atomically published with os.Link, which
 // fails with EEXIST when the target already exists. Concurrent or repeated
 // callers therefore keep the existing winner's complete config; the staging
 // file is always removed.
 func EnsureDefaultConfigFile(cfgPath, defaultTOML string) (err error) {
+	// Lstat also preserves an existing symlink, even if its target is missing.
+	// This is only a fast path; os.Link below still arbitrates concurrent creators.
+	if _, err := os.Lstat(cfgPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect config: %w", err)
+	}
 	directory := filepath.Dir(cfgPath)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create app dir: %w", err)

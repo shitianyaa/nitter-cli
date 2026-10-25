@@ -7,10 +7,16 @@
 
 ## 变更
 
+- 澄清操作 Skill 中的实例维护授权、配置命令仅支持标量键，以及媒体下载需传入
+  推文引用的限制。([#23](https://github.com/shitianyaa/nitter-cli/pull/23))
+
 ## 弃用
 
 ## 移除
 
 ## 修复
+
+- 读取只读目录中的已有配置时不再创建配置临时文件；首次初始化仍以原子方式
+  创建配置，且不覆盖已有配置。([#23](https://github.com/shitianyaa/nitter-cli/pull/23))
 
 ## 安全

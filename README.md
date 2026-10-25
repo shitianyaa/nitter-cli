@@ -253,6 +253,9 @@ prompt above wires into your agent's skills directory.
 
 ## Configuration
 
+An existing config can be read from a read-only directory; commands that write
+configuration, state, or media still need their respective destinations writable.
+
 `~/.nitter-cli/config.toml` (TOML, mode 0600), created with commented examples
 on the first real command; on Windows the directory lives under your user
 profile (`nitter config path` prints the exact location). Precedence: CLI flag >

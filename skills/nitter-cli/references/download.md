@@ -31,6 +31,10 @@ are governed by the installed binary's `nitter download --help`.
   status ID, or a status URL — `x.com`, `twitter.com` or any Nitter instance,
   shape `/<user>/status/<id>`; `/photo/N` and `/video/1` suffixes are
   accepted.
+- `/pic/` links and direct image/video URLs are not REFs. Use the originating
+  tweet's status URL or ID; do not pass a resolved media URL back to `download`.
+  When that status reference is already known, call `download` directly without
+  an extra search or `media` resolution step.
 - Multiple REFs run as one batch. Positional REFs always win: only with no
   positional REF and a non-TTY stdin is the input read from stdin, and the
   first non-whitespace byte decides the mode: `{` starts strict envelope mode

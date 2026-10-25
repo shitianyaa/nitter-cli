@@ -229,6 +229,8 @@ prompt 会把它装到你 agent 的 skills 目录。
 
 ## 配置
 
+已有配置可从只读目录读取；写入配置、状态或媒体的命令仍需各自的目标位置可写。
+
 `~/.nitter-cli/config.toml`（TOML，权限 0600），首次真实命令时生成并附带注释
 示例；Windows 上该目录位于你的用户目录下（`nitter config path` 会打印确切位置）。
 优先级：CLI flag > 环境变量 > 文件 > 内置默认。
